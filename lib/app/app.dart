@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:interapp/features/home/presentation/pages/home_page.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:interapp/core/router/app_router.dart';
 
-class InterApp extends StatelessWidget {
+class InterApp extends ConsumerWidget {
   const InterApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
+  Widget build(BuildContext context, WidgetRef ref) {
+    return MaterialApp.router(
       title: 'InterBridge',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
@@ -16,7 +17,7 @@ class InterApp extends StatelessWidget {
         appBarTheme: const AppBarTheme(backgroundColor: Color(0xFF1246A8), foregroundColor: Colors.white),
         navigationBarTheme: const NavigationBarThemeData(backgroundColor: Color(0xFFE8F0FF), indicatorColor: Color(0xFFB8D1FF)),
       ),
-      home: const HomePage(),
+      routerConfig: ref.watch(appRouterProvider),
     );
   }
 }

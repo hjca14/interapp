@@ -1,27 +1,25 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:interapp/features/devices/data/repositories/local_devices_repository.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:interapp/features/devices/domain/entities/interbridge_device.dart';
-import 'package:interapp/features/devices/presentation/pages/device_detail_page.dart';
 import 'package:interapp/features/devices/presentation/pages/device_form_page.dart';
 import 'package:interapp/features/devices/presentation/pages/devices_page.dart';
-import 'package:interapp/features/favorites/data/repositories/local_favorites_repository.dart';
-import 'package:interapp/features/profile/data/repositories/local_profile_repository.dart';
+import 'package:interapp/features/devices/presentation/providers/devices_providers.dart';
 import 'package:interapp/features/profile/presentation/pages/registration_page.dart';
 import 'package:interapp/features/settings/presentation/pages/settings_page.dart';
 
-class HomePage extends StatefulWidget {
+class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  ConsumerState<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
-  final _profileRepository = LocalProfileRepository();
-  final _favoritesRepository = LocalFavoritesRepository();
-  final _devicesRepository = LocalDevicesRepository();
+class _HomePageState extends ConsumerState<HomePage> {
+  late final _profileRepository = ref.read(profileRepositoryProvider);
+  late final _devicesRepository = ref.read(devicesRepositoryProvider);
   String? _profileName;
   int _selectedIndex = 0;
   bool _loading = true;
@@ -83,14 +81,11 @@ class _HomePageState extends State<HomePage> {
     setState(() => _profileName = name);
   }
 
-  Future<void> _openDevice(InterBridgeDevice device) async {
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => DeviceDetailPage(
-          device: device,
-          favoritesRepository: _favoritesRepository,
-        ),
-      ),
+  void _openDevice(InterBridgeDevice device) {
+    context.pushNamed(
+      'device-detail',
+      pathParameters: {'deviceId': device.id},
+      extra: device,
     );
   }
 
