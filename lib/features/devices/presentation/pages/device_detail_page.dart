@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:interapp/features/dialer/presentation/controllers/dialer_controller.dart';
 import 'package:interapp/features/dialer/presentation/pages/dialer_page.dart';
+import 'package:interapp/features/devices/domain/entities/device_status.dart';
 import 'package:interapp/features/devices/domain/entities/interbridge_device.dart';
 import 'package:interapp/features/favorites/data/repositories/local_favorites_repository.dart';
 import 'package:interapp/features/favorites/presentation/pages/favorites_page.dart';
@@ -78,7 +79,9 @@ class _DeviceOverview extends StatelessWidget {
   final InterBridgeDevice device;
 
   @override
-  Widget build(BuildContext context) => ListView(
+  Widget build(BuildContext context) {
+    const DeviceStatus? status = null;
+    return ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Card(
@@ -87,15 +90,15 @@ class _DeviceOverview extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Row(
+                  Row(
                     children: [
                       Icon(Icons.circle, color: Colors.grey, size: 12),
                       SizedBox(width: 8),
-                      Text('Aguardando conexão'),
+                      Text(status?.isOnline == true ? 'Online' : 'Aguardando conexão'),
                     ],
                   ),
                   const SizedBox(height: 16),
-                  Text('Firmware: ${device.firmware ?? 'Ainda não identificado'}'),
+                  Text('Firmware: ${status?.firmwareVersion ?? 'Ainda não identificado'}'),
                 ],
               ),
             ),
@@ -112,4 +115,5 @@ class _DeviceOverview extends StatelessWidget {
           ),
         ],
       );
+  }
 }

@@ -2,14 +2,14 @@ class InterBridgeDevice {
   const InterBridgeDevice({
     required this.id,
     required this.name,
-    this.firmware,
+    required this.createdAt,
   });
 
   final String id;
   final String name;
-  final String? firmware;
+  final DateTime createdAt;
 
-  String toStorage() => '$id\t$name\t${firmware ?? ''}';
+  String toStorage() => '$id\t$name\t${createdAt.toIso8601String()}';
 
   static InterBridgeDevice? fromStorage(String value) {
     final values = value.split('\t');
@@ -17,7 +17,7 @@ class InterBridgeDevice {
     return InterBridgeDevice(
       id: values[0],
       name: values[1],
-      firmware: values[2].isEmpty ? null : values[2],
+      createdAt: DateTime.tryParse(values[2]) ?? DateTime.now(),
     );
   }
 }

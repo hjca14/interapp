@@ -22,7 +22,11 @@ class _DeviceFormPageState extends State<DeviceFormPage> {
     final name = _nameController.text.trim();
     if (name.isEmpty) return;
     Navigator.of(context).pop(
-      InterBridgeDevice(id: widget.device?.id ?? DateTime.now().microsecondsSinceEpoch.toString(), name: name, firmware: widget.device?.firmware),
+      InterBridgeDevice(
+        id: widget.device?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
+        name: name,
+        createdAt: widget.device?.createdAt ?? DateTime.now(),
+      ),
     );
   }
 
