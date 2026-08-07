@@ -158,7 +158,7 @@ class _FirmwareStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final firmware = status.valueOrNull?.firmwareVersion;
+    final firmware = _statusValue(status)?.firmwareVersion;
     return Text(
       firmware == null
           ? 'Firmware ainda não identificado'
@@ -173,7 +173,7 @@ class _LastSeenStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final lastSeen = status.valueOrNull?.lastSeen;
+    final lastSeen = _statusValue(status)?.lastSeen;
     if (lastSeen == null) return const SizedBox.shrink();
     final localTime = lastSeen.toLocal();
     final formatted = '${localTime.day.toString().padLeft(2, '0')}/'
@@ -185,4 +185,12 @@ class _LastSeenStatus extends StatelessWidget {
       child: Text('Última conexão: $formatted'),
     );
   }
+}
+
+DeviceStatus? _statusValue(AsyncValue<DeviceStatus> status) {
+  return status.when(
+    data: (value) => value,
+    error: (_, _) => null,
+    loading: () => null,
+  );
 }
