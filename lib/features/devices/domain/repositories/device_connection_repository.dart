@@ -9,7 +9,7 @@ abstract class DeviceConnectionRepository {
 
   Future<void> openDoor(String deviceId);
 
-  Future<void> call(String deviceId);
+  Future<void> dial(String deviceId, String number);
 
   Stream<DeviceStatus> watchStatus(String deviceId);
 }

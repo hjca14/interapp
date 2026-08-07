@@ -3,11 +3,12 @@ import 'package:interapp/features/devices/domain/repositories/device_connection_
 
 /// Temporary implementation used until the InterBridge transport is available.
 ///
-/// It deliberately emits no status and performs no device action. Replace this
-/// class with a Bluetooth, Wi-Fi, MQTT or WebSocket implementation later.
+/// It reports that no device is connected and performs no device action.
+/// Replace this class with a Bluetooth, Wi-Fi, MQTT or WebSocket implementation
+/// later.
 class LocalDeviceConnectionRepository implements DeviceConnectionRepository {
   @override
-  Future<void> call(String deviceId) async {}
+  Future<void> dial(String deviceId, String number) async {}
 
   @override
   Future<void> connect(String deviceId) async {}
@@ -16,5 +17,7 @@ class LocalDeviceConnectionRepository implements DeviceConnectionRepository {
   Future<void> openDoor(String deviceId) async {}
 
   @override
-  Stream<DeviceStatus> watchStatus(String deviceId) => const Stream.empty();
+  Stream<DeviceStatus> watchStatus(String deviceId) {
+    return Stream.value(const DeviceStatus(isOnline: false));
+  }
 }

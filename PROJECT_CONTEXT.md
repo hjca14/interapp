@@ -25,6 +25,23 @@ discador interno.
   dispositivo é encaminhado via `extra`; quando houver backend, a rota deverá
   buscar o dispositivo pelo `deviceId`.
 
+### Identidade e estado do dispositivo
+
+`InterBridgeDevice` guarda somente a identidade cadastrada: `id`, `name` e
+`createdAt`. Telemetria do hardware está separada em `DeviceStatus`, contendo
+conexão, firmware, bateria, Wi-Fi, último contato, chamada recebida e erro.
+Quando a comunicação real existir, o status deverá vir de um repositório/stream
+por dispositivo, sem alterar o cadastro salvo.
+
+### Contrato de comunicação
+
+`DeviceConnectionRepository` define as operações de conexão, abertura de porta,
+discagem e acompanhamento de `DeviceStatus`. `deviceStatusProvider` observa o
+status por `deviceId` e é a única fonte de status da tela de detalhes. A
+implementação local emite um estado offline inicial e não executa ações. No
+futuro ela será substituída por Bluetooth, Wi-Fi, MQTT ou WebSocket sem mudar
+as telas.
+
 ## Estrutura relevante
 
 ```text
