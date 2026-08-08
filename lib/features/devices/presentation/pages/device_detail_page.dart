@@ -6,6 +6,7 @@ import 'package:interapp/features/dialer/presentation/pages/dialer_page.dart';
 import 'package:interapp/features/devices/data/repositories/local_device_connection_repository.dart';
 import 'package:interapp/features/devices/domain/entities/device_status.dart';
 import 'package:interapp/features/devices/domain/entities/interbridge_device.dart';
+import 'package:interapp/features/devices/presentation/pages/device_settings_page.dart';
 import 'package:interapp/features/devices/presentation/providers/device_status_provider.dart';
 import 'package:interapp/features/devices/presentation/providers/devices_providers.dart';
 import 'package:interapp/features/devices/presentation/widgets/incoming_call_listener.dart';
@@ -56,6 +57,14 @@ class _DeviceDetailPageState extends ConsumerState<DeviceDetailPage> {
     }
   }
 
+  void _openSettings() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => DeviceSettingsPage(deviceId: widget.device.id, deviceName: widget.device.name),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _dialerController.dispose();
@@ -86,6 +95,11 @@ class _DeviceDetailPageState extends ConsumerState<DeviceDetailPage> {
                 icon: const Icon(Icons.phone_callback_outlined),
                 onPressed: _simulateIncomingCall,
               ),
+            IconButton(
+              tooltip: 'Configurações',
+              icon: const Icon(Icons.settings_outlined),
+              onPressed: _openSettings,
+            ),
           ],
         ),
         body: SafeArea(child: pages[_selectedIndex]),

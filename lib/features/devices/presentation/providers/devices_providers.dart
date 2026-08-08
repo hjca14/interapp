@@ -1,9 +1,11 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:interapp/features/devices/data/repositories/local_device_connection_repository.dart';
+import 'package:interapp/features/devices/data/repositories/local_device_settings_repository.dart';
 import 'package:interapp/features/devices/data/repositories/local_devices_repository.dart';
 import 'package:interapp/features/devices/data/services/incoming_call_notification_service.dart';
 import 'package:interapp/features/devices/domain/repositories/device_connection_repository.dart';
+import 'package:interapp/features/devices/domain/repositories/device_settings_repository.dart';
 import 'package:interapp/features/favorites/data/repositories/local_favorites_repository.dart';
 import 'package:interapp/features/profile/data/repositories/local_profile_repository.dart';
 
@@ -25,6 +27,13 @@ final deviceConnectionRepositoryProvider = Provider<DeviceConnectionRepository>(
 
 final favoritesRepositoryProvider = Provider<LocalFavoritesRepository>(
   (_) => LocalFavoritesRepository(),
+);
+
+/// Same seam as [deviceConnectionRepositoryProvider]: typed as the abstract
+/// contract so a future remote implementation can replace
+/// [LocalDeviceSettingsRepository] without touching `DeviceSettingsPage`.
+final deviceSettingsRepositoryProvider = Provider<DeviceSettingsRepository>(
+  (_) => LocalDeviceSettingsRepository(),
 );
 
 final profileRepositoryProvider = Provider<LocalProfileRepository>(

@@ -179,6 +179,14 @@ Quando existir comunicação real, o status deverá ser atualizado por uma fonte
 
 ---
 
+## DeviceSettings
+
+Existe uma terceira camada, além de identidade (`InterBridgeDevice`) e estado (`DeviceStatus`): as **preferências configuradas pelo usuário** para aquele dispositivo — `DeviceSettings`.
+
+Diferente do status, `DeviceSettings` não vem do hardware: é escrito pelo usuário na tela de configurações e persistido por `deviceId`, com a mesma lógica de repository/provider usada no resto do projeto. Ver seção 25 para o modelo completo, a tela e o que falta implementar.
+
+---
+
 # 6. Contrato de comunicação com o hardware
 
 A comunicação entre o aplicativo e o InterBridge é abstraída através de:
@@ -770,6 +778,7 @@ Antes de alterar a arquitetura:
 * [x] Provider de status do dispositivo
 * [x] Implementação local de conexão/status
 * [x] Reação local a chamada recebida (notificação + tela de chamada, sem hardware real — ver seção 19)
+* [x] `DeviceSettings` por dispositivo: modelo, persistência local, provider e tela de configurações (ver seção 25)
 
 ## Fase 2 — Primeiro hardware
 
@@ -781,6 +790,8 @@ Antes de alterar a arquitetura:
 * [ ] Comunicação básica
 * [ ] Ler status real
 * [ ] Emitir `hasIncomingCall` de verdade a partir do hardware
+* [ ] Detectar `NetworkPresence` real (rede local vs. remota) para `DeviceSettings.calls`
+* [ ] Fazer `IncomingCallListener`/`IncomingCallNotificationService` respeitarem `DeviceSettings` (modo de alerta por presença, horário silencioso) em vez de sempre tocar
 * [ ] Comando de abertura de porta
 * [ ] Primeiro teste do fluxo completo
 
@@ -803,6 +814,7 @@ Antes de alterar a arquitetura:
 * [ ] Permissões
 * [ ] Realtime
 * [ ] Push notifications
+* [ ] `UserDeviceSettings` (preferências por usuário, além de `DeviceSettings` por dispositivo — ver seção 25)
 
 ## Fase 5 — Produto
 
@@ -812,6 +824,7 @@ Antes de alterar a arquitetura:
 * [ ] Diagnóstico
 * [ ] Logs
 * [ ] Recuperação de falhas
+* [ ] Autenticação biométrica para abertura de porta (`DeviceSettings.requireDeviceAuthenticationToOpenDoor`)
 * [ ] Segurança de produção
 * [ ] Preparação para publicação nas lojas
 * [ ] Infraestrutura de produção
@@ -819,7 +832,73 @@ Antes de alterar a arquitetura:
 
 ---
 
-# 25. Princípio central do projeto
+# 25. DeviceSettings — configurações por InterBridge
+
+Cada InterBridge tem suas próprias configurações de comportamento, independentes das de outros dispositivos cadastrados.
+
+## Visão geral
+
+Hoje `DeviceSettings` guarda só preferências locais do app — nada aqui comunica com hardware real. A persistência é local (`shared_preferences`), seguindo o mesmo padrão de repository já usado no resto do projeto, para que uma futura migração para backend não exija reescrever a tela.
+
+## Modelo de domínio
+
+Em `features/devices/domain/entities/device_settings.dart`:
+
+* `DeviceSettings` — a raiz: `calls` (`DeviceCallSettings`), `quietHours` (`QuietHoursSettings`), `confirmBeforeOpeningDoor` (bool), `requireDeviceAuthenticationToOpenDoor` (bool).
+* `NetworkPresence` — enum `{localNetwork, remoteNetwork}`. Não assume que "conectado a algum Wi-Fi" signifique "em casa"; é só o conceito de domínio para presença — a detecção real ainda não existe (Fase 2).
+* `CallAlertMode` — enum `{none, ringOnly, notificationOnly, ringAndNotification}`, com getters `includesRing`/`includesNotification` e o construtor `CallAlertMode.from(ring:, notification:)`. Substitui os três booleans soltos que uma modelagem ingênua de "receber ligação/notificação/chamada fora da rede" teria.
+* `DeviceCallSettings` — um `CallAlertMode` por zona de rede (`localNetworkAlertMode`, `remoteNetworkAlertMode`). `remoteNetworkAlertMode == none` já expressa "não receber chamadas fora da rede local", sem precisar de um bool redundante.
+* `QuietHoursSettings` — `enabled`, `start`/`end` (`ClockTime`), `weekdays` (`Set<int>`, 1 = segunda ... 7 = domingo, igual a `DateTime.monday`..`DateTime.sunday`), `behavior` (`QuietHoursBehavior`).
+* `QuietHoursBehavior` — enum `{blockAll, silentNotificationOnly}`.
+* `ClockTime` — par hora/minuto próprio, deliberadamente independente de `TimeOfDay`/Flutter, para manter a camada de domínio livre de framework (mesmo padrão das outras entidades de `devices/domain`). A tela converte para/de `TimeOfDay` ao abrir o seletor de horário.
+
+Todas essas classes têm `copyWith` (edições imutáveis a partir da UI) e `toMap`/`fromMap`. Diferente de `InterBridgeDevice`/`Favorite` (string tab-separated), `DeviceSettings` serializa como `Map` → JSON, porque tem estrutura aninhada, enums e um `Set` — um formato tab-separated ficaria ilegível e frágil para esse formato.
+
+## Persistência
+
+`DeviceSettingsRepository` (contrato) + `LocalDeviceSettingsRepository` (`features/devices/data/repositories/`), seguindo o mesmo padrão de `DeviceConnectionRepository`/`LocalDeviceConnectionRepository`: a UI depende só da abstração.
+
+Persistido em `shared_preferences` sob a chave `device_settings_<deviceId>`, isolado por dispositivo (mesmo padrão de `favorites_<deviceId>`). Se não houver nada salvo, ou o valor salvo estiver corrompido, `get()` devolve `DeviceSettings()` (valores padrão) em vez de lançar erro.
+
+## Provider
+
+Em `features/devices/presentation/providers/device_settings_provider.dart`:
+
+* `deviceSettingsRepositoryProvider` (em `devices_providers.dart`) expõe o repository, tipado pelo contrato abstrato.
+* `DeviceSettingsController` — `AsyncNotifier<DeviceSettings>` com family por `deviceId`. `build()` carrega do repository; `updateSettings(updater)` aplica a alteração, atualiza o `state` na hora (a UI responde sem esperar o disco) e persiste; `reset()` volta para `DeviceSettings()` padrão.
+* `deviceSettingsProvider` — `AsyncNotifierProvider.family<DeviceSettingsController, DeviceSettings, String>`, consumido pela tela como `AsyncValue` via `.when(...)`, igual ao `deviceStatusProvider`.
+
+A tela nunca acessa `LocalDeviceSettingsRepository`/`shared_preferences` diretamente.
+
+## Tela
+
+`features/devices/presentation/pages/device_settings_page.dart`, aberta pelo ícone de engrenagem no app bar de `DeviceDetailPage`.
+
+Seções (cada uma um `Card`):
+
+* **Chamadas** — dois `SwitchListTile` ("Receber ligação"/"Receber notificação") que editam `calls.localNetworkAlertMode` via `CallAlertMode.from`.
+* **Silencioso** — liga/desliga, horário (`showTimePicker`, convertido de/para `ClockTime`), dias da semana (`FilterChip`s), comportamento (`SegmentedButton` com as duas opções de `QuietHoursBehavior`). Os controles de horário/dias/comportamento só aparecem quando o modo silencioso está ligado.
+* **Presença** — mostra o modo local (somente leitura, editado na seção Chamadas) e um `DropdownButton` para escolher o `CallAlertMode` da rede remota.
+* **Porta** — dois `SwitchListTile` independentes (confirmar abertura / exigir autenticação do aparelho). A autenticação biométrica em si **não está implementada** — o campo só reserva o comportamento.
+* **Dispositivo** — Wi-Fi / Firmware / Diagnóstico / Reiniciar: itens de lista que mostram um snackbar "disponível quando o InterBridge estiver conectado" ao toque (mesmo padrão do botão verde do discador). Não fazem nada de verdade ainda.
+* **Avançado** — "Redefinir configurações": única ação realmente funcional dessa seção; volta as configurações locais desse dispositivo para o padrão (com confirmação). Não reseta nenhum hardware, porque não existe hardware conectado ainda.
+
+## O que ainda não está implementado
+
+* Detecção real de `NetworkPresence` (saber se o celular está na rede do InterBridge) — depende do hardware/protocolo (Fase 2).
+* `DeviceSettings.calls`/`quietHours` ainda não são **consumidos** por `IncomingCallListener`/`IncomingCallNotificationService` — hoje eles só ficam salvos; a lógica de checar as configurações antes de tocar/notificar ainda precisa ser plugada na feature de chamada recebida (seção 19).
+* Autenticação biométrica/Face ID para abrir a porta.
+* Registro da ação de abertura no histórico de eventos (seção 19).
+* Wi-Fi, firmware, diagnóstico e reinicialização reais do dispositivo.
+* `UserDeviceSettings` (ver abaixo).
+
+## Separação futura: DeviceSettings vs. UserDeviceSettings
+
+`DeviceSettings` é **do dispositivo**, compartilhado por todos que têm acesso a ele (ver seção 14, Compartilhamento). Quando o compartilhamento existir de verdade, algumas preferências deixarão de fazer sentido como globais — por exemplo, uma pessoa silenciar o próprio celular sem silenciar para todo mundo que usa o mesmo InterBridge. Essas preferências devem virar uma futura entidade `UserDeviceSettings`, ligada a `(userId, deviceId)`, sem se misturar com `DeviceSettings`. Não implementar `UserDeviceSettings` antes de existir autenticação/usuários (Fase 4).
+
+---
+
+# 26. Princípio central do projeto
 
 O InterApp deve ser tratado como **a interface digital de um dispositivo físico**, e não como um aplicativo isolado.
 
