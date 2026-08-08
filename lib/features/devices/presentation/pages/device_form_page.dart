@@ -43,7 +43,7 @@ class _DeviceFormPageState extends State<DeviceFormPage> {
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              const Icon(Icons.router_outlined, size: 72),
+              const Icon(Icons.speaker_phone, size: 72),
               const SizedBox(height: 24),
               Text(widget.device == null ? 'Nomeie seu InterBridge' : 'Altere o nome do dispositivo', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 12),

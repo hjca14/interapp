@@ -31,7 +31,7 @@ class DevicesPage extends StatelessWidget {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.router_outlined, size: 64),
+                      const Icon(Icons.speaker_phone, size: 64),
                       const SizedBox(height: 16),
                       Text(
                         'Nenhum InterBridge adicionado',

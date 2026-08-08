@@ -61,7 +61,7 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
             label: 'Resumo',
           ),
           NavigationDestination(
-            icon: Icon(Icons.dialpad_outlined),
+            icon: Icon(Icons.speaker_phone),
             selectedIcon: Icon(Icons.dialpad),
             label: 'Discar',
           ),
