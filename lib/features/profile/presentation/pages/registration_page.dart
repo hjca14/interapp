@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:interapp/features/profile/data/repositories/local_profile_repository.dart';
 
+/// Asks for the user's display name — shown once on first launch (no
+/// [initialName]) and reused for "editar perfil" from Ajustes (with
+/// [initialName] pre-filled). Pops with the saved name so the caller can
+/// update its own state without re-reading storage.
 class RegistrationPage extends StatefulWidget {
   const RegistrationPage({super.key, this.initialName});
   final String? initialName;
@@ -12,6 +16,9 @@ class RegistrationPage extends StatefulWidget {
 class _RegistrationPageState extends State<RegistrationPage> {
   final _repository = LocalProfileRepository();
   late final TextEditingController _nameController;
+
+  /// Disables the button and swaps its label while the (usually instant)
+  /// `shared_preferences` write is in flight.
   bool _saving = false;
 
   @override
@@ -20,6 +27,10 @@ class _RegistrationPageState extends State<RegistrationPage> {
     _nameController = TextEditingController(text: widget.initialName);
   }
 
+  /// Trims and validates the name, persists it, then pops with the saved
+  /// value. No-ops silently on an empty name (the button just stays put)
+  /// rather than showing a validation error, since this is a single required
+  /// field.
   Future<void> _save() async {
     final name = _nameController.text.trim();
     if (name.isEmpty) return;

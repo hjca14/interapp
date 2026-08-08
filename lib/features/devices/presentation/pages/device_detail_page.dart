@@ -12,6 +12,12 @@ import 'package:interapp/features/devices/presentation/widgets/incoming_call_lis
 import 'package:interapp/features/favorites/data/repositories/local_favorites_repository.dart';
 import 'package:interapp/features/favorites/presentation/pages/favorites_page.dart';
 
+/// The screen for one device: Resumo / Discar / Favoritos tabs, plus the
+/// incoming-call reaction wired around all three (see [IncomingCallListener]).
+///
+/// A [ConsumerStatefulWidget] rather than a plain [StatefulWidget] so its
+/// state can `ref.read` providers directly (used by the debug "simulate
+/// call" button below).
 class DeviceDetailPage extends ConsumerStatefulWidget {
   const DeviceDetailPage({
     super.key,
@@ -27,14 +33,22 @@ class DeviceDetailPage extends ConsumerStatefulWidget {
 }
 
 class _DeviceDetailPageState extends ConsumerState<DeviceDetailPage> {
+  /// Shared with [DialerPage] so a favorite tapped from the Favoritos tab can
+  /// fill the number here without the tabs needing to talk to each other
+  /// directly.
   final _dialerController = DialerController();
   int _selectedIndex = 0;
 
+  /// Called by [FavoritesPage] when a favorite is tapped: fills the number
+  /// and jumps to the Discar tab (index 1).
   void _dialFavorite(String number) {
     _dialerController.setNumber(number);
     setState(() => _selectedIndex = 1);
   }
 
+  /// Debug-only action behind the [kDebugMode] button in the app bar. Only
+  /// does anything when the active repository is the local/prototype one —
+  /// a real transport wouldn't understand `simulateIncomingCall`.
   void _simulateIncomingCall() {
     final repository = ref.read(deviceConnectionRepositoryProvider);
     if (repository is LocalDeviceConnectionRepository) {
@@ -101,6 +115,9 @@ class _DeviceDetailPageState extends ConsumerState<DeviceDetailPage> {
   }
 }
 
+/// The "Resumo" tab: connection status, firmware, last-seen time, and a
+/// placeholder for recent events. Reads live status from
+/// [deviceStatusProvider] rather than holding its own [DeviceStatus].
 class _DeviceOverview extends ConsumerWidget {
   const _DeviceOverview({required this.device});
   final InterBridgeDevice device;
@@ -142,6 +159,9 @@ class _DeviceOverview extends ConsumerWidget {
   }
 }
 
+/// The green/grey dot + "Online"/"Aguardando conexão" line at the top of the
+/// overview card. Falls back to [_OfflineStatus] on both `loading` and
+/// `error` — the UI never guesses "online" while unsure.
 class _StatusHeader extends StatelessWidget {
   const _StatusHeader({required this.status});
   final AsyncValue<DeviceStatus> status;
@@ -164,6 +184,8 @@ class _StatusHeader extends StatelessWidget {
       );
 }
 
+/// Static "not connected" row, reused for the loading, error and genuinely
+/// offline cases so they all look identical to the user.
 class _OfflineStatus extends StatelessWidget {
   const _OfflineStatus();
 
@@ -177,6 +199,8 @@ class _OfflineStatus extends StatelessWidget {
       );
 }
 
+/// Shows the firmware version once known, or an honest "not identified yet"
+/// placeholder instead of a made-up version string.
 class _FirmwareStatus extends StatelessWidget {
   const _FirmwareStatus({required this.status});
   final AsyncValue<DeviceStatus> status;
@@ -192,6 +216,9 @@ class _FirmwareStatus extends StatelessWidget {
   }
 }
 
+/// Shows "Última conexão: dd/mm hh:mm" when [DeviceStatus.lastSeen] is
+/// known, or collapses to nothing (`SizedBox.shrink`) when it isn't — no row
+/// is better than a fake timestamp.
 class _LastSeenStatus extends StatelessWidget {
   const _LastSeenStatus({required this.status});
   final AsyncValue<DeviceStatus> status;
@@ -212,6 +239,9 @@ class _LastSeenStatus extends StatelessWidget {
   }
 }
 
+/// Unwraps an `AsyncValue<DeviceStatus>` to its data, or `null` on loading/
+/// error — a small helper so [_FirmwareStatus] and [_LastSeenStatus] don't
+/// each repeat the same `.when(...)` boilerplate.
 DeviceStatus? _statusValue(AsyncValue<DeviceStatus> status) {
   return status.when(
     data: (value) => value,

@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:interapp/features/devices/domain/entities/interbridge_device.dart';
 
+/// Add/edit form for a device's name.
+///
+/// [device] is `null` when adding a new one and non-null when editing an
+/// existing device's name. Pushed with `Navigator.push<InterBridgeDevice>`
+/// from `HomePage`, which pops with the built/edited [InterBridgeDevice] (or
+/// nothing if cancelled) and persists it.
 class DeviceFormPage extends StatefulWidget {
   const DeviceFormPage({super.key, this.device});
   final InterBridgeDevice? device;
@@ -18,6 +24,11 @@ class _DeviceFormPageState extends State<DeviceFormPage> {
     _nameController = TextEditingController(text: widget.device?.name);
   }
 
+  /// Builds the [InterBridgeDevice] and pops it back to the caller.
+  ///
+  /// On first creation, the microsecond timestamp doubles as a good-enough
+  /// unique id for this local-only prototype; when editing, the original
+  /// `id`/`createdAt` are kept so only the name changes.
   void _save() {
     final name = _nameController.text.trim();
     if (name.isEmpty) return;

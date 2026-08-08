@@ -4,7 +4,12 @@ import 'package:interapp/features/devices/presentation/providers/devices_provide
 
 /// Exposes the live status for one InterBridge device.
 ///
-/// The transport remains hidden behind [DeviceConnectionRepository], allowing
+/// `.family<DeviceStatus, String>` means: one independent provider instance
+/// per `deviceId` (the `String`), each wrapping a `Stream<DeviceStatus>` in
+/// an `AsyncValue` — so widgets get loading/error/data states for free via
+/// `ref.watch(deviceStatusProvider(deviceId)).when(...)`.
+///
+/// The transport remains hidden behind `DeviceConnectionRepository`, allowing
 /// the implementation to change without modifying presentation widgets.
 final deviceStatusProvider = StreamProvider.family<DeviceStatus, String>(
   (ref, deviceId) {

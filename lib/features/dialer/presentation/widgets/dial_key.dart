@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
 
+/// One key of the dialer keypad: a big digit (or `*`/`#`) with the small
+/// letter row underneath (e.g. "2" / "ABC"), like a classic phone keypad.
 class DialKey extends StatelessWidget {
   const DialKey({super.key, required this.value, required this.letters, required this.onTap});
+
+  /// The digit/symbol shown large and appended to the number on tap.
   final String value;
+
+  /// The small letter hint under [value] (empty for `1`, `*`, `#`).
   final String letters;
   final VoidCallback onTap;
 

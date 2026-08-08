@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+/// The "Ajustes" tab: profile entry (opens `RegistrationPage` again for
+/// editing via [onEditProfile]) and a static app-info row. Everything else
+/// that will eventually live here (device management, notifications, etc.)
+/// isn't built yet — keep it that way rather than adding placeholder rows.
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key, required this.profileName, required this.onEditProfile});
   final String? profileName;

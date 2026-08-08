@@ -1,6 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:interapp/features/devices/domain/entities/interbridge_device.dart';
 
+/// Lists the user's registered InterBridges, or an empty-state prompt if
+/// there are none.
+///
+/// Purely presentational — it owns no state and knows nothing about
+/// persistence. The list and every action ([onAdd], [onEdit], [onDelete],
+/// [onOpen]) are handed in by `HomePage`, which is the one that talks to
+/// `LocalDevicesRepository`.
 class DevicesPage extends StatelessWidget {
   const DevicesPage({
     super.key,

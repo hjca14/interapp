@@ -9,8 +9,12 @@ import 'package:interapp/features/devices/domain/repositories/device_connection_
 /// Replace this class with a Bluetooth, Wi-Fi, MQTT or WebSocket implementation
 /// later.
 class LocalDeviceConnectionRepository implements DeviceConnectionRepository {
+  /// One broadcast controller per device, so [simulateIncomingCall] on one
+  /// device never leaks a status update into another device's stream.
   final _controllers = <String, StreamController<DeviceStatus>>{};
 
+  /// Returns the existing controller for [deviceId], creating one on first
+  /// use.
   StreamController<DeviceStatus> _controllerFor(String deviceId) {
     return _controllers.putIfAbsent(
       deviceId,
@@ -29,7 +33,11 @@ class LocalDeviceConnectionRepository implements DeviceConnectionRepository {
 
   @override
   Stream<DeviceStatus> watchStatus(String deviceId) async* {
+    // Always start from "not connected" — never invent an online/firmware
+    // state just because a screen needs something to show.
     yield const DeviceStatus(isOnline: false);
+    // Then forward whatever this device's controller emits later, which
+    // today is only [simulateIncomingCall] pulses.
     yield* _controllerFor(deviceId).stream;
   }
 

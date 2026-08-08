@@ -1,6 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:interapp/features/favorites/domain/entities/favorite.dart';
 
+/// Add/edit dialog for a favorite. `null` [favorite] means adding a new one.
+///
+/// Pops with the built [Favorite], or nothing if cancelled — the caller
+/// (`FavoritesPage`) is the one that persists it.
+///
+/// Owns its own [TextEditingController]s built from [favorite] in
+/// [initState], instead of receiving controllers from the parent — this
+/// avoids lifecycle bugs where a controller tied to the parent's state gets
+/// reused or disposed at the wrong time as this dialog opens and closes.
 class FavoriteFormDialog extends StatefulWidget {
   const FavoriteFormDialog({super.key, this.favorite});
   final Favorite? favorite;
@@ -20,6 +29,8 @@ class _FavoriteFormDialogState extends State<FavoriteFormDialog> {
     _numberController = TextEditingController(text: widget.favorite?.number);
   }
 
+  /// Validates both fields are non-empty and pops the dialog with the
+  /// resulting [Favorite]; does nothing (dialog stays open) otherwise.
   void _save() {
     final name = _nameController.text.trim();
     final number = _numberController.text.trim();

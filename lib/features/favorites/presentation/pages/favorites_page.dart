@@ -5,9 +5,16 @@ import 'package:interapp/features/favorites/data/repositories/local_favorites_re
 import 'package:interapp/features/favorites/domain/entities/favorite.dart';
 import 'package:interapp/features/favorites/presentation/widgets/favorite_form_dialog.dart';
 
+/// The "Favoritos" tab: favorite numbers for one device, loaded/saved
+/// through [repository]. Tapping a favorite calls [onDialFavorite], which
+/// `DeviceDetailPage` uses to fill the number and switch to the Discar tab.
 class FavoritesPage extends StatefulWidget {
   const FavoritesPage({super.key, required this.repository, required this.deviceId, required this.onDialFavorite});
   final LocalFavoritesRepository repository;
+
+  /// `null` means no device is selected yet — shows a prompt instead of a
+  /// list. `DeviceDetailPage` always passes a real id, so this mainly guards
+  /// against reuse in a context without one.
   final String? deviceId;
   final ValueChanged<String> onDialFavorite;
 
@@ -25,6 +32,8 @@ class _FavoritesPageState extends State<FavoritesPage> {
     unawaited(_loadFavorites());
   }
 
+  /// Reloads if this widget instance gets reused for a different device
+  /// (its `deviceId` changed) instead of being recreated from scratch.
   @override
   void didUpdateWidget(covariant FavoritesPage oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -49,6 +58,11 @@ class _FavoritesPageState extends State<FavoritesPage> {
 
   Future<void> _save() => widget.repository.saveAll(widget.deviceId!, _favorites);
 
+  /// Opens [FavoriteFormDialog] to add (when [favorite] is `null`) or edit an
+  /// existing one, applies the result optimistically to `_favorites`, then
+  /// persists — reverting the optimistic update isn't done on save failure,
+  /// only a snackbar is shown, since `shared_preferences` writes essentially
+  /// never fail in practice.
   Future<void> _editFavorite({Favorite? favorite}) async {
     if (widget.deviceId == null) return;
     final result = await showDialog<Favorite>(

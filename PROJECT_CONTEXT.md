@@ -747,6 +747,7 @@ Antes de alterar a arquitetura:
 8. Não assumir Bluetooth, Wi-Fi, MQTT ou outra tecnologia sem decisão explícita do projeto.
 9. Não adicionar Supabase ou backend apenas por conveniência enquanto a funcionalidade puder permanecer local.
 10. Executar `flutter analyze` e `flutter test` após mudanças relevantes.
+11. Documentar código novo/alterado com comentários `///` (dartdoc) no momento em que ele é escrito — classes, métodos e campos não óbvios explicando o *porquê*, não só repetindo o nome. Não deixar para depois: acumular código sem documentação obriga uma varredura gigante mais tarde (já aconteceu — ver `git log`) em vez de manter o hábito a cada mudança.
 
 ---
 

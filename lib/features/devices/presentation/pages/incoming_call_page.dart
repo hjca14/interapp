@@ -29,6 +29,8 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
   void initState() {
     super.initState();
     _ring();
+    // Repeats every 2s for as long as this page is on screen, simulating a
+    // ringing phone without needing a bundled audio asset.
     _ringTimer = Timer.periodic(const Duration(seconds: 2), (_) => _ring());
   }
 
@@ -43,6 +45,9 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
     super.dispose();
   }
 
+  /// Runs for both Atender and Recusar today — there's no real call to
+  /// accept/decline yet, so both just stop the ringing and close the page.
+  /// [IncomingCallListener] is the one that gets notified via [onDismiss].
   void _dismiss() {
     widget.onDismiss();
     Navigator.of(context).pop();
@@ -51,6 +56,8 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
   @override
   Widget build(BuildContext context) {
     return PopScope(
+      // Block the system back gesture/button — the ringing state should
+      // only be dismissed through Atender/Recusar, like a real call screen.
       canPop: false,
       child: Scaffold(
         backgroundColor: const Color(0xFF1246A8),
@@ -105,6 +112,8 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
   }
 }
 
+/// One round action button + label, e.g. the red "Recusar" or green
+/// "Atender" button.
 class _CallAction extends StatelessWidget {
   const _CallAction({
     required this.icon,

@@ -30,10 +30,16 @@ class IncomingCallListener extends ConsumerStatefulWidget {
 }
 
 class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
+  /// Tracks whether [IncomingCallPage] is currently pushed, so a second
+  /// status update while it's already open doesn't push it twice, and so
+  /// [_handleCallEnded] knows whether there's anything to pop.
   bool _callPageOpen = false;
 
   @override
   Widget build(BuildContext context) {
+    // `ref.listen` (not `ref.watch`) because this widget doesn't want to
+    // rebuild on every status change — it only wants to run side effects
+    // (navigate, notify) at the moment `hasIncomingCall` flips.
     ref.listen<AsyncValue<DeviceStatus>>(
       deviceStatusProvider(widget.deviceId),
       (previous, next) {
@@ -49,6 +55,8 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
     return widget.child;
   }
 
+  /// `hasIncomingCall` just turned `true`: notify (works even if the app is
+  /// backgrounded) and, if the ringing page isn't already showing, push it.
   void _handleIncomingCall() {
     ref
         .read(incomingCallNotificationServiceProvider)
@@ -64,9 +72,15 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
             ),
           ),
         )
+        // Runs when the route is popped by any means (this callback or the
+        // page's own Atender/Recusar buttons), keeping the flag in sync.
         .then((_) => _callPageOpen = false);
   }
 
+  /// Passed to [IncomingCallPage] as `onDismiss`: the user tapped
+  /// Atender/Recusar. The page pops itself, so this only clears local state
+  /// and cancels the notification — it must NOT also call `Navigator.pop`,
+  /// or the page would be popped twice.
   void _dismissedByUser() {
     _callPageOpen = false;
     ref
@@ -74,6 +88,10 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
         .cancelIncomingCall(widget.deviceId);
   }
 
+  /// `hasIncomingCall` just turned `false` from the device side (e.g. the
+  /// debug simulation timed out, or a real caller hung up) rather than from
+  /// the user dismissing the page. Cancels the notification and, if the
+  /// ringing page is still open, closes it automatically.
   void _handleCallEnded() {
     ref
         .read(incomingCallNotificationServiceProvider)
