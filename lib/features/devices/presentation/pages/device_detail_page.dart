@@ -1,14 +1,18 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:interapp/features/dialer/presentation/controllers/dialer_controller.dart';
 import 'package:interapp/features/dialer/presentation/pages/dialer_page.dart';
+import 'package:interapp/features/devices/data/repositories/local_device_connection_repository.dart';
 import 'package:interapp/features/devices/domain/entities/device_status.dart';
 import 'package:interapp/features/devices/domain/entities/interbridge_device.dart';
 import 'package:interapp/features/devices/presentation/providers/device_status_provider.dart';
+import 'package:interapp/features/devices/presentation/providers/devices_providers.dart';
+import 'package:interapp/features/devices/presentation/widgets/incoming_call_listener.dart';
 import 'package:interapp/features/favorites/data/repositories/local_favorites_repository.dart';
 import 'package:interapp/features/favorites/presentation/pages/favorites_page.dart';
 
-class DeviceDetailPage extends StatefulWidget {
+class DeviceDetailPage extends ConsumerStatefulWidget {
   const DeviceDetailPage({
     super.key,
     required this.device,
@@ -19,16 +23,23 @@ class DeviceDetailPage extends StatefulWidget {
   final LocalFavoritesRepository favoritesRepository;
 
   @override
-  State<DeviceDetailPage> createState() => _DeviceDetailPageState();
+  ConsumerState<DeviceDetailPage> createState() => _DeviceDetailPageState();
 }
 
-class _DeviceDetailPageState extends State<DeviceDetailPage> {
+class _DeviceDetailPageState extends ConsumerState<DeviceDetailPage> {
   final _dialerController = DialerController();
   int _selectedIndex = 0;
 
   void _dialFavorite(String number) {
     _dialerController.setNumber(number);
     setState(() => _selectedIndex = 1);
+  }
+
+  void _simulateIncomingCall() {
+    final repository = ref.read(deviceConnectionRepositoryProvider);
+    if (repository is LocalDeviceConnectionRepository) {
+      repository.simulateIncomingCall(widget.device.id);
+    }
   }
 
   @override
@@ -48,29 +59,43 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
         onDialFavorite: _dialFavorite,
       ),
     ];
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.device.name)),
-      body: SafeArea(child: pages[_selectedIndex]),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) => setState(() => _selectedIndex = index),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.info_outline),
-            selectedIcon: Icon(Icons.info),
-            label: 'Resumo',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.speaker_phone),
-            selectedIcon: Icon(Icons.dialpad),
-            label: 'Discar',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.star_outline),
-            selectedIcon: Icon(Icons.star),
-            label: 'Favoritos',
-          ),
-        ],
+    return IncomingCallListener(
+      deviceId: widget.device.id,
+      deviceName: widget.device.name,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(widget.device.name),
+          actions: [
+            if (kDebugMode)
+              IconButton(
+                tooltip: 'Simular chamada (debug)',
+                icon: const Icon(Icons.phone_callback_outlined),
+                onPressed: _simulateIncomingCall,
+              ),
+          ],
+        ),
+        body: SafeArea(child: pages[_selectedIndex]),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _selectedIndex,
+          onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.info_outline),
+              selectedIcon: Icon(Icons.info),
+              label: 'Resumo',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.speaker_phone),
+              selectedIcon: Icon(Icons.dialpad),
+              label: 'Discar',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.star_outline),
+              selectedIcon: Icon(Icons.star),
+              label: 'Favoritos',
+            ),
+          ],
+        ),
       ),
     );
   }

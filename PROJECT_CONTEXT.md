@@ -108,6 +108,7 @@ A arquitetura deve permitir trocar a implementação de comunicação sem precis
 * A comunicação real com o hardware ainda será implementada.
 * Backend/cloud ainda não está implementado.
 * Supabase Cloud é o candidato inicial para a futura camada de backend.
+* O app já reage localmente a uma chamada recebida (`DeviceStatus.hasIncomingCall`): notificação do sistema + tela de chamada em tela cheia. Ver seção 19. Isso só funciona com o processo do app vivo; com o app fechado, ainda depende de push/backend (Fase 4).
 
 O projeto deve permanecer funcional mesmo sem um InterBridge físico conectado.
 
@@ -261,7 +262,7 @@ Framework principal do aplicativo.
 
 Gerenciamento de estado e injeção de dependências.
 
-`ProviderScope` é criado em `main.dart`.
+`main.dart` cria um `ProviderContainer`, inicializa o `IncomingCallNotificationService` (assíncrono) e sobe o app com `UncontrolledProviderScope` — em vez do `ProviderScope` simples — para permitir esse setup antes do primeiro frame.
 
 Repositórios locais são expostos através de:
 
@@ -317,7 +318,8 @@ lib/
 │   │
 │   ├── devices/
 │   │   ├── data/
-│   │   │   └── repositories/
+│   │   │   ├── repositories/
+│   │   │   └── services/
 │   │   ├── domain/
 │   │   │   ├── entities/
 │   │   │   └── repositories/
@@ -622,6 +624,31 @@ Nenhum evento recebido
 
 é preferível a mostrar eventos fictícios.
 
+## Chamada recebida (incoming call)
+
+O evento **chamada recebida** já tem um caminho de reação implementado no app, preparado para quando o hardware existir de verdade:
+
+* `DeviceStatus.hasIncomingCall` é o sinal de "o interfone está tocando" (já fazia parte da entidade).
+* `IncomingCallListener` (`features/devices/presentation/widgets/`) observa `deviceStatusProvider(deviceId)` e reage à transição desse campo.
+* Quando `hasIncomingCall` vira `true`:
+  * uma notificação do sistema é disparada por `IncomingCallNotificationService` (`features/devices/data/services/`, usa o pacote `flutter_local_notifications`);
+  * uma tela cheia de chamada (`IncomingCallPage`) abre, com som/vibração em loop e botões Atender/Recusar.
+* No Android isso exige `POST_NOTIFICATIONS` no `AndroidManifest.xml` e core library desugaring habilitado em `android/app/build.gradle.kts` (`isCoreLibraryDesugaringEnabled = true` + dependência `coreLibraryDesugaring`) — ambos já configurados.
+
+### Limitações atuais (por design, não são bugs)
+
+* Atender e Recusar apenas dispensam a tela; não existe canal de áudio real ainda (isso é Fase 3).
+* O listener só reage enquanto a `DeviceDetailPage` daquele dispositivo está montada — ainda não há um watcher global cobrindo todas as telas do app (exigiria um provider reativo de "todos os dispositivos", que não existe hoje).
+* Com o app totalmente fechado (killed), não há como acordar o app sem push remoto de um backend. Isso é Fase 4 e não está implementado; a notificação local só funciona com o processo do app vivo (primeiro ou segundo plano).
+* `LocalDeviceConnectionRepository.simulateIncomingCall(deviceId)` é um hook **debug-only** (fora do contrato `DeviceConnectionRepository`) para testar esse fluxo sem hardware — pulsa `hasIncomingCall` por 20s. Só é exposto na UI em `kDebugMode`, via botão no app bar de `DeviceDetailPage`. Não reutilizar esse padrão para simular outros dados fictícios fora de depuração.
+
+### Falta fazer
+
+* [ ] Watcher global de chamada recebida, independente da tela do dispositivo estar aberta.
+* [ ] Emitir `hasIncomingCall` de verdade a partir do hardware (Fase 2).
+* [ ] Ligar Atender/Recusar a um canal de áudio real (Fase 3).
+* [ ] Push notification (FCM/APNs) para acordar o app fechado (Fase 4) — reaproveitar `IncomingCallNotificationService` para renderizar a notificação quando o payload remoto chegar.
+
 ---
 
 # 20. Firmware / OTA
@@ -741,6 +768,7 @@ Antes de alterar a arquitetura:
 * [x] Contrato `DeviceConnectionRepository`
 * [x] Provider de status do dispositivo
 * [x] Implementação local de conexão/status
+* [x] Reação local a chamada recebida (notificação + tela de chamada, sem hardware real — ver seção 19)
 
 ## Fase 2 — Primeiro hardware
 
@@ -751,6 +779,7 @@ Antes de alterar a arquitetura:
 * [ ] Descoberta/conexão local
 * [ ] Comunicação básica
 * [ ] Ler status real
+* [ ] Emitir `hasIncomingCall` de verdade a partir do hardware
 * [ ] Comando de abertura de porta
 * [ ] Primeiro teste do fluxo completo
 
