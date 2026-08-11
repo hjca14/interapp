@@ -47,29 +47,32 @@ class _FavoriteFormDialogState extends State<FavoriteFormDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: Text(widget.favorite == null ? 'Novo favorito' : 'Editar favorito'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: _nameController,
-                autofocus: true,
-                textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(labelText: 'Nome'),
-              ),
-              TextField(
-                controller: _numberController,
-                keyboardType: TextInputType.phone,
-                onSubmitted: (_) => _save(),
-                decoration: const InputDecoration(labelText: 'Telefone ou ramal'),
-              ),
-            ],
+    title: Text(widget.favorite == null ? 'Novo favorito' : 'Editar favorito'),
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _nameController,
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(labelText: 'Nome'),
           ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancelar')),
-          FilledButton(onPressed: _save, child: const Text('Salvar')),
+          TextField(
+            controller: _numberController,
+            keyboardType: TextInputType.phone,
+            onSubmitted: (_) => _save(),
+            decoration: const InputDecoration(labelText: 'Telefone ou ramal'),
+          ),
         ],
-      );
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancelar'),
+      ),
+      FilledButton(onPressed: _save, child: const Text('Salvar')),
+    ],
+  );
 }

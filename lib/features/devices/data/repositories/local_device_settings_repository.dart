@@ -32,6 +32,9 @@ class LocalDeviceSettingsRepository implements DeviceSettingsRepository {
   @override
   Future<void> save(String deviceId, DeviceSettings settings) async {
     final preferences = await SharedPreferences.getInstance();
-    await preferences.setString('$_keyPrefix$deviceId', jsonEncode(settings.toMap()));
+    await preferences.setString(
+      '$_keyPrefix$deviceId',
+      jsonEncode(settings.toMap()),
+    );
   }
 }

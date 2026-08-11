@@ -20,11 +20,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/',
     routes: [
-      GoRoute(
-        path: '/',
-        name: 'home',
-        builder: (_, _) => const HomePage(),
-      ),
+      GoRoute(path: '/', name: 'home', builder: (_, _) => const HomePage()),
       GoRoute(
         path: '/devices/:deviceId',
         name: 'device-detail',

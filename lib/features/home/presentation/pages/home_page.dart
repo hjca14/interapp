@@ -7,6 +7,7 @@ import 'package:interapp/features/devices/domain/entities/interbridge_device.dar
 import 'package:interapp/features/devices/presentation/pages/device_form_page.dart';
 import 'package:interapp/features/devices/presentation/pages/devices_page.dart';
 import 'package:interapp/features/devices/presentation/providers/devices_providers.dart';
+import 'package:interapp/features/pairing/presentation/pages/pairing_page.dart';
 import 'package:interapp/features/profile/presentation/pages/registration_page.dart';
 import 'package:interapp/features/settings/presentation/pages/settings_page.dart';
 
@@ -60,10 +61,16 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// applies the result to the in-memory list, persists it, and marks it as
   /// the last-selected device.
   Future<void> _openDeviceForm({InterBridgeDevice? device}) async {
-    final result = await Navigator.of(context).push<InterBridgeDevice>(MaterialPageRoute(builder: (_) => DeviceFormPage(device: device)));
+    final result = await Navigator.of(context).push<InterBridgeDevice>(
+      MaterialPageRoute(builder: (_) => DeviceFormPage(device: device)),
+    );
     if (result == null) return;
     setState(() {
-      if (device == null) { _devices.add(result); } else { _devices[_devices.indexOf(device)] = result; }
+      if (device == null) {
+        _devices.add(result);
+      } else {
+        _devices[_devices.indexOf(device)] = result;
+      }
     });
     await _saveDevices();
     await _devicesRepository.setSelectedId(result.id);
@@ -73,7 +80,23 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// persists. Note this only forgets the device on this installation — it
   /// doesn't (and can't yet) unpair or factory-reset the physical hardware.
   Future<void> _deleteDevice(InterBridgeDevice device) async {
-    final confirmed = await showDialog<bool>(context: context, builder: (context) => AlertDialog(title: const Text('Remover dispositivo?'), content: Text('Isso remove “${device.name}” desta instalação.'), actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')), FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Remover'))]));
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remover dispositivo?'),
+        content: Text('Isso remove “${device.name}” desta instalação.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Remover'),
+          ),
+        ],
+      ),
+    );
     if (confirmed != true) return;
     setState(() {
       _devices.remove(device);
@@ -113,6 +136,14 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
+  /// Entry point for onboarding a new physical InterBridge. See
+  /// `PairingPage`'s doc comment for what's actually implemented today.
+  void _openPairing() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const PairingPage()));
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -128,17 +159,37 @@ class _HomePageState extends ConsumerState<HomePage> {
     }
 
     final pages = [
-      DevicesPage(devices: _devices, onAdd: _openDeviceForm, onEdit: (device) => _openDeviceForm(device: device), onDelete: _deleteDevice, onOpen: _openDevice),
+      DevicesPage(
+        devices: _devices,
+        onAdd: _openDeviceForm,
+        onEdit: (device) => _openDeviceForm(device: device),
+        onDelete: _deleteDevice,
+        onOpen: _openDevice,
+      ),
       SettingsPage(profileName: _profileName, onEditProfile: _openRegistration),
     ];
     return Scaffold(
-      appBar: AppBar(title: const Text('InterBridge')),
+      appBar: AppBar(
+        title: const Text('InterBridge'),
+        actions: [
+          IconButton(
+            tooltip: 'Parear novo InterBridge',
+            icon: const Icon(Icons.bluetooth_searching),
+            onPressed: _openPairing,
+          ),
+        ],
+      ),
       body: SafeArea(child: pages[_selectedIndex]),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+        onDestinationSelected: (index) =>
+            setState(() => _selectedIndex = index),
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.devices_other_outlined), selectedIcon: Icon(Icons.devices_other), label: 'Dispositivos'),
+          NavigationDestination(
+            icon: Icon(Icons.devices_other_outlined),
+            selectedIcon: Icon(Icons.devices_other),
+            label: 'Dispositivos',
+          ),
           NavigationDestination(
             icon: Icon(Icons.settings_outlined),
             selectedIcon: Icon(Icons.settings),

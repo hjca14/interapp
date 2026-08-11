@@ -11,9 +11,10 @@ import 'package:interapp/features/devices/presentation/providers/devices_provide
 ///
 /// The transport remains hidden behind `DeviceConnectionRepository`, allowing
 /// the implementation to change without modifying presentation widgets.
-final deviceStatusProvider = StreamProvider.family<DeviceStatus, String>(
-  (ref, deviceId) {
-    final repository = ref.watch(deviceConnectionRepositoryProvider);
-    return repository.watchStatus(deviceId);
-  },
-);
+final deviceStatusProvider = StreamProvider.family<DeviceStatus, String>((
+  ref,
+  deviceId,
+) {
+  final repository = ref.watch(deviceConnectionRepositoryProvider);
+  return repository.watchStatus(deviceId);
+});

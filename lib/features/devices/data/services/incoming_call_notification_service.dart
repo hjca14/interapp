@@ -27,16 +27,25 @@ class IncomingCallNotificationService {
   /// permission to show notifications. Must run once before [showIncomingCall]
   /// — called from `main()` before the app's first frame.
   Future<void> initialize() async {
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
     const iosSettings = DarwinInitializationSettings();
     await _plugin.initialize(
-      settings: const InitializationSettings(android: androidSettings, iOS: iosSettings),
+      settings: const InitializationSettings(
+        android: androidSettings,
+        iOS: iosSettings,
+      ),
     );
     await _plugin
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.requestNotificationsPermission();
     await _plugin
-        .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()
+        .resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin
+        >()
         ?.requestPermissions(alert: true, sound: true);
   }
 

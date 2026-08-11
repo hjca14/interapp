@@ -26,87 +26,90 @@ class DevicesPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: onAdd,
-          icon: const Icon(Icons.add),
-          label: const Text('Adicionar'),
-        ),
-        body: devices.isEmpty
-            ? Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.speaker_phone, size: 64),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Nenhum InterBridge adicionado',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Adicione um dispositivo para começar.',
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 20),
-                      FilledButton.icon(
-                        onPressed: onAdd,
-                        icon: const Icon(Icons.add),
-                        label: const Text('Adicionar dispositivo'),
-                      ),
-                    ],
+    floatingActionButton: FloatingActionButton.extended(
+      onPressed: onAdd,
+      icon: const Icon(Icons.add),
+      label: const Text('Adicionar'),
+    ),
+    body: devices.isEmpty
+        ? Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.speaker_phone, size: 64),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Nenhum InterBridge adicionado',
+                    style: Theme.of(context).textTheme.titleLarge,
                   ),
-                ),
-              )
-            : ListView.separated(
-                padding: const EdgeInsets.all(16),
-                itemCount: devices.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 12),
-                itemBuilder: (context, index) {
-                  final device = devices[index];
-                  return Card(
-                    clipBehavior: Clip.antiAlias,
-                    child: InkWell(
-                      onTap: () => onOpen(device),
-                      child: Padding(
-                        padding: const EdgeInsets.all(18),
-                        child: Row(
-                          children: [
-                            CircleAvatar(
-                              radius: 27,
-                              child: const Icon(Icons.speaker_phone),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    device.name,
-                                    style: Theme.of(context).textTheme.titleMedium,
-                                  ),
-                                  const SizedBox(height: 4),
-                                  const Text('Aguardando conexão'),
-                                ],
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Adicione um dispositivo para começar.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 20),
+                  FilledButton.icon(
+                    onPressed: onAdd,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Adicionar dispositivo'),
+                  ),
+                ],
+              ),
+            ),
+          )
+        : ListView.separated(
+            padding: const EdgeInsets.all(16),
+            itemCount: devices.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 12),
+            itemBuilder: (context, index) {
+              final device = devices[index];
+              return Card(
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: () => onOpen(device),
+                  child: Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 27,
+                          child: const Icon(Icons.speaker_phone),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                device.name,
+                                style: Theme.of(context).textTheme.titleMedium,
                               ),
-                            ),
-                            PopupMenuButton<String>(
-                              onSelected: (action) {
-                                if (action == 'edit') onEdit(device);
-                                if (action == 'delete') onDelete(device);
-                              },
-                              itemBuilder: (_) => const [
-                                PopupMenuItem(value: 'edit', child: Text('Editar')),
-                                PopupMenuItem(value: 'delete', child: Text('Remover')),
-                              ],
+                              const SizedBox(height: 4),
+                              const Text('Aguardando conexão'),
+                            ],
+                          ),
+                        ),
+                        PopupMenuButton<String>(
+                          onSelected: (action) {
+                            if (action == 'edit') onEdit(device);
+                            if (action == 'delete') onDelete(device);
+                          },
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(value: 'edit', child: Text('Editar')),
+                            PopupMenuItem(
+                              value: 'delete',
+                              child: Text('Remover'),
                             ),
                           ],
                         ),
-                      ),
+                      ],
                     ),
-                  );
-                },
-              ),
-      );
+                  ),
+                ),
+              );
+            },
+          ),
+  );
 }

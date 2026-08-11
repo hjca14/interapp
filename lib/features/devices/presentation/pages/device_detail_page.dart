@@ -4,9 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:interapp/features/dialer/presentation/controllers/dialer_controller.dart';
 import 'package:interapp/features/dialer/presentation/pages/dialer_page.dart';
 import 'package:interapp/features/devices/data/repositories/local_device_connection_repository.dart';
+import 'package:interapp/features/devices/domain/entities/device_event.dart';
+import 'package:interapp/features/devices/domain/entities/device_protocol_error.dart';
 import 'package:interapp/features/devices/domain/entities/device_status.dart';
 import 'package:interapp/features/devices/domain/entities/interbridge_device.dart';
 import 'package:interapp/features/devices/presentation/pages/device_settings_page.dart';
+import 'package:interapp/features/devices/presentation/providers/device_command_provider.dart';
+import 'package:interapp/features/devices/presentation/providers/device_events_provider.dart';
 import 'package:interapp/features/devices/presentation/providers/device_status_provider.dart';
 import 'package:interapp/features/devices/presentation/providers/devices_providers.dart';
 import 'package:interapp/features/devices/presentation/widgets/incoming_call_listener.dart';
@@ -60,7 +64,10 @@ class _DeviceDetailPageState extends ConsumerState<DeviceDetailPage> {
   void _openSettings() {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => DeviceSettingsPage(deviceId: widget.device.id, deviceName: widget.device.name),
+        builder: (_) => DeviceSettingsPage(
+          deviceId: widget.device.id,
+          deviceName: widget.device.name,
+        ),
       ),
     );
   }
@@ -105,7 +112,8 @@ class _DeviceDetailPageState extends ConsumerState<DeviceDetailPage> {
         body: SafeArea(child: pages[_selectedIndex]),
         bottomNavigationBar: NavigationBar(
           selectedIndex: _selectedIndex,
-          onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+          onDestinationSelected: (index) =>
+              setState(() => _selectedIndex = index),
           destinations: const [
             NavigationDestination(
               icon: Icon(Icons.info_outline),
@@ -156,19 +164,131 @@ class _DeviceOverview extends ConsumerWidget {
             ),
           ),
         ),
+        const SizedBox(height: 16),
+        _OpenDoorCard(deviceId: device.id),
         const SizedBox(height: 24),
         Text('Eventos recentes', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 8),
-        const Card(
-          child: ListTile(
-            leading: Icon(Icons.history),
-            title: Text('Nenhum evento recebido'),
-            subtitle: Text(
-              'Os eventos aparecerão quando o dispositivo estiver conectado.',
+        _EventsCard(deviceId: device.id),
+      ],
+    );
+  }
+}
+
+/// The "Abrir porta" action, wired to [deviceCommandControllerProvider]'s
+/// `OPEN_DOOR` state machine. Never marks success just because the async
+/// call returned — only `DeviceCommandStatus.completed` does, and a `200`-
+/// equivalent response alone never gets there with today's stub backend.
+class _OpenDoorCard extends ConsumerWidget {
+  const _OpenDoorCard({required this.deviceId});
+  final String deviceId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(deviceCommandControllerProvider(deviceId));
+    final controller = ref.read(
+      deviceCommandControllerProvider(deviceId).notifier,
+    );
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            const Icon(Icons.lock_open_outlined),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Abrir porta'),
+                  const SizedBox(height: 2),
+                  Text(
+                    _openDoorStatusLabel(state),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
             ),
+            FilledButton(
+              onPressed: state.isBusy ? null : controller.openDoor,
+              child: state.isBusy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Abrir'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _openDoorStatusLabel(OpenDoorRequestState state) {
+  switch (state.phase) {
+    case OpenDoorRequestPhase.idle:
+      return 'Toque para abrir a porta do InterBridge.';
+    case OpenDoorRequestPhase.sending:
+      return 'Enviando comando...';
+    case OpenDoorRequestPhase.accepted:
+      return 'Comando aceito, aguardando o InterBridge executar...';
+    case OpenDoorRequestPhase.completed:
+      return 'Porta aberta.';
+    case OpenDoorRequestPhase.failed:
+    case OpenDoorRequestPhase.rejected:
+      return state.error != null
+          ? deviceProtocolErrorMessage(state.error!)
+          : 'Não foi possível abrir a porta.';
+    case OpenDoorRequestPhase.timedOut:
+      return 'O InterBridge não respondeu a tempo. Tente novamente.';
+  }
+}
+
+/// Recent events for this device, backed by [deviceEventsProvider]. Shows
+/// "Nenhum evento recebido" for both the loading state and a genuinely
+/// empty history — today's stub backend always returns an empty list, so
+/// this keeps showing the same honest placeholder until a real backend
+/// reports something.
+class _EventsCard extends ConsumerWidget {
+  const _EventsCard({required this.deviceId});
+  final String deviceId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final eventsAsync = ref.watch(deviceEventsProvider(deviceId));
+    final events = eventsAsync.when(
+      data: (events) => events,
+      loading: () => const <DeviceEvent>[],
+      error: (_, _) => const <DeviceEvent>[],
+    );
+    if (events.isEmpty) {
+      return const Card(
+        child: ListTile(
+          leading: Icon(Icons.history),
+          title: Text('Nenhum evento recebido'),
+          subtitle: Text(
+            'Os eventos aparecerão quando o dispositivo estiver conectado.',
           ),
         ),
-      ],
+      );
+    }
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: events
+            .map(
+              (event) => ListTile(
+                leading: const Icon(Icons.history),
+                title: Text(event.type.name),
+                subtitle: event.timestamp != null
+                    ? Text(event.timestamp!.toLocal().toString())
+                    : null,
+              ),
+            )
+            .toList(),
+      ),
     );
   }
 }
@@ -182,20 +302,20 @@ class _StatusHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => status.when(
-        data: (value) => Row(
-          children: [
-            Icon(
-              Icons.circle,
-              color: value.isOnline ? Colors.green : Colors.grey,
-              size: 12,
-            ),
-            const SizedBox(width: 8),
-            Text(value.isOnline ? 'Online' : 'Aguardando conexão'),
-          ],
+    data: (value) => Row(
+      children: [
+        Icon(
+          Icons.circle,
+          color: value.isOnline ? Colors.green : Colors.grey,
+          size: 12,
         ),
-        error: (_, _) => const _OfflineStatus(),
-        loading: _OfflineStatus.new,
-      );
+        const SizedBox(width: 8),
+        Text(value.isOnline ? 'Online' : 'Aguardando conexão'),
+      ],
+    ),
+    error: (_, _) => const _OfflineStatus(),
+    loading: _OfflineStatus.new,
+  );
 }
 
 /// Static "not connected" row, reused for the loading, error and genuinely
@@ -205,12 +325,12 @@ class _OfflineStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const Row(
-        children: [
-          Icon(Icons.circle, color: Colors.grey, size: 12),
-          SizedBox(width: 8),
-          Text('Aguardando conexão'),
-        ],
-      );
+    children: [
+      Icon(Icons.circle, color: Colors.grey, size: 12),
+      SizedBox(width: 8),
+      Text('Aguardando conexão'),
+    ],
+  );
 }
 
 /// Shows the firmware version once known, or an honest "not identified yet"
@@ -242,7 +362,8 @@ class _LastSeenStatus extends StatelessWidget {
     final lastSeen = _statusValue(status)?.lastSeen;
     if (lastSeen == null) return const SizedBox.shrink();
     final localTime = lastSeen.toLocal();
-    final formatted = '${localTime.day.toString().padLeft(2, '0')}/'
+    final formatted =
+        '${localTime.day.toString().padLeft(2, '0')}/'
         '${localTime.month.toString().padLeft(2, '0')} '
         '${localTime.hour.toString().padLeft(2, '0')}:'
         '${localTime.minute.toString().padLeft(2, '0')}';

@@ -47,37 +47,43 @@ class _RegistrationPageState extends State<RegistrationPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: Text(widget.initialName == null ? 'Cadastro' : 'Editar perfil')),
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 24),
-                const Icon(Icons.person_outline, size: 72),
-                const SizedBox(height: 24),
-                Text(
-                  widget.initialName == null ? 'Bem-vindo ao InterBridge' : 'Seu perfil',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                const SizedBox(height: 28),
-                TextField(
-                  controller: _nameController,
-                  autofocus: true,
-                  textCapitalization: TextCapitalization.words,
-                  onSubmitted: (_) => _save(),
-                  decoration: const InputDecoration(labelText: 'Como podemos chamar você?'),
-                ),
-                const Spacer(),
-                FilledButton(
-                  onPressed: _saving ? null : _save,
-                  child: Text(_saving ? 'Salvando...' : 'Continuar'),
-                ),
-              ],
+    appBar: AppBar(
+      title: Text(widget.initialName == null ? 'Cadastro' : 'Editar perfil'),
+    ),
+    body: SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 24),
+            const Icon(Icons.person_outline, size: 72),
+            const SizedBox(height: 24),
+            Text(
+              widget.initialName == null
+                  ? 'Bem-vindo ao InterBridge'
+                  : 'Seu perfil',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.headlineSmall,
             ),
-          ),
+            const SizedBox(height: 28),
+            TextField(
+              controller: _nameController,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              onSubmitted: (_) => _save(),
+              decoration: const InputDecoration(
+                labelText: 'Como podemos chamar você?',
+              ),
+            ),
+            const Spacer(),
+            FilledButton(
+              onPressed: _saving ? null : _save,
+              child: Text(_saving ? 'Salvando...' : 'Continuar'),
+            ),
+          ],
         ),
-      );
+      ),
+    ),
+  );
 }

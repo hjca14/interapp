@@ -89,9 +89,9 @@ Interfone convencional
              Usuário
 ```
 
-O hardware específico e o protocolo final de comunicação ainda estão em desenvolvimento.
+O hardware específico ainda está em desenvolvimento, mas o **protocolo de comunicação já está definido**: `docs/communication-protocol.md` (InterBridge Communication Protocol v1.1, arquitetura AWS IoT Core) é a fonte da verdade sobre como o InterBridge conversa com o backend/InterApp. Ver seção 26 deste documento para como o app implementa esse protocolo, e `docs/communication-integration.md`/`docs/APP_COMMUNICATION_STATUS.md` para os detalhes e o estado de implementação.
 
-O aplicativo, portanto, **não deve assumir prematuramente uma tecnologia específica** como Bluetooth, Wi-Fi, MQTT ou WebSocket.
+O aplicativo, portanto, **não deve assumir prematuramente uma tecnologia específica** além do que o protocolo já define — e o protocolo é claro que o app **não fala MQTT/AWS IoT Core diretamente**: ele só conversa com o backend de aplicação via APIs autenticadas. A única comunicação direta app↔InterBridge definida é BLE, exclusivamente para provisioning/recovery.
 
 A arquitetura deve permitir trocar a implementação de comunicação sem precisar reescrever as telas.
 
@@ -106,9 +106,10 @@ A arquitetura deve permitir trocar a implementação de comunicação sem precis
 * O botão verde do discador é um ponto de integração futuro.
 * O botão de discagem **não deve abrir o aplicativo de telefone do sistema nem usar `tel:`**.
 * A comunicação real com o hardware ainda será implementada.
-* Backend/cloud ainda não está implementado.
-* Supabase Cloud é o candidato inicial para a futura camada de backend.
+* Backend/cloud ainda não está implementado, mas a abstração já existe: `DeviceBackendRepository` (contrato) + `LocalDeviceBackendRepository` (stub honesto, reporta `CLOUD_UNAVAILABLE` em vez de fingir sucesso). Ver seção 26.
+* **A seção 15 (Backend futuro) apontava Supabase como candidato — isso conflita com o protocolo v1.1, que define AWS (Cognito/API/Lambda + AWS IoT Core). Esse conflito está documentado, não resolvido silenciosamente — ver seção 26, "Conflito descoberto: Supabase vs. AWS".**
 * O app já reage localmente a uma chamada recebida (`DeviceStatus.hasIncomingCall`): notificação do sistema + tela de chamada em tela cheia. Ver seção 19. Isso só funciona com o processo do app vivo; com o app fechado, ainda depende de push/backend (Fase 4).
+* Fluxo real de `OPEN_DOOR` (máquina de estados idle/sending/accepted/completed/failed/rejected/timedOut) já existe na tela de detalhe do dispositivo, mas hoje sempre termina em "rejeitado: dispositivo não provisionado" porque não há backend/hardware real. Ver seção 26.
 
 O projeto deve permanecer funcional mesmo sem um InterBridge físico conectado.
 
@@ -195,18 +196,18 @@ A comunicação entre o aplicativo e o InterBridge é abstraída através de:
 DeviceConnectionRepository
 ```
 
-Esse contrato deverá definir operações relacionadas ao dispositivo, como:
+Esse contrato define operações relacionadas ao dispositivo, como:
 
 * conexão;
 * acompanhamento de status;
-* abertura de porta;
+* abertura de porta (`openDoor` retorna `DeviceCommandResult`, não apenas `void` — ver seção 26);
 * discagem;
 * futuramente atendimento/desligamento de chamadas;
 * outros comandos específicos do InterBridge.
 
 A tela do aplicativo não deve conhecer detalhes do protocolo físico.
 
-Conceitualmente:
+Conceitualmente — **atualizado pelo protocolo v1.1** (o app não fala MQTT/AWS IoT Core diretamente; só o backend e o InterBridge fazem isso):
 
 ```text
 UI
@@ -217,17 +218,20 @@ Provider / Controller
  ▼
 DeviceConnectionRepository
  │
- ├── implementação local/protótipo
+ ├── LocalDeviceConnectionRepository (hoje, ativa) — sem hardware/backend
  │
- └── implementação real futura
-      ├── Wi-Fi
-      ├── Bluetooth
-      ├── MQTT
-      ├── WebSocket
-      └── outra tecnologia
+ └── CloudDeviceConnectionRepository (já existe, não é a ativa ainda)
+      │
+      ▼
+     DeviceBackendRepository — abstrai a API do backend de aplicação
+      │
+      ▼
+     HTTPS autenticado → AWS application backend → AWS IoT Core → InterBridge
 ```
 
-A implementação concreta poderá mudar conforme o hardware evoluir.
+Bluetooth só aparece nesse desenho para o **provisioning/pareamento** (feature `pairing`, seção 13), não como uma forma alternativa de enviar comandos do dia a dia. Ver `docs/communication-integration.md` para a arquitetura completa.
+
+A implementação concreta poderá mudar conforme o hardware/backend evoluir — trocar `LocalDeviceConnectionRepository` pela `CloudDeviceConnectionRepository` ativa é uma mudança de uma linha em `devices_providers.dart`.
 
 ---
 
@@ -317,12 +321,25 @@ lib/
 │   └── theme/
 │
 ├── core/
+│   ├── config/
+│   │   └── app_environment.dart
 │   ├── constants/
+│   ├── protocol/
+│   │   └── protocol_constants.dart
 │   ├── router/
 │   │   └── app_router.dart
 │   └── theme/
 │
 ├── features/
+│   │
+│   ├── auth/
+│   │   ├── data/
+│   │   │   └── repositories/
+│   │   ├── domain/
+│   │   │   ├── entities/
+│   │   │   └── repositories/
+│   │   └── presentation/
+│   │       └── providers/
 │   │
 │   ├── devices/
 │   │   ├── data/
@@ -350,6 +367,15 @@ lib/
 │   │   └── presentation/
 │   │
 │   ├── pairing/
+│   │   ├── data/
+│   │   │   └── repositories/
+│   │   ├── domain/
+│   │   │   ├── entities/
+│   │   │   └── repositories/
+│   │   └── presentation/
+│   │       ├── controllers/
+│   │       ├── pages/
+│   │       └── providers/
 │   │
 │   ├── profile/
 │   │
@@ -443,20 +469,23 @@ Tocar em um favorito:
 
 # 13. Pairing
 
-A feature `pairing` existe como base para o futuro processo de associação de um aplicativo a um InterBridge físico.
+O protocolo v1.1 define o mecanismo de pareamento (`docs/communication-protocol.md` §6-7): BLE com ESP-IDF Unified Provisioning/Protocomm Security 1, QR `device_id + claim_code` para claim de propriedade, e AWS IoT Fleet Provisioning para a credencial permanente. Isso deixou de ser "ainda não definido" — o que falta é a implementação real (BLE de verdade, scanner de QR, backend de claim).
 
-O fluxo final ainda não está definido.
+Arquitetura em `features/pairing/`:
 
-Possíveis mecanismos futuros incluem:
+```text
+PairingPage → PairingController → ProvisioningRepository → ProvisioningTransport → BLE real (futuro)
+                                          ↑
+                               StubProvisioningRepository (ativa hoje)
+```
 
-* QR Code;
-* código de pareamento;
-* descoberta local;
-* Bluetooth;
-* Wi-Fi;
-* combinação de métodos.
+* `ProvisioningState`/`ProvisioningPhase` — máquina de estados com as 13 fases do onboarding (idle, scanning, deviceFound, establishingSecureSession, awaitingWifi, sendingWifi, requestingCloudClaim, transferringFleetProvisioningMaterial, waitingForDeviceWifi, waitingForFleetProvisioning, waitingForCloudConnection, completed, failed).
+* `DeviceClaim`/`DeviceClaimResult` (`features/pairing/domain/entities/device_claim.dart`) — `device_id` + `claim_code` do QR. `claim_code` nunca aparece em `toString()`, logs, nem é persistido. `parseDeviceClaimQrPayload` assume payload JSON como placeholder — **o formato real do texto do QR ainda não está definido no protocolo**, confirmar antes de integrar um scanner de verdade.
+* `ProvisioningRepository` — orquestra o fluxo completo (BLE + claim + Fleet Provisioning), expõe `Stream<ProvisioningState>` em vez de callbacks espalhados. `StubProvisioningRepository` é a única implementação hoje: reporta honestamente que BLE não está implementado (emite `scanning` → `deviceFound` → `failed`), nunca finge sucesso.
+* `ProvisioningTransport` — camada mais baixa (scan/connect/secure session/enviar Wi-Fi/enviar material de Fleet Provisioning), reservada para uma implementação BLE real. **Antes de adicionar um pacote Flutter de BLE/ESP provisioning, validar compatibilidade com ESP-IDF Unified Provisioning/Protocomm Security 1** (protocolo §7) — não adotar pacote obsoleto/incompatível.
+* `PairingPage` — acessível pelo ícone de Bluetooth no app bar de `HomePage`. Sem scanner de QR ainda: `device_id`/`claim_code` são digitados manualmente como placeholder. Senha de Wi-Fi só existe em memória durante a chamada e é limpa logo depois (nunca vai para `shared_preferences`/`DeviceSettings`/logs).
 
-Não assumir uma tecnologia antes da definição do hardware.
+Ver `docs/communication-integration.md` (seção 2) e `docs/APP_COMMUNICATION_STATUS.md` para o estado exato de cada peça.
 
 ---
 
@@ -497,42 +526,35 @@ O compartilhamento ainda não está implementado.
 
 # 15. Backend futuro
 
+**⚠️ Esta seção contém uma decisão desatualizada — ver o aviso abaixo antes de agir sobre ela.**
+
 O protótipo atualmente funciona localmente.
 
 Quando o produto evoluir para múltiplos usuários/dispositivos, será necessária uma camada cloud.
 
-O candidato inicial é **Supabase Cloud**, principalmente por oferecer:
+Esta seção originalmente apontava **Supabase Cloud** como candidato inicial (autenticação, PostgreSQL, Row Level Security, APIs, realtime, infraestrutura gerenciada). Isso foi escrito **antes** de existir o InterBridge Communication Protocol v1.1 (`docs/communication-protocol.md`).
 
-* autenticação;
-* PostgreSQL;
-* Row Level Security;
-* APIs;
-* atualizações em tempo real;
-* infraestrutura gerenciada.
+## Conflito descoberto: Supabase vs. AWS
 
-A arquitetura deverá permitir trocar:
+O protocolo v1.1 define, sem ambiguidade, uma arquitetura **AWS** para a comunicação com o dispositivo:
 
 ```text
-LocalDevicesRepository
+InterApp → AWS application backend (Cognito/API Gateway/Lambda) → AWS IoT Core (MQTT/X.509) → InterBridge
 ```
 
-por uma implementação remota sem modificar a UI.
+MQTT sobre AWS IoT Core, Device Shadow, Fleet Provisioning, IoT Jobs (OTA) — tudo isso é específico da AWS. O Supabase não oferece esse lado de "device cloud" (gateway MQTT com mTLS por dispositivo, Shadow, Jobs). Portanto:
 
-Conceitualmente:
+* **A comunicação com o InterBridge (status, comandos, eventos, OTA, provisioning) precisa de AWS IoT Core.** Isso não é negociável sem reescrever o protocolo do firmware.
+* Se o Supabase ainda fizer sentido para partes do backend de **aplicação** (dados de usuário que não envolvem o dispositivo diretamente, por exemplo), isso é uma decisão separada e explícita — não uma continuação automática da escolha anterior.
+* Seguindo a regra de "não inventar solução silenciosamente diante de conflito" (ver seção 26), esta tarefa **não** decidiu isso por conta própria. `DeviceBackendRepository` e `AuthRepository` continuam abstratos; nenhuma implementação real (Supabase, AWS ou híbrida) foi adicionada.
 
-```text
-Flutter
-   │
-   ├── Auth
-   ├── Device Repository
-   ├── Favorites Repository
-   └── Event Repository
-             │
-             ▼
-          Supabase
-```
+**Próximo passo real:** quem decide a arquitetura do projeto precisa confirmar explicitamente se o backend de aplicação será 100% AWS (Cognito + API Gateway + Lambda, alinhado ao protocolo) ou se haverá alguma combinação com Supabase — e atualizar esta seção com a decisão final.
 
-Não criar um servidor próprio apenas por necessidade arquitetural enquanto o produto ainda estiver em protótipo/MVP.
+## O que continua válido
+
+A arquitetura deve permitir trocar as implementações locais por remotas sem modificar a UI — isso já é verdade hoje via `DeviceBackendRepository`/`AuthRepository` (abstrações) e `LocalDevicesRepository`/`LocalFavoritesRepository` (repositórios locais concretos que podem ganhar uma contraparte remota depois).
+
+Não criar um servidor próprio apenas por necessidade arquitetural enquanto o produto ainda estiver em protótipo/MVP — mas note que, para a comunicação com o dispositivo, "servidor próprio" não é a alternativa em disputa: a escolha real é AWS (exigido pelo protocolo) vs. onde hospedar a parte de aplicação que não fala com o dispositivo.
 
 ---
 
@@ -555,6 +577,8 @@ Quando existir backend:
 * não assumir que estar na mesma rede significa estar autorizado.
 
 O comando **abrir porta** deve ser tratado como operação sensível.
+
+O protocolo v1.1 (`docs/communication-protocol.md`) detalha as regras de segurança concretas para essa comunicação — segredos que o app nunca deve guardar/logar, separação entre autenticação humana e autenticação do dispositivo (X.509/mTLS), proibição de factory reset remoto, etc. Ver seção 26 deste documento e `docs/communication-integration.md` (seção 3, "O que o app nunca recebe ou guarda") para o resumo aplicado ao InterApp.
 
 ---
 
@@ -600,7 +624,7 @@ rede / protocolo seguro
 InterApp
 ```
 
-O protocolo e os componentes responsáveis pelo áudio ainda precisam ser definidos durante o desenvolvimento do hardware.
+O protocolo v1.1 confirma isso explicitamente: **áudio está fora do control plane MQTT** e precisa de um transporte de baixa latência separado, ainda não definido (WebRTC/signaling/TURN são questões em aberto — `docs/communication-protocol.md` §37.1). Nada de áudio foi implementado por esta tarefa de integração de protocolo.
 
 A arquitetura do aplicativo deve permitir que a implementação seja adicionada futuramente sem reestruturar todo o projeto.
 
@@ -608,29 +632,26 @@ A arquitetura do aplicativo deve permitir que a implementação seja adicionada 
 
 # 19. Eventos
 
-O dispositivo deverá futuramente produzir eventos como:
+O vocabulário de eventos do protocolo v1.1 (`docs/communication-protocol.md` §16) já está modelado em `DeviceEventType` (`features/devices/domain/entities/device_event.dart`):
 
-* dispositivo conectado;
-* dispositivo desconectado;
-* chamada recebida;
-* chamada atendida;
-* chamada encerrada;
-* porta aberta;
-* erro;
-* atualização de firmware;
-* outros eventos relevantes.
+```text
+RING_DETECTED, OFF_HOOK, ON_HOOK, CALL_STARTED, CALL_ENDED,
+DOOR_OPENED, DOOR_OPEN_FAILED,
+PROVISIONING_STARTED, PROVISIONING_COMPLETED, PROVISIONING_FAILED,
+FACTORY_RESET_REQUESTED,
+OTA_STARTED, OTA_COMPLETED, OTA_FAILED,
+ERROR
+```
 
-A tela de resumo poderá apresentar eventos recentes.
+`DeviceEvent.fromJson` faz o parsing tolerando campos extras desconhecidos e validando `protocol_version` (lança `UnsupportedProtocolVersionException` para uma versão que o app não entende). `dedupeDeviceEvents` remove duplicatas por `event_id` (o protocolo entrega eventos pelo menos uma vez — duplicatas são esperadas).
 
-No estado atual, **não inventar eventos**.
-
-Quando não houver dados reais:
+A aba **Resumo** de `DeviceDetailPage` já consome `deviceEventsProvider(deviceId)` (`features/devices/presentation/providers/device_events_provider.dart`), que carrega o histórico recente e escuta eventos ao vivo via `DeviceBackendRepository`. Hoje o backend é o stub `LocalDeviceBackendRepository`, que sempre devolve uma lista vazia — então a tela continua mostrando:
 
 ```text
 Nenhum evento recebido
 ```
 
-é preferível a mostrar eventos fictícios.
+em vez de inventar eventos, exatamente como antes. Quando um `DeviceBackendRepository` real existir, eventos verdadeiros aparecem sem precisar mudar a tela.
 
 ## Chamada recebida (incoming call)
 
@@ -653,42 +674,37 @@ O evento **chamada recebida** já tem um caminho de reação implementado no app
 ### Falta fazer
 
 * [ ] Watcher global de chamada recebida, independente da tela do dispositivo estar aberta.
-* [ ] Emitir `hasIncomingCall` de verdade a partir do hardware (Fase 2).
+* [ ] Emitir `hasIncomingCall` de verdade a partir do evento `RING_DETECTED` do protocolo (Fase 2) — o evento já está modelado em `DeviceEventType.ringDetected`, falta a ponte entre ele e `DeviceStatus.hasIncomingCall`/`IncomingCallListener`.
 * [ ] Ligar Atender/Recusar a um canal de áudio real (Fase 3).
 * [ ] Push notification (FCM/APNs) para acordar o app fechado (Fase 4) — reaproveitar `IncomingCallNotificationService` para renderizar a notificação quando o payload remoto chegar.
+* [ ] Fazer a reação a `RING_DETECTED` respeitar `DeviceSettings.calls`/`quietHours` (hoje sempre toca, independente das preferências salvas) — ver seção 25.
 
 ---
 
 # 20. Firmware / OTA
 
-Atualização remota de firmware é um objetivo futuro.
-
-O fluxo esperado será aproximadamente:
+O protocolo v1.1 já define a arquitetura de OTA (`docs/communication-protocol.md` §29): **AWS IoT Jobs + S3 + firmware assinado + rollback via partições OTA do ESP32**. O InterApp **não baixa firmware nem envia manualmente para o dispositivo** — ele só consulta/solicita/acompanha através do backend.
 
 ```text
 InterApp
+   │  (consultar versão / solicitar OTA / acompanhar status)
+   ▼
+AWS application backend
    │
    ▼
-Backend / distribuição de firmware
+AWS IoT Jobs + S3 (firmware assinado)
    │
    ▼
 InterBridge
    │
-   ├── valida firmware
-   ├── instala
-   └── reinicia
+   ├── valida integridade/assinatura
+   ├── instala em partição inativa
+   └── reinicia + self-test (rollback automático em falha)
 ```
 
-A implementação deverá considerar:
+Eventos relevantes já modelados em `DeviceEventType`: `otaStarted`, `otaCompleted`, `otaFailed`. **AWS IoT Jobs é a fonte autoritativa do estado do job** — o app não deve inventar seu próprio estado de progresso.
 
-* autenticação;
-* integridade do firmware;
-* rollback;
-* versão;
-* compatibilidade;
-* segurança contra firmware não autorizado.
-
-Não implementar OTA antes de definir o hardware e o mecanismo de boot/atualização.
+**Esta tarefa deliberadamente não implementou UI nem backend de OTA** (nem a interface de `DeviceBackendRepository` ganhou métodos de OTA) — ver `docs/APP_COMMUNICATION_STATUS.md`. É um corte de escopo consciente: OTA depende de decisões de infraestrutura (bucket S3, pipeline de assinatura, Jobs) que não fazem parte desta integração inicial de protocolo. Não implementar OTA antes de existir esse backend.
 
 ---
 
@@ -779,20 +795,28 @@ Antes de alterar a arquitetura:
 * [x] Implementação local de conexão/status
 * [x] Reação local a chamada recebida (notificação + tela de chamada, sem hardware real — ver seção 19)
 * [x] `DeviceSettings` por dispositivo: modelo, persistência local, provider e tela de configurações (ver seção 25)
+* [x] Modelos de domínio do protocolo v1.1: `DeviceCommand`/`DeviceCommandResult`/`DeviceProtocolError`/`DeviceEvent`/`IntercomState`, `DeviceStatus` alinhado ao Device Shadow (ver seção 26)
+* [x] Contratos `DeviceBackendRepository`/`AuthRepository` + stubs honestos (`LocalDeviceBackendRepository`/`LocalAuthRepository`, nunca fingem sucesso)
+* [x] Fluxo `OPEN_DOOR` real na UI: máquina de estados idle/sending/accepted/completed/failed/rejected/timedOut, sem duplo-toque, sem reenvio automático (ver seção 26)
+* [x] Arquitetura de pairing/provisioning (stub): `ProvisioningState`/`ProvisioningRepository`/`ProvisioningTransport`/`PairingController`/`PairingPage`, honesta sobre BLE não estar implementado (ver seção 13)
 
 ## Fase 2 — Primeiro hardware
 
+* [x] Definir protocolo de comunicação — `docs/communication-protocol.md` v1.1 (arquitetura AWS IoT Core); falta confirmar a decisão Supabase vs. AWS do backend de aplicação (ver seção 15)
 * [ ] Definir hardware final/protótipo
 * [ ] Definir interface elétrica com o interfone
-* [ ] Definir protocolo de comunicação
-* [ ] Pareamento
+* [ ] Implementar o backend de aplicação AWS real (Cognito/API/Lambda) + `RemoteDeviceBackendRepository`
+* [ ] Validar/implementar BLE real (`ProvisioningTransport`) — confirmar compatibilidade com ESP-IDF Unified Provisioning/Protocomm Security 1 antes de escolher pacote
+* [ ] Scanner de QR real (hoje `PairingPage` usa entrada manual) — confirmar antes o formato de serialização do QR
+* [ ] Ativar `CloudDeviceConnectionRepository` como implementação padrão de `deviceConnectionRepositoryProvider`
+* [ ] Pareamento de verdade (ponta a ponta)
 * [ ] Descoberta/conexão local
 * [ ] Comunicação básica
 * [ ] Ler status real
-* [ ] Emitir `hasIncomingCall` de verdade a partir do hardware
+* [ ] Emitir `hasIncomingCall` de verdade a partir do evento `RING_DETECTED` (ver seção 19)
 * [ ] Detectar `NetworkPresence` real (rede local vs. remota) para `DeviceSettings.calls`
 * [ ] Fazer `IncomingCallListener`/`IncomingCallNotificationService` respeitarem `DeviceSettings` (modo de alerta por presença, horário silencioso) em vez de sempre tocar
-* [ ] Comando de abertura de porta
+* [ ] Comando de abertura de porta funcionando de ponta a ponta (hoje a UI já existe, falta o backend/hardware real)
 * [ ] Primeiro teste do fluxo completo
 
 ## Fase 3 — Áudio
@@ -819,7 +843,7 @@ Antes de alterar a arquitetura:
 ## Fase 5 — Produto
 
 * [ ] Pairing simplificado
-* [ ] OTA
+* [ ] OTA (UI + `DeviceBackendRepository` de OTA + AWS IoT Jobs/S3 — nenhum código de OTA existe ainda, ver seção 20)
 * [ ] Telemetria
 * [ ] Diagnóstico
 * [ ] Logs
@@ -898,7 +922,113 @@ Seções (cada uma um `Card`):
 
 ---
 
-# 26. Princípio central do projeto
+# 26. Protocolo de comunicação (InterBridge Communication Protocol v1.1)
+
+O protocolo de comunicação entre InterApp, backend e InterBridge está definido em `docs/communication-protocol.md` — **fonte da verdade, não redefinida aqui**. Como o InterApp implementa/consome esse protocolo está em `docs/communication-integration.md`. O status de cada área está em `docs/APP_COMMUNICATION_STATUS.md`. Esta seção é um resumo de navegação, não substitui nenhum dos três.
+
+## Arquitetura cloud
+
+```text
+InterApp
+    ↓ HTTPS autenticado / application APIs
+AWS application backend (Cognito / API / Lambda)
+    ↓
+AWS IoT Core
+    ↓ MQTT/TLS, X.509/mTLS
+InterBridge
+```
+
+O app **nunca** conecta em AWS IoT Core diretamente e **nunca** guarda certificado X.509 permanente do dispositivo — só o backend e o InterBridge participam desse canal.
+
+## Caminho direto app ↔ dispositivo
+
+A única comunicação direta definida no protocolo v1 é **BLE, exclusivamente para provisioning/recovery** (feature `pairing`, seção 13). Comunicação local via HTTPS/WebSocket na mesma LAN é mencionada como possibilidade futura, mas explicitamente **não definida** e **não implementada**.
+
+## Separação de autenticação
+
+```text
+humano  → Cognito/backend de aplicação (abstraído por AuthRepository — ainda não implementado de verdade)
+device  → X.509/mTLS contra AWS IoT Core (o app nunca vê essas credenciais)
+```
+
+`AuthRepository`/`LocalAuthRepository` (`features/auth/`) são novos nesta tarefa. Não têm relação com o "perfil" local já existente (`features/profile/`, só um nome digitado) — são conceitos diferentes que continuam separados.
+
+## Claim (associação de propriedade)
+
+QR = `device_id` (não é segredo) + `claim_code` (segredo de posse, single-use). Modelado em `features/pairing/domain/entities/device_claim.dart`. `DeviceBackendRepository.claimDevice` é a operação de backend correspondente — hoje sempre retorna "backend indisponível".
+
+## Provisioning (pareamento)
+
+Ver seção 13 (Pairing) para o detalhe completo da arquitetura (`ProvisioningRepository`/`ProvisioningTransport`/`StubProvisioningRepository`/`PairingController`/`PairingPage`).
+
+## Controle (comandos)
+
+`OPEN_DOOR` e `RESTART` são os comandos v1. `ANSWER_CALL`/`REJECT_CALL`/`END_CALL` estão reservados no protocolo para chamada/áudio futuros — modelados em `DeviceCommandType` para que um resultado que os referencie não quebre o app, mas **nunca oferecidos na UI**.
+
+O botão "Abrir porta" (`_OpenDoorCard` em `device_detail_page.dart`) já usa a máquina de estados real:
+
+```text
+idle → sending → accepted → completed / failed / rejected / timedOut
+```
+
+via `DeviceCommandController` (`features/devices/presentation/providers/device_command_provider.dart`). Uma resposta HTTP `200` nunca é tratada como sucesso — só `status == completed` é. `timedOut` nunca é reenviado automaticamente. Um segundo toque enquanto uma solicitação está em andamento é ignorado (guard por `isBusy`). Hoje toda tentativa termina em `rejected`/`NOT_PROVISIONED` (via `LocalDeviceConnectionRepository`) porque não há dispositivo/backend real.
+
+`RESTART` está modelado no contrato mas sem UI dedicada — o protocolo nota que `ACCEPTED` pode chegar antes do reboot de verdade, e só a reconexão é o sinal autoritativo de conclusão, o que exige um backend real para ter sentido. Continua atrás do placeholder "Reiniciar" em `DeviceSettingsPage`.
+
+## Status
+
+`DeviceStatus` foi revisado para refletir o que o backend consolida do Device Shadow (`docs/communication-protocol.md` §22-23): `firmwareVersion`, `hardwareVersion`, `intercomState`, `wifiRssi`, `uptime`, `isProvisioned`, além de `isOnline`/`lastSeen`/`hasIncomingCall`/`errorMessage` que já existiam. Campos removidos por não corresponderem ao protocolo real: `batteryLevel`, `connectionType`/`DeviceConnectionType`, `wifiName` (nenhum estava em uso na UI).
+
+`isOnline` **nunca** é inferido localmente por heartbeat — no protocolo real ele vem de eventos de lifecycle/connectivity do AWS IoT, consolidados pelo backend; `DeviceStatus.fromReportedShadow` recebe `isOnline` como parâmetro separado do mapa do shadow por causa disso.
+
+`IntercomState` é um wrapper aberto (não um enum fechado): o protocolo só confirma `"IDLE"` como exemplo, o resto do vocabulário não está definido — ver `docs/communication-integration.md` §11 e "Itens em aberto descobertos" abaixo.
+
+`health_interval_s`/`ring_timeout_ms`/`door_open_duration_ms`/`audio_volume` são configuração do Device Shadow **desired**, modelada separadamente em `DeviceHardwareConfig` — nunca misturada com `DeviceSettings` (preferências do app/usuário). Ver seção 25.
+
+## Eventos
+
+Ver seção 19.
+
+## OTA
+
+Ver seção 20.
+
+## Áudio
+
+Ver seção 18. Fora de escopo, não implementado.
+
+## LAN local
+
+Ver seção 6 e `docs/communication-protocol.md` §27.1. `DeviceConnectionRepository` já comporta uma futura `LocalLanDeviceConnectionRepository` ao lado de `CloudDeviceConnectionRepository` sem mudar telas — nenhuma das duas está implementada além da local de protótipo.
+
+## Segurança
+
+O que o app nunca deve guardar/logar (chave privada permanente, certificado X.509 permanente, credenciais administrativas AWS, `claim_code` após uso, PoP do BLE, senha de Wi-Fi, material temporário de Fleet Provisioning) está detalhado em `docs/communication-integration.md` §3. Reforçado no código: `DeviceClaim.toString()` redige o `claim_code`; senha de Wi-Fi só existe em memória durante o fluxo de pareamento.
+
+O protocolo **proíbe** factory reset remoto (`docs/communication-protocol.md` §9) — por isso não existe (e não deve existir) um botão de "Factory Reset remoto" no app. "Redefinir configurações" em `DeviceSettingsPage` só reseta preferências locais do app, nunca o hardware — isso já era verdade antes desta tarefa e continua sendo.
+
+## Conflito descoberto: Supabase vs. AWS
+
+Ver seção 15 para o detalhe completo. Resumo: a seção 15 deste documento apontava Supabase como candidato de backend, escrita antes do protocolo v1.1 existir. O protocolo exige AWS IoT Core para a comunicação com o dispositivo — isso não é compatível com "Supabase como backend único". O conflito está documentado, não resolvido silenciosamente; falta uma decisão explícita de quem define a arquitetura do projeto.
+
+## Itens em aberto descobertos durante esta integração
+
+Além do que `docs/communication-protocol.md` §37 já lista como aberto (infraestrutura AWS, hardware, GPIO, etc.), implementar o lado do app expôs mais dois pontos que precisam de decisão de quem mantém o protocolo/firmware:
+
+* **Vocabulário de `intercom_state`** — só `"IDLE"` está confirmado como exemplo no protocolo.
+* **Formato do texto do QR code** — o protocolo diz que contém `device_id` + `claim_code`, mas não a serialização exata (JSON? URI própria?). `parseDeviceClaimQrPayload` assume JSON como placeholder.
+
+## Estado de implementação
+
+Ver `docs/APP_COMMUNICATION_STATUS.md` para a matriz completa por área. Nenhuma dependência AWS/BLE/QR real foi adicionada ao `pubspec.yaml` — tudo que existe hoje é contrato + stub honesto + modelo de domínio + testes.
+
+## Testes
+
+Novos em `test/`: `device_protocol_error_test.dart`, `device_command_result_test.dart`, `device_status_shadow_test.dart`, `device_event_test.dart`, `device_claim_test.dart`, `stub_provisioning_repository_test.dart`, `device_command_provider_test.dart`, `local_device_backend_repository_test.dart`, `cloud_device_connection_repository_test.dart`, `protocol_constants_test.dart`, `local_auth_repository_test.dart` — além de um novo grupo em `device_settings_test.dart` confirmando a separação `DeviceSettings`/`DeviceHardwareConfig`.
+
+---
+
+# 27. Princípio central do projeto
 
 O InterApp deve ser tratado como **a interface digital de um dispositivo físico**, e não como um aplicativo isolado.
 

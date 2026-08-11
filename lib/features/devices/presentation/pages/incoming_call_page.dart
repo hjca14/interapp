@@ -71,18 +71,16 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
                 const SizedBox(height: 24),
                 Text(
                   'Chamada recebida',
-                  style: Theme.of(context)
-                      .textTheme
-                      .headlineSmall
-                      ?.copyWith(color: Colors.white),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.headlineSmall?.copyWith(color: Colors.white),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   widget.deviceName,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(color: Colors.white70),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleMedium?.copyWith(color: Colors.white70),
                 ),
                 const Spacer(),
                 Row(

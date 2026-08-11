@@ -1,5 +1,9 @@
 import 'dart:async';
 
+import 'package:interapp/core/protocol/protocol_constants.dart';
+import 'package:interapp/features/devices/domain/entities/device_command.dart';
+import 'package:interapp/features/devices/domain/entities/device_command_result.dart';
+import 'package:interapp/features/devices/domain/entities/device_protocol_error.dart';
 import 'package:interapp/features/devices/domain/entities/device_status.dart';
 import 'package:interapp/features/devices/domain/repositories/device_connection_repository.dart';
 
@@ -29,7 +33,17 @@ class LocalDeviceConnectionRepository implements DeviceConnectionRepository {
   Future<void> connect(String deviceId) async {}
 
   @override
-  Future<void> openDoor(String deviceId) async {}
+  Future<DeviceCommandResult> openDoor(String deviceId) async {
+    // This implementation represents "no hardware/backend connected at
+    // all" — NOT_PROVISIONED is the honest protocol error for that, rather
+    // than pretending the command was accepted.
+    return DeviceCommandResult(
+      commandId: generateCommandId(),
+      command: DeviceCommandType.openDoor,
+      status: DeviceCommandStatus.rejected,
+      error: DeviceProtocolError.notProvisioned,
+    );
+  }
 
   @override
   Stream<DeviceStatus> watchStatus(String deviceId) async* {

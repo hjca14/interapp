@@ -18,8 +18,16 @@ void main() {
     test('saveAll() then getAll() round-trips the devices', () async {
       final repository = LocalDevicesRepository();
       final devices = [
-        InterBridgeDevice(id: '1', name: 'Casa', createdAt: DateTime.utc(2026, 1, 1)),
-        InterBridgeDevice(id: '2', name: 'Trabalho', createdAt: DateTime.utc(2026, 2, 1)),
+        InterBridgeDevice(
+          id: '1',
+          name: 'Casa',
+          createdAt: DateTime.utc(2026, 1, 1),
+        ),
+        InterBridgeDevice(
+          id: '2',
+          name: 'Trabalho',
+          createdAt: DateTime.utc(2026, 2, 1),
+        ),
       ];
 
       await repository.saveAll(devices);
@@ -29,17 +37,24 @@ void main() {
       expect(reloaded.map((device) => device.name), ['Casa', 'Trabalho']);
     });
 
-    test('malformed stored entries are skipped instead of crashing getAll()', () async {
-      SharedPreferences.setMockInitialValues({
-        'interbridge_devices': ['1\tCasa\t2026-01-01T00:00:00.000Z', 'garbage', ''],
-      });
-      final repository = LocalDevicesRepository();
+    test(
+      'malformed stored entries are skipped instead of crashing getAll()',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'interbridge_devices': [
+            '1\tCasa\t2026-01-01T00:00:00.000Z',
+            'garbage',
+            '',
+          ],
+        });
+        final repository = LocalDevicesRepository();
 
-      final devices = await repository.getAll();
+        final devices = await repository.getAll();
 
-      expect(devices, hasLength(1));
-      expect(devices.single.id, '1');
-    });
+        expect(devices, hasLength(1));
+        expect(devices.single.id, '1');
+      },
+    );
 
     test('selected device id round-trips', () async {
       final repository = LocalDevicesRepository();

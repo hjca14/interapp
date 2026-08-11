@@ -15,7 +15,11 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(MaterialApp(home: Scaffold(body: DialerPage(controller: DialerController()))));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: DialerPage(controller: DialerController())),
+      ),
+    );
 
     expect(find.text('1'), findsOneWidget);
     expect(find.text('0'), findsOneWidget);

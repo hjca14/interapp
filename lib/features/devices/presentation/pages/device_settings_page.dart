@@ -8,7 +8,11 @@ import 'package:interapp/features/devices/presentation/providers/device_settings
 /// later — nothing here talks to real hardware yet (no Wi-Fi change,
 /// firmware, reboot, biometrics, or door command are actually performed).
 class DeviceSettingsPage extends ConsumerWidget {
-  const DeviceSettingsPage({super.key, required this.deviceId, required this.deviceName});
+  const DeviceSettingsPage({
+    super.key,
+    required this.deviceId,
+    required this.deviceName,
+  });
 
   final String deviceId;
   final String deviceName;
@@ -53,7 +57,10 @@ class _DeviceSettingsBody extends ConsumerWidget {
   /// Every card below reads from [settings] and writes through this — one
   /// call site that applies an edit to the whole [DeviceSettings] and
   /// persists it via `DeviceSettingsController`.
-  void _apply(WidgetRef ref, DeviceSettings Function(DeviceSettings current) updater) {
+  void _apply(
+    WidgetRef ref,
+    DeviceSettings Function(DeviceSettings current) updater,
+  ) {
     ref.read(deviceSettingsProvider(deviceId).notifier).updateSettings(updater);
   }
 
@@ -66,28 +73,41 @@ class _DeviceSettingsBody extends ConsumerWidget {
           mode: settings.calls.localNetworkAlertMode,
           onChanged: (mode) => _apply(
             ref,
-            (current) => current.copyWith(calls: current.calls.copyWith(localNetworkAlertMode: mode)),
+            (current) => current.copyWith(
+              calls: current.calls.copyWith(localNetworkAlertMode: mode),
+            ),
           ),
         ),
         const SizedBox(height: 16),
         _QuietHoursCard(
           settings: settings.quietHours,
-          onChanged: (quietHours) => _apply(ref, (current) => current.copyWith(quietHours: quietHours)),
+          onChanged: (quietHours) => _apply(
+            ref,
+            (current) => current.copyWith(quietHours: quietHours),
+          ),
         ),
         const SizedBox(height: 16),
         _PresenceCard(
           calls: settings.calls,
           onRemoteModeChanged: (mode) => _apply(
             ref,
-            (current) => current.copyWith(calls: current.calls.copyWith(remoteNetworkAlertMode: mode)),
+            (current) => current.copyWith(
+              calls: current.calls.copyWith(remoteNetworkAlertMode: mode),
+            ),
           ),
         ),
         const SizedBox(height: 16),
         _DoorCard(
           settings: settings,
-          onConfirmChanged: (value) => _apply(ref, (current) => current.copyWith(confirmBeforeOpeningDoor: value)),
-          onAuthChanged: (value) =>
-              _apply(ref, (current) => current.copyWith(requireDeviceAuthenticationToOpenDoor: value)),
+          onConfirmChanged: (value) => _apply(
+            ref,
+            (current) => current.copyWith(confirmBeforeOpeningDoor: value),
+          ),
+          onAuthChanged: (value) => _apply(
+            ref,
+            (current) =>
+                current.copyWith(requireDeviceAuthenticationToOpenDoor: value),
+          ),
         ),
         const SizedBox(height: 16),
         const _DeviceCard(),
@@ -102,7 +122,11 @@ class _DeviceSettingsBody extends ConsumerWidget {
 /// from the feature spec (Chamadas, Silencioso, Presença, Porta, Dispositivo,
 /// Avançado) without reproducing their exact mockup styling.
 class _SettingsSection extends StatelessWidget {
-  const _SettingsSection({required this.icon, required this.title, required this.children});
+  const _SettingsSection({
+    required this.icon,
+    required this.title,
+    required this.children,
+  });
 
   final IconData icon;
   final String title;
@@ -119,7 +143,11 @@ class _SettingsSection extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
             child: Row(
               children: [
-                Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+                Icon(
+                  icon,
+                  size: 20,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
                 const SizedBox(width: 8),
                 Text(title, style: Theme.of(context).textTheme.titleMedium),
               ],
@@ -150,16 +178,29 @@ class _CallsCard extends StatelessWidget {
       children: [
         SwitchListTile(
           title: const Text('Receber ligação'),
-          subtitle: const Text('Toca e abre a tela de chamada ao receber uma chamada.'),
+          subtitle: const Text(
+            'Toca e abre a tela de chamada ao receber uma chamada.',
+          ),
           value: mode.includesRing,
-          onChanged: (ring) => onChanged(CallAlertMode.from(ring: ring, notification: mode.includesNotification)),
+          onChanged: (ring) => onChanged(
+            CallAlertMode.from(
+              ring: ring,
+              notification: mode.includesNotification,
+            ),
+          ),
         ),
         SwitchListTile(
           title: const Text('Receber notificação'),
-          subtitle: const Text('Mostra uma notificação ao receber uma chamada.'),
+          subtitle: const Text(
+            'Mostra uma notificação ao receber uma chamada.',
+          ),
           value: mode.includesNotification,
-          onChanged: (notification) =>
-              onChanged(CallAlertMode.from(ring: mode.includesRing, notification: notification)),
+          onChanged: (notification) => onChanged(
+            CallAlertMode.from(
+              ring: mode.includesRing,
+              notification: notification,
+            ),
+          ),
         ),
       ],
     );
@@ -184,18 +225,27 @@ class _PresenceCard extends StatelessWidget {
       children: [
         ListTile(
           title: const Text('Na rede local'),
-          subtitle: Text('${_callAlertModeLabel(calls.localNetworkAlertMode)} · configurado em Chamadas'),
+          subtitle: Text(
+            '${_callAlertModeLabel(calls.localNetworkAlertMode)} · configurado em Chamadas',
+          ),
         ),
         ListTile(
           title: const Text('Fora da rede local'),
-          subtitle: const Text('O que fazer quando o InterBridge perceber que você não está na rede local.'),
+          subtitle: const Text(
+            'O que fazer quando o InterBridge perceber que você não está na rede local.',
+          ),
           trailing: DropdownButton<CallAlertMode>(
             value: calls.remoteNetworkAlertMode,
             onChanged: (mode) {
               if (mode != null) onRemoteModeChanged(mode);
             },
             items: CallAlertMode.values
-                .map((mode) => DropdownMenuItem(value: mode, child: Text(_callAlertModeLabel(mode))))
+                .map(
+                  (mode) => DropdownMenuItem(
+                    value: mode,
+                    child: Text(_callAlertModeLabel(mode)),
+                  ),
+                )
                 .toList(),
           ),
         ),
@@ -249,7 +299,11 @@ class _QuietHoursCard extends StatelessWidget {
     );
     if (picked == null) return;
     final clockTime = ClockTime(hour: picked.hour, minute: picked.minute);
-    onChanged(isStart ? settings.copyWith(start: clockTime) : settings.copyWith(end: clockTime));
+    onChanged(
+      isStart
+          ? settings.copyWith(start: clockTime)
+          : settings.copyWith(end: clockTime),
+    );
   }
 
   void _toggleWeekday(int day) {
@@ -306,14 +360,18 @@ class _QuietHoursCard extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: SegmentedButton<QuietHoursBehavior>(
               segments: const [
-                ButtonSegment(value: QuietHoursBehavior.blockAll, label: Text('Bloquear tudo')),
+                ButtonSegment(
+                  value: QuietHoursBehavior.blockAll,
+                  label: Text('Bloquear tudo'),
+                ),
                 ButtonSegment(
                   value: QuietHoursBehavior.silentNotificationOnly,
                   label: Text('Notificação sem som'),
                 ),
               ],
               selected: {settings.behavior},
-              onSelectionChanged: (selection) => onChanged(settings.copyWith(behavior: selection.first)),
+              onSelectionChanged: (selection) =>
+                  onChanged(settings.copyWith(behavior: selection.first)),
             ),
           ),
         ],
@@ -345,13 +403,17 @@ class _DoorCard extends StatelessWidget {
       children: [
         SwitchListTile(
           title: const Text('Confirmar antes de abrir'),
-          subtitle: const Text('Pede confirmação antes de enviar o comando de abertura.'),
+          subtitle: const Text(
+            'Pede confirmação antes de enviar o comando de abertura.',
+          ),
           value: settings.confirmBeforeOpeningDoor,
           onChanged: onConfirmChanged,
         ),
         SwitchListTile(
           title: const Text('Exigir autenticação do aparelho'),
-          subtitle: const Text('Vai pedir a senha ou biometria do celular para abrir (em breve).'),
+          subtitle: const Text(
+            'Vai pedir a senha ou biometria do celular para abrir (em breve).',
+          ),
           value: settings.requireDeviceAuthenticationToOpenDoor,
           onChanged: onAuthChanged,
         ),
@@ -380,7 +442,11 @@ class _DeviceCard extends StatelessWidget {
               title: Text(label),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Disponível quando o InterBridge estiver conectado.')),
+                const SnackBar(
+                  content: Text(
+                    'Disponível quando o InterBridge estiver conectado.',
+                  ),
+                ),
               ),
             ),
           )
@@ -402,10 +468,18 @@ class _AdvancedCard extends ConsumerWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Redefinir configurações?'),
-        content: Text('Isso volta as configurações de "$deviceName" para os valores padrão.'),
+        content: Text(
+          'Isso volta as configurações de "$deviceName" para os valores padrão.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Redefinir')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Redefinir'),
+          ),
         ],
       ),
     );
@@ -423,7 +497,10 @@ class _AdvancedCard extends ConsumerWidget {
       children: [
         ListTile(
           leading: Icon(Icons.restart_alt, color: errorColor),
-          title: Text('Redefinir configurações', style: TextStyle(color: errorColor)),
+          title: Text(
+            'Redefinir configurações',
+            style: TextStyle(color: errorColor),
+          ),
           onTap: () => _confirmReset(context, ref),
         ),
       ],

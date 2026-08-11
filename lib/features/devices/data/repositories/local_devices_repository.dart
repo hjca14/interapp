@@ -25,7 +25,10 @@ class LocalDevicesRepository {
   /// add/edit/remove.
   Future<void> saveAll(List<InterBridgeDevice> devices) async {
     final preferences = await SharedPreferences.getInstance();
-    await preferences.setStringList(_devicesKey, devices.map((device) => device.toStorage()).toList());
+    await preferences.setStringList(
+      _devicesKey,
+      devices.map((device) => device.toStorage()).toList(),
+    );
   }
 
   /// Id of the last device the user opened. Not read anywhere yet — reserved

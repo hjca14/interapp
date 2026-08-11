@@ -1,9 +1,11 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:interapp/features/devices/data/repositories/local_device_backend_repository.dart';
 import 'package:interapp/features/devices/data/repositories/local_device_connection_repository.dart';
 import 'package:interapp/features/devices/data/repositories/local_device_settings_repository.dart';
 import 'package:interapp/features/devices/data/repositories/local_devices_repository.dart';
 import 'package:interapp/features/devices/data/services/incoming_call_notification_service.dart';
+import 'package:interapp/features/devices/domain/repositories/device_backend_repository.dart';
 import 'package:interapp/features/devices/domain/repositories/device_connection_repository.dart';
 import 'package:interapp/features/devices/domain/repositories/device_settings_repository.dart';
 import 'package:interapp/features/favorites/data/repositories/local_favorites_repository.dart';
@@ -40,8 +42,19 @@ final profileRepositoryProvider = Provider<LocalProfileRepository>(
   (_) => LocalProfileRepository(),
 );
 
+/// The AWS application backend's API, abstracted — see
+/// `DeviceBackendRepository`'s doc comment. Not the same seam as
+/// [deviceConnectionRepositoryProvider]: this represents "what the backend
+/// exposes", not "how the app talks to a device". A future
+/// `CloudDeviceConnectionRepository` would read from this provider and
+/// implement [DeviceConnectionRepository] on top of it.
+final deviceBackendRepositoryProvider = Provider<DeviceBackendRepository>(
+  (_) => LocalDeviceBackendRepository(),
+);
+
 /// Note this only builds the service — `main()` still has to call
 /// `.initialize()` on it before it's usable.
-final incomingCallNotificationServiceProvider = Provider<IncomingCallNotificationService>(
-  (_) => IncomingCallNotificationService(FlutterLocalNotificationsPlugin()),
-);
+final incomingCallNotificationServiceProvider =
+    Provider<IncomingCallNotificationService>(
+      (_) => IncomingCallNotificationService(FlutterLocalNotificationsPlugin()),
+    );

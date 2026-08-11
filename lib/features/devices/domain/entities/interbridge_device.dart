@@ -25,7 +25,9 @@ class InterBridgeDevice {
   /// the whole devices list.
   static InterBridgeDevice? fromStorage(String value) {
     final values = value.split('\t');
-    if (values.length != 3 || values[0].isEmpty || values[1].isEmpty) return null;
+    if (values.length != 3 || values[0].isEmpty || values[1].isEmpty) {
+      return null;
+    }
     return InterBridgeDevice(
       id: values[0],
       name: values[1],

@@ -22,15 +22,24 @@ void main() {
       expect(InterBridgeDevice.fromStorage(''), isNull);
       expect(InterBridgeDevice.fromStorage('only-one-part'), isNull);
       expect(InterBridgeDevice.fromStorage('id\tname'), isNull);
-      expect(InterBridgeDevice.fromStorage('\tname\t2026-01-01T00:00:00.000Z'), isNull);
-      expect(InterBridgeDevice.fromStorage('id\t\t2026-01-01T00:00:00.000Z'), isNull);
+      expect(
+        InterBridgeDevice.fromStorage('\tname\t2026-01-01T00:00:00.000Z'),
+        isNull,
+      );
+      expect(
+        InterBridgeDevice.fromStorage('id\t\t2026-01-01T00:00:00.000Z'),
+        isNull,
+      );
     });
 
-    test('fromStorage falls back to a valid date instead of throwing on garbage', () {
-      final decoded = InterBridgeDevice.fromStorage('id\tname\tnot-a-date');
+    test(
+      'fromStorage falls back to a valid date instead of throwing on garbage',
+      () {
+        final decoded = InterBridgeDevice.fromStorage('id\tname\tnot-a-date');
 
-      expect(decoded, isNotNull);
-      expect(decoded!.createdAt, isA<DateTime>());
-    });
+        expect(decoded, isNotNull);
+        expect(decoded!.createdAt, isA<DateTime>());
+      },
+    );
   });
 }

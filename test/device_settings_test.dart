@@ -1,15 +1,61 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:interapp/features/devices/data/repositories/local_device_settings_repository.dart';
+import 'package:interapp/features/devices/domain/entities/device_hardware_config.dart';
 import 'package:interapp/features/devices/domain/entities/device_settings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  group('DeviceSettings vs. DeviceHardwareConfig separation', () {
+    test(
+      'are distinct types, so app preferences and device-shadow config cannot be confused',
+      () {
+        const settings = DeviceSettings();
+        const hardwareConfig = DeviceHardwareConfig(
+          healthIntervalSeconds: 3600,
+        );
+
+        expect(settings, isNot(isA<DeviceHardwareConfig>()));
+        expect(hardwareConfig, isNot(isA<DeviceSettings>()));
+      },
+    );
+
+    test(
+      'DeviceSettings has no field for hardware-shadow-only configuration',
+      () {
+        // health_interval_s/ring_timeout_ms/door_open_duration_ms/audio_volume
+        // belong to DeviceHardwareConfig only — DeviceSettings' toMap() must
+        // never grow one of those keys.
+        const hardwareOnlyKeys = {
+          'healthIntervalSeconds',
+          'ringTimeoutMs',
+          'doorOpenDurationMs',
+          'audioVolume',
+        };
+        final settingsKeys = const DeviceSettings().toMap().keys.toSet();
+
+        expect(settingsKeys.intersection(hardwareOnlyKeys), isEmpty);
+      },
+    );
+  });
+
   group('CallAlertMode', () {
     test('from() combines ring/notification flags into the right mode', () {
-      expect(CallAlertMode.from(ring: false, notification: false), CallAlertMode.none);
-      expect(CallAlertMode.from(ring: true, notification: false), CallAlertMode.ringOnly);
-      expect(CallAlertMode.from(ring: false, notification: true), CallAlertMode.notificationOnly);
-      expect(CallAlertMode.from(ring: true, notification: true), CallAlertMode.ringAndNotification);
+      expect(
+        CallAlertMode.from(ring: false, notification: false),
+        CallAlertMode.none,
+      );
+      expect(
+        CallAlertMode.from(ring: true, notification: false),
+        CallAlertMode.ringOnly,
+      );
+      expect(
+        CallAlertMode.from(ring: false, notification: true),
+        CallAlertMode.notificationOnly,
+      );
+      expect(
+        CallAlertMode.from(ring: true, notification: true),
+        CallAlertMode.ringAndNotification,
+      );
     });
 
     test('includesRing/includesNotification reflect the mode', () {
@@ -27,8 +73,14 @@ void main() {
   group('DeviceSettings defaults', () {
     test('sensible values out of the box', () {
       const settings = DeviceSettings();
-      expect(settings.calls.localNetworkAlertMode, CallAlertMode.ringAndNotification);
-      expect(settings.calls.remoteNetworkAlertMode, CallAlertMode.notificationOnly);
+      expect(
+        settings.calls.localNetworkAlertMode,
+        CallAlertMode.ringAndNotification,
+      );
+      expect(
+        settings.calls.remoteNetworkAlertMode,
+        CallAlertMode.notificationOnly,
+      );
       expect(settings.quietHours.enabled, isFalse);
       expect(settings.quietHours.start.hour, 22);
       expect(settings.quietHours.end.hour, 7);
@@ -67,15 +119,23 @@ void main() {
       expect(decoded.quietHours.end.hour, 6);
       expect(decoded.quietHours.end.minute, 15);
       expect(decoded.quietHours.weekdays, {6, 7});
-      expect(decoded.quietHours.behavior, QuietHoursBehavior.silentNotificationOnly);
+      expect(
+        decoded.quietHours.behavior,
+        QuietHoursBehavior.silentNotificationOnly,
+      );
       expect(decoded.confirmBeforeOpeningDoor, isFalse);
       expect(decoded.requireDeviceAuthenticationToOpenDoor, isTrue);
     });
 
     test('fromMap falls back to defaults for missing/malformed fields', () {
-      final decoded = DeviceSettings.fromMap(const {'confirmBeforeOpeningDoor': false});
+      final decoded = DeviceSettings.fromMap(const {
+        'confirmBeforeOpeningDoor': false,
+      });
 
-      expect(decoded.calls.localNetworkAlertMode, CallAlertMode.ringAndNotification);
+      expect(
+        decoded.calls.localNetworkAlertMode,
+        CallAlertMode.ringAndNotification,
+      );
       expect(decoded.quietHours.enabled, isFalse);
       expect(decoded.confirmBeforeOpeningDoor, isFalse);
       expect(decoded.requireDeviceAuthenticationToOpenDoor, isFalse);
@@ -92,7 +152,10 @@ void main() {
 
       final settings = await repository.get('device-1');
 
-      expect(settings.calls.localNetworkAlertMode, CallAlertMode.ringAndNotification);
+      expect(
+        settings.calls.localNetworkAlertMode,
+        CallAlertMode.ringAndNotification,
+      );
       expect(settings.confirmBeforeOpeningDoor, isTrue);
     });
 
@@ -112,8 +175,14 @@ void main() {
 
     test('settings are isolated per deviceId', () async {
       final repository = LocalDeviceSettingsRepository();
-      await repository.save('device-a', const DeviceSettings(confirmBeforeOpeningDoor: false));
-      await repository.save('device-b', const DeviceSettings(confirmBeforeOpeningDoor: true));
+      await repository.save(
+        'device-a',
+        const DeviceSettings(confirmBeforeOpeningDoor: false),
+      );
+      await repository.save(
+        'device-b',
+        const DeviceSettings(confirmBeforeOpeningDoor: true),
+      );
 
       final settingsA = await repository.get('device-a');
       final settingsB = await repository.get('device-b');
@@ -122,14 +191,23 @@ void main() {
       expect(settingsB.confirmBeforeOpeningDoor, isTrue);
     });
 
-    test('a later save() overwrites the previous value for the same device', () async {
-      final repository = LocalDeviceSettingsRepository();
-      await repository.save('device-1', const DeviceSettings(confirmBeforeOpeningDoor: true));
-      await repository.save('device-1', const DeviceSettings(confirmBeforeOpeningDoor: false));
+    test(
+      'a later save() overwrites the previous value for the same device',
+      () async {
+        final repository = LocalDeviceSettingsRepository();
+        await repository.save(
+          'device-1',
+          const DeviceSettings(confirmBeforeOpeningDoor: true),
+        );
+        await repository.save(
+          'device-1',
+          const DeviceSettings(confirmBeforeOpeningDoor: false),
+        );
 
-      final settings = await repository.get('device-1');
+        final settings = await repository.get('device-1');
 
-      expect(settings.confirmBeforeOpeningDoor, isFalse);
-    });
+        expect(settings.confirmBeforeOpeningDoor, isFalse);
+      },
+    );
   });
 }

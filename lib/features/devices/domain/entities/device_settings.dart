@@ -20,7 +20,8 @@ enum CallAlertMode {
 
   bool get includesRing => this == ringOnly || this == ringAndNotification;
 
-  bool get includesNotification => this == notificationOnly || this == ringAndNotification;
+  bool get includesNotification =>
+      this == notificationOnly || this == ringAndNotification;
 
   static CallAlertMode from({required bool ring, required bool notification}) {
     if (ring && notification) return ringAndNotification;
@@ -48,7 +49,9 @@ class DeviceCallSettings {
   final CallAlertMode remoteNetworkAlertMode;
 
   CallAlertMode alertModeFor(NetworkPresence presence) {
-    return presence == NetworkPresence.localNetwork ? localNetworkAlertMode : remoteNetworkAlertMode;
+    return presence == NetworkPresence.localNetwork
+        ? localNetworkAlertMode
+        : remoteNetworkAlertMode;
   }
 
   DeviceCallSettings copyWith({
@@ -56,20 +59,26 @@ class DeviceCallSettings {
     CallAlertMode? remoteNetworkAlertMode,
   }) {
     return DeviceCallSettings(
-      localNetworkAlertMode: localNetworkAlertMode ?? this.localNetworkAlertMode,
-      remoteNetworkAlertMode: remoteNetworkAlertMode ?? this.remoteNetworkAlertMode,
+      localNetworkAlertMode:
+          localNetworkAlertMode ?? this.localNetworkAlertMode,
+      remoteNetworkAlertMode:
+          remoteNetworkAlertMode ?? this.remoteNetworkAlertMode,
     );
   }
 
   Map<String, dynamic> toMap() => {
-        'localNetworkAlertMode': localNetworkAlertMode.name,
-        'remoteNetworkAlertMode': remoteNetworkAlertMode.name,
-      };
+    'localNetworkAlertMode': localNetworkAlertMode.name,
+    'remoteNetworkAlertMode': remoteNetworkAlertMode.name,
+  };
 
   factory DeviceCallSettings.fromMap(Map<String, dynamic> map) {
     return DeviceCallSettings(
-      localNetworkAlertMode: _callAlertModeFromName(map['localNetworkAlertMode']) ?? CallAlertMode.ringAndNotification,
-      remoteNetworkAlertMode: _callAlertModeFromName(map['remoteNetworkAlertMode']) ?? CallAlertMode.notificationOnly,
+      localNetworkAlertMode:
+          _callAlertModeFromName(map['localNetworkAlertMode']) ??
+          CallAlertMode.ringAndNotification,
+      remoteNetworkAlertMode:
+          _callAlertModeFromName(map['remoteNetworkAlertMode']) ??
+          CallAlertMode.notificationOnly,
     );
   }
 }
@@ -88,7 +97,7 @@ enum QuietHoursBehavior {
   blockAll,
 
   /// The notification still appears, just without sound/vibration.
-  silentNotificationOnly;
+  silentNotificationOnly,
 }
 
 QuietHoursBehavior? _quietHoursBehaviorFromName(Object? name) {
@@ -155,12 +164,12 @@ class QuietHoursSettings {
   }
 
   Map<String, dynamic> toMap() => {
-        'enabled': enabled,
-        'start': start.toMap(),
-        'end': end.toMap(),
-        'weekdays': weekdays.toList(),
-        'behavior': behavior.name,
-      };
+    'enabled': enabled,
+    'start': start.toMap(),
+    'end': end.toMap(),
+    'weekdays': weekdays.toList(),
+    'behavior': behavior.name,
+  };
 
   factory QuietHoursSettings.fromMap(Map<String, dynamic> map) {
     final rawWeekdays = map['weekdays'];
@@ -175,7 +184,9 @@ class QuietHoursSettings {
       weekdays: rawWeekdays is List
           ? rawWeekdays.whereType<num>().map((day) => day.toInt()).toSet()
           : const {1, 2, 3, 4, 5, 6, 7},
-      behavior: _quietHoursBehaviorFromName(map['behavior']) ?? QuietHoursBehavior.blockAll,
+      behavior:
+          _quietHoursBehaviorFromName(map['behavior']) ??
+          QuietHoursBehavior.blockAll,
     );
   }
 }
@@ -183,6 +194,15 @@ class QuietHoursSettings {
 /// A device's own behavior preferences — separate from [InterBridgeDevice]
 /// (identity) and `DeviceStatus` (live telemetry). Persisted per `deviceId`
 /// by `LocalDeviceSettingsRepository`.
+///
+/// These are **app/user preferences** the phone itself acts on (ring vs.
+/// notification, quiet hours, door confirmation...) — not hardware
+/// configuration. Values the device firmware would actually apply (e.g.
+/// `door_open_duration_ms`, `health_interval_s`) belong to
+/// `DeviceHardwareConfig` instead, which mirrors the device's Device Shadow
+/// `desired` state. The two must never be merged into one bag: a setting
+/// here can be changed instantly and only affects this app/user, while a
+/// `DeviceHardwareConfig` change would need to reach the physical device.
 ///
 /// These are settings for the *device*, shared by everyone who can access
 /// it. A future `UserDeviceSettings` (per user, per device) would sit next
@@ -219,9 +239,11 @@ class DeviceSettings {
     return DeviceSettings(
       calls: calls ?? this.calls,
       quietHours: quietHours ?? this.quietHours,
-      confirmBeforeOpeningDoor: confirmBeforeOpeningDoor ?? this.confirmBeforeOpeningDoor,
+      confirmBeforeOpeningDoor:
+          confirmBeforeOpeningDoor ?? this.confirmBeforeOpeningDoor,
       requireDeviceAuthenticationToOpenDoor:
-          requireDeviceAuthenticationToOpenDoor ?? this.requireDeviceAuthenticationToOpenDoor,
+          requireDeviceAuthenticationToOpenDoor ??
+          this.requireDeviceAuthenticationToOpenDoor,
     );
   }
 
@@ -232,11 +254,12 @@ class DeviceSettings {
   /// `LocalDeviceSettingsRepository`), which stays far more readable than a
   /// hand-rolled delimited string would for this shape.
   Map<String, dynamic> toMap() => {
-        'calls': calls.toMap(),
-        'quietHours': quietHours.toMap(),
-        'confirmBeforeOpeningDoor': confirmBeforeOpeningDoor,
-        'requireDeviceAuthenticationToOpenDoor': requireDeviceAuthenticationToOpenDoor,
-      };
+    'calls': calls.toMap(),
+    'quietHours': quietHours.toMap(),
+    'confirmBeforeOpeningDoor': confirmBeforeOpeningDoor,
+    'requireDeviceAuthenticationToOpenDoor':
+        requireDeviceAuthenticationToOpenDoor,
+  };
 
   /// Parses a map produced by [toMap]. Missing/malformed fields fall back to
   /// the same defaults as the default constructor, so a partially corrupted
@@ -247,10 +270,14 @@ class DeviceSettings {
           ? DeviceCallSettings.fromMap(map['calls'] as Map<String, dynamic>)
           : const DeviceCallSettings(),
       quietHours: map['quietHours'] is Map<String, dynamic>
-          ? QuietHoursSettings.fromMap(map['quietHours'] as Map<String, dynamic>)
+          ? QuietHoursSettings.fromMap(
+              map['quietHours'] as Map<String, dynamic>,
+            )
           : const QuietHoursSettings(),
-      confirmBeforeOpeningDoor: map['confirmBeforeOpeningDoor'] as bool? ?? true,
-      requireDeviceAuthenticationToOpenDoor: map['requireDeviceAuthenticationToOpenDoor'] as bool? ?? false,
+      confirmBeforeOpeningDoor:
+          map['confirmBeforeOpeningDoor'] as bool? ?? true,
+      requireDeviceAuthenticationToOpenDoor:
+          map['requireDeviceAuthenticationToOpenDoor'] as bool? ?? false,
     );
   }
 }

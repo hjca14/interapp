@@ -22,7 +22,9 @@ class DeviceSettingsController extends AsyncNotifier<DeviceSettings> {
   /// Applies [updater] to the current settings, updates `state` right away
   /// (so switches/pickers feel instant — `update` is the protected helper
   /// `AsyncNotifier` already provides for exactly this), then persists.
-  Future<void> updateSettings(DeviceSettings Function(DeviceSettings current) updater) async {
+  Future<void> updateSettings(
+    DeviceSettings Function(DeviceSettings current) updater,
+  ) async {
     final next = await update((current) => updater(current));
     await ref.read(deviceSettingsRepositoryProvider).save(deviceId, next);
   }
@@ -33,6 +35,9 @@ class DeviceSettingsController extends AsyncNotifier<DeviceSettings> {
   Future<void> reset() => updateSettings((_) => const DeviceSettings());
 }
 
-final deviceSettingsProvider = AsyncNotifierProvider.family<DeviceSettingsController, DeviceSettings, String>(
-  DeviceSettingsController.new,
-);
+final deviceSettingsProvider =
+    AsyncNotifierProvider.family<
+      DeviceSettingsController,
+      DeviceSettings,
+      String
+    >(DeviceSettingsController.new);
