@@ -1,6 +1,9 @@
 import 'package:interapp/features/favorites/domain/entities/favorite.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Persists each device's favorites separately, under a
+/// `favorites_<deviceId>` key in `shared_preferences` — so two InterBridges
+/// never share or mix up favorites.
 class LocalFavoritesRepository {
   static const _favoritesKeyPrefix = 'favorites_';
 

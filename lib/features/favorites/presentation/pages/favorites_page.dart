@@ -5,9 +5,21 @@ import 'package:interapp/features/favorites/data/repositories/local_favorites_re
 import 'package:interapp/features/favorites/domain/entities/favorite.dart';
 import 'package:interapp/features/favorites/presentation/widgets/favorite_form_dialog.dart';
 
+/// The "Favoritos" tab: favorite numbers for one device, loaded/saved
+/// through [repository]. Tapping a favorite calls [onDialFavorite], which
+/// `DeviceDetailPage` uses to fill the number and switch to the Discar tab.
 class FavoritesPage extends StatefulWidget {
-  const FavoritesPage({super.key, required this.repository, required this.deviceId, required this.onDialFavorite});
+  const FavoritesPage({
+    super.key,
+    required this.repository,
+    required this.deviceId,
+    required this.onDialFavorite,
+  });
   final LocalFavoritesRepository repository;
+
+  /// `null` means no device is selected yet — shows a prompt instead of a
+  /// list. `DeviceDetailPage` always passes a real id, so this mainly guards
+  /// against reuse in a context without one.
   final String? deviceId;
   final ValueChanged<String> onDialFavorite;
 
@@ -25,6 +37,8 @@ class _FavoritesPageState extends State<FavoritesPage> {
     unawaited(_loadFavorites());
   }
 
+  /// Reloads if this widget instance gets reused for a different device
+  /// (its `deviceId` changed) instead of being recreated from scratch.
   @override
   void didUpdateWidget(covariant FavoritesPage oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -44,11 +58,22 @@ class _FavoritesPageState extends State<FavoritesPage> {
       return;
     }
     final favorites = await widget.repository.getAll(widget.deviceId!);
-    if (mounted) setState(() { _favorites = favorites; _loading = false; });
+    if (mounted) {
+      setState(() {
+        _favorites = favorites;
+        _loading = false;
+      });
+    }
   }
 
-  Future<void> _save() => widget.repository.saveAll(widget.deviceId!, _favorites);
+  Future<void> _save() =>
+      widget.repository.saveAll(widget.deviceId!, _favorites);
 
+  /// Opens [FavoriteFormDialog] to add (when [favorite] is `null`) or edit an
+  /// existing one, applies the result optimistically to `_favorites`, then
+  /// persists — reverting the optimistic update isn't done on save failure,
+  /// only a snackbar is shown, since `shared_preferences` writes essentially
+  /// never fail in practice.
   Future<void> _editFavorite({Favorite? favorite}) async {
     if (widget.deviceId == null) return;
     final result = await showDialog<Favorite>(
@@ -78,29 +103,60 @@ class _FavoritesPageState extends State<FavoritesPage> {
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (widget.deviceId == null) {
-      return const Center(child: Text('Selecione ou adicione um dispositivo para ver seus favoritos.'));
+      return const Center(
+        child: Text(
+          'Selecione ou adicione um dispositivo para ver seus favoritos.',
+        ),
+      );
     }
     return Scaffold(
-      floatingActionButton: FloatingActionButton(onPressed: _editFavorite, child: const Icon(Icons.add)),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _editFavorite,
+        child: const Icon(Icons.add),
+      ),
       body: _favorites.isEmpty
-          ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Icon(Icons.star_outline, size: 56), const SizedBox(height: 12), const Text('Nenhum favorito ainda'),
-              TextButton.icon(onPressed: _editFavorite, icon: const Icon(Icons.add), label: const Text('Adicionar favorito')),
-            ]))
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.star_outline, size: 56),
+                  const SizedBox(height: 12),
+                  const Text('Nenhum favorito ainda'),
+                  TextButton.icon(
+                    onPressed: _editFavorite,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Adicionar favorito'),
+                  ),
+                ],
+              ),
+            )
           : ListView.separated(
-              padding: const EdgeInsets.all(12), itemCount: _favorites.length,
+              padding: const EdgeInsets.all(12),
+              itemCount: _favorites.length,
               separatorBuilder: (_, _) => const Divider(height: 1),
               itemBuilder: (_, index) {
                 final favorite = _favorites[index];
                 return ListTile(
-                  leading: CircleAvatar(child: Text(favorite.name[0].toUpperCase())), title: Text(favorite.name), subtitle: Text(favorite.number),
+                  leading: CircleAvatar(
+                    child: Text(favorite.name[0].toUpperCase()),
+                  ),
+                  title: Text(favorite.name),
+                  subtitle: Text(favorite.number),
                   onTap: () => widget.onDialFavorite(favorite.number),
                   trailing: PopupMenuButton<String>(
                     onSelected: (action) async {
-                      if (action == 'edit') await _editFavorite(favorite: favorite);
-                      if (action == 'remove') { setState(() => _favorites.remove(favorite)); await _save(); }
+                      if (action == 'edit') {
+                        await _editFavorite(favorite: favorite);
+                      }
+                      if (action == 'remove') {
+                        setState(() => _favorites.remove(favorite));
+                        await _save();
+                      }
                     },
-                    itemBuilder: (_) => const [PopupMenuItem(value: 'edit', child: Text('Editar')), PopupMenuItem(value: 'remove', child: Text('Remover'))],
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'edit', child: Text('Editar')),
+                      PopupMenuItem(value: 'remove', child: Text('Remover')),
+                    ],
                   ),
                 );
               },

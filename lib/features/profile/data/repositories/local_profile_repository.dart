@@ -1,5 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Persists the user's own display name locally. There's no auth/backend
+/// yet, so "profile" today is just this one string.
 class LocalProfileRepository {
   static const _profileNameKey = 'profile_name';
 
