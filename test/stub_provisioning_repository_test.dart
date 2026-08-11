@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:interapp/features/devices/domain/entities/device_protocol_error.dart';
 import 'package:interapp/features/pairing/data/repositories/stub_provisioning_repository.dart';
 import 'package:interapp/features/pairing/domain/entities/device_claim.dart';
 import 'package:interapp/features/pairing/domain/entities/provisioning_state.dart';
@@ -25,6 +26,7 @@ void main() {
           ProvisioningPhase.failed,
         ]);
         expect(states.last.failureReason, isNotNull);
+        expect(states.last.error, DeviceProtocolError.provisioningFailed);
       },
     );
 

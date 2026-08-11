@@ -1,15 +1,13 @@
 /// The interfone's operating state as reported in the device's Device
-/// Shadow (`intercom_state`), per `docs/communication-protocol.md` §22/§24.
+/// Shadow (`intercom_state`), per `docs/communication-protocol.md` §22.1.
 ///
-/// Modeled as an open value wrapper instead of a closed `enum`: the
-/// protocol document only ever shows one concrete example value (`"IDLE"`)
-/// and does not enumerate the full state vocabulary. Hardcoding guessed
-/// states (e.g. `RINGING`, `IN_CALL`) here would risk silently diverging
-/// from whatever the firmware actually reports — see PROJECT_CONTEXT.md for
-/// this open item. Instead, any string the backend sends round-trips
-/// through [raw] without the app needing to recognize it, and [idle] is the
-/// only named constant because it's the only value the protocol document
-/// actually confirms.
+/// The protocol defines exactly five known values ([idle], [ringing],
+/// [offHook], [inCall], [error]). Still modeled as an open value wrapper
+/// rather than a closed `enum`, because §22.1 requires that a value outside
+/// this set become a safe unknown state — preserving the raw string for
+/// diagnostics — instead of throwing. A closed `enum`'s `fromWireValue`
+/// would have to drop the raw string on an unrecognized value; this keeps
+/// it.
 class IntercomState {
   const IntercomState._(this.raw);
 
@@ -17,19 +15,30 @@ class IntercomState {
   /// the firmware/backend ever sends.
   static const unreported = IntercomState._(null);
 
-  /// The one state value the protocol document shows an example of
-  /// (`docs/communication-protocol.md` §22).
   static const idle = IntercomState._('IDLE');
+  static const ringing = IntercomState._('RINGING');
+  static const offHook = IntercomState._('OFF_HOOK');
+  static const inCall = IntercomState._('IN_CALL');
+  static const error = IntercomState._('ERROR');
+
+  static const _known = [idle, ringing, offHook, inCall, error];
 
   factory IntercomState.fromRaw(String? raw) {
     if (raw == null) return unreported;
-    if (raw == idle.raw) return idle;
+    for (final state in _known) {
+      if (state.raw == raw) return state;
+    }
     return IntercomState._(raw);
   }
 
   /// The exact string as reported by the backend, or `null` for
   /// [unreported].
   final String? raw;
+
+  /// Whether [raw] is one of the five states §22.1 defines. `false` for
+  /// [unreported] and for any value this app doesn't recognize yet — [raw]
+  /// still preserves the original string in that case.
+  bool get isKnown => _known.any((state) => state.raw == raw);
 
   bool get isReported => raw != null;
 

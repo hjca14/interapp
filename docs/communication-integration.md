@@ -154,10 +154,30 @@ DeviceConnectionRepository.openDoor(deviceId)
         ↓
 (future) CloudDeviceConnectionRepository → DeviceBackendRepository → backend
         ↓
-backend persists command, publishes OPEN_DOOR, correlates the response
+backend creates and publishes the final OPEN_DOOR envelope (stamps
+issued_at/expires_at, assigns/validates command_id), correlates the response
         ↓
 DeviceCommandResult { status: ACCEPTED → COMPLETED / FAILED / REJECTED }
 ```
+
+The app is not the source of the command envelope. `DeviceCommand`
+(`features/devices/domain/entities/device_command.dart`) models that
+envelope for **parsing what the backend hands back**, not for the app to
+build and send — `issued_at`/`expires_at` are backend-authoritative
+timestamps, encoded on the wire as Unix epoch **seconds** (not ISO-8601,
+not milliseconds — see `DeviceCommand.toJson`/`dateTimeToEpochSeconds` in
+`core/protocol/protocol_constants.dart`). The phone's own clock is never
+treated as a security authority; the app only contributes the command
+intent and a client-generated `command_id` (`generateCommandId()`) as an
+idempotency key for the future "create command" API call.
+
+Error handling now covers the full v1 code list — including the
+timestamp/expiry-specific codes `COMMAND_EXPIRED`, `CLOCK_NOT_TRUSTWORTHY`,
+`INVALID_TIMESTAMP`, and `PAYLOAD_TOO_LARGE`/`PROVISIONING_FAILED` — via
+`DeviceProtocolError` (`features/devices/domain/entities/device_protocol_error.dart`).
+Each code also has an app-side-only `origin` (`device`/`backend`/
+`connectivity`) used purely for diagnostics/handling; it does not alter or
+reinterpret the wire codes themselves.
 
 The UI's `OpenDoorRequestPhase` (`idle / sending / accepted / completed /
 failed / rejected / timedOut`) exists specifically so a `200`-equivalent
@@ -236,22 +256,44 @@ backend's concern. `AppConfig.apiBaseUrl` is read from `--dart-define` at
 build time and is empty (not configured) by default; nothing is hardcoded,
 and a DEV build must never be able to reach PROD infrastructure.
 
-## 11. Open items this integration surfaced
+## 11. Items resolved by the v1 contract alignment pass
 
-Beyond what `docs/communication-protocol.md` §37 already lists as open
-(backend/infra decisions, hardware-dependent items), implementing the app
-side surfaced two protocol-adjacent gaps worth flagging back to whoever
-owns the firmware/backend contract:
+Two gaps flagged by the initial integration were resolved once the exact
+v1 contract details were confirmed (`docs/communication-protocol.md` §4,
+§22.1):
 
-- **`intercom_state` vocabulary.** The protocol document only ever shows
-  one example value (`"IDLE"`). The app's `IntercomState` is intentionally
-  an open string wrapper rather than a closed enum, specifically because
-  the rest of the vocabulary isn't defined anywhere yet.
-- **QR payload text encoding.** §4 says the QR contains `device_id` +
-  `claim_code`, but not the exact serialization (JSON? a custom URI
-  scheme?). `parseDeviceClaimQrPayload` assumes a JSON object as a
-  placeholder — confirm the real format before wiring up an actual QR
-  scanner package.
+- **`intercom_state` vocabulary** — now the five values `IDLE`, `RINGING`,
+  `OFF_HOOK`, `IN_CALL`, `ERROR`. `IntercomState` recognizes exactly these
+  and preserves the raw string for any value outside the set (`isKnown`),
+  instead of crashing — see `intercom_state_test.dart`.
+- **QR payload encoding** — now the URI scheme
+  `interbridge://claim?v=1&device_id=ib-<32 hex>&claim_code=<secret>`.
+  `parseDeviceClaimQrPayload` validates scheme, host, version, `device_id`
+  format, presence/non-emptiness of `claim_code`, and rejects duplicate
+  required parameters — see `device_claim_test.dart`.
 
-Neither was silently decided — both are called out here and in
-`PROJECT_CONTEXT.md` rather than guessed into the firmware contract.
+Also aligned in this pass: `issued_at`/`expires_at` are Unix epoch
+**seconds** on the wire (§14/§18, was previously shown as ISO-8601 in this
+document by mistake), and the error code list grew from 13 to 18 entries
+(`PAYLOAD_TOO_LARGE`, `COMMAND_EXPIRED`, `CLOCK_NOT_TRUSTWORTHY`,
+`INVALID_TIMESTAMP`, `PROVISIONING_FAILED` were missing before) — see §5.
+
+## 12. What this alignment did *not* do — still Fase 1 AWS
+
+This pass corrected the app's **models and parsers** to match the v1
+contract precisely. It did not, and was explicitly scoped not to:
+
+- add the Cognito SDK, AWS SDK, or an MQTT client to the app;
+- implement `RemoteDeviceBackendRepository` (there is still no real HTTPS
+  API to call — `LocalDeviceBackendRepository` remains the active
+  implementation, honestly reporting `CLOUD_UNAVAILABLE`);
+- activate `CloudDeviceConnectionRepository` as the default
+  `deviceConnectionRepositoryProvider` (still exists, still not wired in —
+  see `devices_providers.dart`);
+- implement real BLE provisioning, a QR scanner, or a camera reader.
+
+The app still only ever talks to a **future authenticated HTTPS
+application API** — never to AWS IoT Core/MQTT directly, and it is the
+backend, not the app, that will create and publish the final command
+envelope. All of the above remains Fase 1 AWS work; see
+`docs/APP_COMMUNICATION_STATUS.md` for the up-to-date status of every area.

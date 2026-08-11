@@ -1,3 +1,4 @@
+import 'package:interapp/features/devices/domain/entities/device_protocol_error.dart';
 import 'package:interapp/features/pairing/domain/entities/device_claim.dart';
 import 'package:interapp/features/pairing/domain/entities/provisioning_state.dart';
 import 'package:interapp/features/pairing/domain/repositories/provisioning_repository.dart';
@@ -23,6 +24,7 @@ class StubProvisioningRepository implements ProvisioningRepository {
     );
     yield const ProvisioningState(
       phase: ProvisioningPhase.failed,
+      error: DeviceProtocolError.provisioningFailed,
       failureReason:
           'Pareamento por Bluetooth ainda não foi implementado neste app.',
     );

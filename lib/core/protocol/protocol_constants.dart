@@ -55,3 +55,18 @@ String _randomHex128Bits() {
   final bytes = List<int>.generate(16, (_) => _idRandom.nextInt(256));
   return bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
 }
+
+/// Converts [dateTime] to the wire representation used by command
+/// timestamps (`issued_at`/`expires_at`, §14/§18): Unix epoch **seconds**,
+/// not milliseconds and not an ISO-8601 string. Event timestamps (§16) are
+/// unaffected — those stay UTC ISO-8601, parsed with `DateTime.tryParse`.
+int dateTimeToEpochSeconds(DateTime dateTime) {
+  return dateTime.toUtc().millisecondsSinceEpoch ~/ 1000;
+}
+
+/// Inverse of [dateTimeToEpochSeconds]. Always returns a UTC [DateTime] —
+/// command timestamps have no meaningful local timezone, and comparing them
+/// against `DateTime.now()` must not accidentally mix UTC and local.
+DateTime epochSecondsToDateTime(int seconds) {
+  return DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true);
+}

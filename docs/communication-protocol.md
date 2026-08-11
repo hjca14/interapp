@@ -114,6 +114,20 @@ claim_code
 
 It must never contain permanent private keys, permanent AWS IoT credentials, or backend administrative secrets.
 
+QR payload format:
+
+```text
+interbridge://claim?v=1&device_id=ib-<32 lowercase hex chars>&claim_code=<secret>
+```
+
+- scheme is exactly `interbridge`;
+- host is exactly `claim`;
+- `v` is exactly `1`;
+- `device_id` matches `^ib-[0-9a-f]{32}$`;
+- `claim_code` is present and non-empty;
+- duplicate occurrences of a required query parameter make the payload invalid;
+- parsers must safely percent-decode query values and reject a malformed URI instead of throwing.
+
 The product `claim_code` must have at least 128 bits of cryptographically secure
 randomness, be single-use for initial ownership claim, be rate-limited at the API,
 and be stored by the backend only as a salted password hash or equivalent derived
@@ -424,11 +438,21 @@ uptime_ms
 ```
 
 Identifiers use 128-bit random values encoded as lowercase hexadecimal strings with
-semantic prefixes (`cmd-`, `evt-`). Custom JSON payloads must not exceed 8 KiB.
+semantic prefixes (`cmd-`, `evt-`). Custom JSON payloads must not exceed 8 KiB
+(rejected with `PAYLOAD_TOO_LARGE`).
 
 `device_id` inside JSON is diagnostic information only. Authorization comes from AWS IoT certificate/policy/Thing context.
 
-Use UTC ISO-8601 only if wall-clock time is valid. Otherwise do not invent a timestamp; monotonic uptime may still be included.
+Timestamp encoding differs by message type:
+
+- **Commands** (`issued_at`, `expires_at` in §18): Unix epoch seconds, encoded
+  as a JSON integer — not an ISO-8601 string. These are authoritative
+  timestamps the backend stamps before publishing the command; the device
+  and the backend must agree on this exact representation to evaluate
+  expiry deterministically.
+- **Device-originated events** (`timestamp` in §16): UTC ISO-8601, used only
+  if wall-clock time is valid. Otherwise do not invent a timestamp;
+  monotonic uptime may still be included.
 
 ---
 
@@ -536,11 +560,20 @@ Base command:
   "protocol_version": 1,
   "command_id": "cmd-12345",
   "command": "OPEN_DOOR",
-  "issued_at": "2026-08-11T17:30:25Z",
-  "expires_at": "2026-08-11T17:30:30Z",
+  "issued_at": 1770830825,
+  "expires_at": 1770830830,
   "payload": {}
 }
 ```
+
+`issued_at`/`expires_at` are Unix epoch seconds (integers), per §14 — not
+ISO-8601 strings. The backend stamps these before publishing the command; the
+device's own clock is authoritative only for deciding whether *its own*
+clock can be trusted (`CLOCK_NOT_TRUSTWORTHY`) and whether an already-stamped
+command has expired (`COMMAND_EXPIRED`) — the device never invents these
+values itself, and neither does the app. The app only contributes the
+command intent and a `command_id` for idempotency; the phone's clock is
+never a security authority.
 
 Initial commands:
 
@@ -553,8 +586,10 @@ RESTART
 are not remotely executable commands in protocol v1.
 
 All remote commands include `issued_at` and `expires_at`. The device must reject a
-command when its clock is not valid, the command is expired, the validity interval
-exceeds the allowed maximum, or its identifier has already been processed.
+command when its clock is not valid (`CLOCK_NOT_TRUSTWORTHY`), the timestamps
+are malformed (`INVALID_TIMESTAMP`), the command is expired (`COMMAND_EXPIRED`),
+the validity interval exceeds the allowed maximum, or its identifier has
+already been processed.
 
 Initial maximum validity:
 
@@ -662,9 +697,13 @@ in-memory implementation behind the same abstraction.
 
 ```text
 INVALID_PAYLOAD
+PAYLOAD_TOO_LARGE
 UNSUPPORTED_PROTOCOL_VERSION
 UNKNOWN_COMMAND
 COMMAND_NOT_ALLOWED
+COMMAND_EXPIRED
+CLOCK_NOT_TRUSTWORTHY
+INVALID_TIMESTAMP
 DEVICE_BUSY
 NOT_PROVISIONED
 WIFI_UNAVAILABLE
@@ -673,6 +712,7 @@ DOOR_OUTPUT_FAILURE
 OTA_DOWNLOAD_FAILED
 OTA_VALIDATION_FAILED
 OTA_INSTALL_FAILED
+PROVISIONING_FAILED
 INTERNAL_ERROR
 ```
 
@@ -734,6 +774,22 @@ door_open_duration_ms
 audio_volume
 health_interval_s
 ```
+
+### 22.1 Intercom State Vocabulary
+
+`intercom_state` (used in both the reported Shadow and health telemetry) uses:
+
+```text
+IDLE
+RINGING
+OFF_HOOK
+IN_CALL
+ERROR
+```
+
+Consumers must recognize exactly these five values. A value outside this set
+must become a safe unknown state — preserving the raw string when possible
+for diagnostics — instead of throwing or crashing the interface.
 
 Secrets never belong in Device Shadow.
 

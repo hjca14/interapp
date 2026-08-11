@@ -799,6 +799,7 @@ Antes de alterar a arquitetura:
 * [x] Contratos `DeviceBackendRepository`/`AuthRepository` + stubs honestos (`LocalDeviceBackendRepository`/`LocalAuthRepository`, nunca fingem sucesso)
 * [x] Fluxo `OPEN_DOOR` real na UI: máquina de estados idle/sending/accepted/completed/failed/rejected/timedOut, sem duplo-toque, sem reenvio automático (ver seção 26)
 * [x] Arquitetura de pairing/provisioning (stub): `ProvisioningState`/`ProvisioningRepository`/`ProvisioningTransport`/`PairingController`/`PairingPage`, honesta sobre BLE não estar implementado (ver seção 13)
+* [x] Alinhamento dos modelos/parsers com o contrato oficial v1: timestamps de comando em epoch segundos, 18 códigos de erro, vocabulário de `intercom_state`, formato do QR (`interbridge://claim?v=1&...`) — ver seção 26, "Alinhamento com o contrato v1"
 
 ## Fase 2 — Primeiro hardware
 
@@ -955,7 +956,7 @@ device  → X.509/mTLS contra AWS IoT Core (o app nunca vê essas credenciais)
 
 ## Claim (associação de propriedade)
 
-QR = `device_id` (não é segredo) + `claim_code` (segredo de posse, single-use). Modelado em `features/pairing/domain/entities/device_claim.dart`. `DeviceBackendRepository.claimDevice` é a operação de backend correspondente — hoje sempre retorna "backend indisponível".
+QR = `device_id` (não é segredo) + `claim_code` (segredo de posse, single-use), no formato `interbridge://claim?v=1&device_id=ib-<32 hex minúsculos>&claim_code=<segredo>` (`docs/communication-protocol.md` §4). Modelado em `features/pairing/domain/entities/device_claim.dart`: `parseDeviceClaimQrPayload` valida scheme/host/versão/formato do `device_id`/presença do `claim_code`/parâmetros obrigatórios duplicados, sem nunca lançar exceção (entrada inválida vira `null`). `claim_code` nunca aparece em `toString()` e não deve ser persistido depois de um claim bem-sucedido. `DeviceBackendRepository.claimDevice` é a operação de backend correspondente — hoje sempre retorna "backend indisponível".
 
 ## Provisioning (pareamento)
 
@@ -975,13 +976,17 @@ via `DeviceCommandController` (`features/devices/presentation/providers/device_c
 
 `RESTART` está modelado no contrato mas sem UI dedicada — o protocolo nota que `ACCEPTED` pode chegar antes do reboot de verdade, e só a reconexão é o sinal autoritativo de conclusão, o que exige um backend real para ter sentido. Continua atrás do placeholder "Reiniciar" em `DeviceSettingsPage`.
 
+`issued_at`/`expires_at` no envelope do comando são **epoch Unix em segundos** (inteiro, não ISO-8601) — `DeviceCommand.toJson`/`fromJson` já convertem certo via `dateTimeToEpochSeconds`/`epochSecondsToDateTime` (`core/protocol/protocol_constants.dart`). Esses timestamps são **autoritativos do backend**: o app nunca os define, só contribui a intenção do comando e o `command_id` (idempotência) — o relógio do celular nunca é tratado como autoridade de segurança.
+
+`DeviceProtocolError` cobre os 18 códigos v1 (`INVALID_PAYLOAD`, `PAYLOAD_TOO_LARGE`, `UNSUPPORTED_PROTOCOL_VERSION`, `UNKNOWN_COMMAND`, `COMMAND_NOT_ALLOWED`, `COMMAND_EXPIRED`, `CLOCK_NOT_TRUSTWORTHY`, `INVALID_TIMESTAMP`, `DEVICE_BUSY`, `NOT_PROVISIONED`, `WIFI_UNAVAILABLE`, `CLOUD_UNAVAILABLE`, `DOOR_OUTPUT_FAILURE`, `OTA_DOWNLOAD_FAILED`, `OTA_VALIDATION_FAILED`, `OTA_INSTALL_FAILED`, `PROVISIONING_FAILED`, `INTERNAL_ERROR`) + `unknown` de fallback. Uma primeira versão desta integração só tinha 13 desses códigos — corrigido nesta tarefa de alinhamento. Cada erro também tem um `origin` (`device`/`backend`/`connectivity`) — classificação só do lado do app para diagnóstico/tratamento, sem alterar os códigos do contrato.
+
 ## Status
 
 `DeviceStatus` foi revisado para refletir o que o backend consolida do Device Shadow (`docs/communication-protocol.md` §22-23): `firmwareVersion`, `hardwareVersion`, `intercomState`, `wifiRssi`, `uptime`, `isProvisioned`, além de `isOnline`/`lastSeen`/`hasIncomingCall`/`errorMessage` que já existiam. Campos removidos por não corresponderem ao protocolo real: `batteryLevel`, `connectionType`/`DeviceConnectionType`, `wifiName` (nenhum estava em uso na UI).
 
 `isOnline` **nunca** é inferido localmente por heartbeat — no protocolo real ele vem de eventos de lifecycle/connectivity do AWS IoT, consolidados pelo backend; `DeviceStatus.fromReportedShadow` recebe `isOnline` como parâmetro separado do mapa do shadow por causa disso.
 
-`IntercomState` é um wrapper aberto (não um enum fechado): o protocolo só confirma `"IDLE"` como exemplo, o resto do vocabulário não está definido — ver `docs/communication-integration.md` §11 e "Itens em aberto descobertos" abaixo.
+`IntercomState` reconhece os cinco valores definidos pelo protocolo (`docs/communication-protocol.md` §22.1): `IDLE`, `RINGING`, `OFF_HOOK`, `IN_CALL`, `ERROR`. Continua sendo um wrapper aberto (não um enum fechado) — não porque o vocabulário seja desconhecido (agora é), mas porque um valor fora desses cinco precisa virar um estado "desconhecido" seguro preservando a string bruta, em vez de quebrar a interface (`IntercomState.isKnown`).
 
 `health_interval_s`/`ring_timeout_ms`/`door_open_duration_ms`/`audio_volume` são configuração do Device Shadow **desired**, modelada separadamente em `DeviceHardwareConfig` — nunca misturada com `DeviceSettings` (preferências do app/usuário). Ver seção 25.
 
@@ -1011,12 +1016,16 @@ O protocolo **proíbe** factory reset remoto (`docs/communication-protocol.md` �
 
 Ver seção 15 para o detalhe completo. Resumo: a seção 15 deste documento apontava Supabase como candidato de backend, escrita antes do protocolo v1.1 existir. O protocolo exige AWS IoT Core para a comunicação com o dispositivo — isso não é compatível com "Supabase como backend único". O conflito está documentado, não resolvido silenciosamente; falta uma decisão explícita de quem define a arquitetura do projeto.
 
-## Itens em aberto descobertos durante esta integração
+## Alinhamento com o contrato v1 (correção pós-integração)
 
-Além do que `docs/communication-protocol.md` §37 já lista como aberto (infraestrutura AWS, hardware, GPIO, etc.), implementar o lado do app expôs mais dois pontos que precisam de decisão de quem mantém o protocolo/firmware:
+A integração inicial do protocolo (o que virou a seção 26 original) tinha três imprecisões, corrigidas numa tarefa de alinhamento subsequente, antes da Fase 1 AWS:
 
-* **Vocabulário de `intercom_state`** — só `"IDLE"` está confirmado como exemplo no protocolo.
-* **Formato do texto do QR code** — o protocolo diz que contém `device_id` + `claim_code`, mas não a serialização exata (JSON? URI própria?). `parseDeviceClaimQrPayload` assume JSON como placeholder.
+* **Vocabulário de `intercom_state`** — antes só `"IDLE"` estava confirmado; agora são os 5 valores definidos (`IDLE`/`RINGING`/`OFF_HOOK`/`IN_CALL`/`ERROR`, §22.1).
+* **Formato do QR code** — antes um placeholder JSON; agora o scheme `interbridge://claim?v=1&device_id=...&claim_code=...` (§4).
+* **Lista de códigos de erro** — antes 13 códigos; agora os 18 do contrato oficial (faltavam `PAYLOAD_TOO_LARGE`, `COMMAND_EXPIRED`, `CLOCK_NOT_TRUSTWORTHY`, `INVALID_TIMESTAMP`, `PROVISIONING_FAILED`).
+* **Timestamps do comando** — antes o exemplo em `docs/communication-protocol.md` mostrava ISO-8601 para `issued_at`/`expires_at`; o wire protocol real usa epoch Unix em segundos (`timestamp` dos *eventos* continua ISO-8601 UTC, isso não mudou).
+
+Essa correção **não** ativou nenhuma integração real nova — só alinhou modelos/parsers/testes ao contrato. `CloudDeviceConnectionRepository` continua fora de uso (`LocalDeviceConnectionRepository` é a implementação ativa); nenhum SDK AWS/Cognito/cliente MQTT foi adicionado; nenhum scanner de QR/câmera foi adicionado.
 
 ## Estado de implementação
 

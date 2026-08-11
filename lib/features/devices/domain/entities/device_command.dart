@@ -1,3 +1,5 @@
+import 'package:interapp/core/protocol/protocol_constants.dart';
+
 /// A remote command sendable to an InterBridge, per
 /// `docs/communication-protocol.md` §18.
 ///
@@ -54,11 +56,20 @@ enum DeviceCommandType {
   }
 }
 
-/// Conceptual representation of a command the app asked the backend to
-/// issue — not something the app builds and publishes to MQTT itself. The
-/// app never talks to AWS IoT Core directly (see
+/// Conceptual representation of a command envelope, as the backend builds
+/// and publishes it to AWS IoT Core — not something the app constructs and
+/// sends itself. The app never talks to AWS IoT Core directly (see
 /// `docs/communication-integration.md`); this shape mirrors the protocol's
-/// command envelope (§18) purely so results/history can reference it.
+/// command envelope (§18) purely so a result/history the backend hands back
+/// can be parsed and displayed.
+///
+/// [issuedAt]/[expiresAt] are **backend-authoritative**: the backend stamps
+/// them before publishing, and the device evaluates expiry against them.
+/// The phone's clock is never a security authority and this class is not
+/// how the app requests a command — when the app asks the (future) backend
+/// to open the door, it only sends the command intent and a client-generated
+/// `command_id` (see [generateCommandId]) for idempotency; the backend fills
+/// in the rest.
 class DeviceCommand {
   const DeviceCommand({
     required this.commandId,
@@ -73,4 +84,36 @@ class DeviceCommand {
   final DateTime issuedAt;
   final DateTime expiresAt;
   final Map<String, dynamic>? payload;
+
+  /// Serializes to the wire envelope shape (§14/§18). `issued_at`/
+  /// `expires_at` are encoded as Unix epoch seconds, not ISO-8601 — see
+  /// [dateTimeToEpochSeconds].
+  Map<String, dynamic> toJson() {
+    return {
+      'protocol_version': kProtocolVersion,
+      'command_id': commandId,
+      'command': command.wireValue,
+      'issued_at': dateTimeToEpochSeconds(issuedAt),
+      'expires_at': dateTimeToEpochSeconds(expiresAt),
+      if (payload != null) 'payload': payload,
+    };
+  }
+
+  /// Parses a command envelope as received from the backend. Throws
+  /// [UnsupportedProtocolVersionException] when `protocol_version` is
+  /// present and unsupported.
+  factory DeviceCommand.fromJson(Map<String, dynamic> json) {
+    final protocolVersion = (json['protocol_version'] as num?)?.toInt();
+    if (protocolVersion != null &&
+        !isSupportedProtocolVersion(protocolVersion)) {
+      throw UnsupportedProtocolVersionException(protocolVersion);
+    }
+    return DeviceCommand(
+      commandId: json['command_id'] as String,
+      command: DeviceCommandType.fromWireValue(json['command'] as String?),
+      issuedAt: epochSecondsToDateTime((json['issued_at'] as num).toInt()),
+      expiresAt: epochSecondsToDateTime((json['expires_at'] as num).toInt()),
+      payload: json['payload'] as Map<String, dynamic>?,
+    );
+  }
 }
