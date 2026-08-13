@@ -60,7 +60,7 @@ Swapping from local to cloud, once a real backend exists, is a one-line
 change in `features/devices/presentation/providers/devices_providers.dart`
 — no presentation code changes, by design.
 
-## 2. Provisioning (the one direct app ↔ device path)
+## 2. Onboarding / provisioning (the one direct app ↔ device path)
 
 ```text
 InterApp
@@ -75,36 +75,42 @@ AWS IoT Core
 This is the **only** protocol-defined direct communication between the app
 and a physical InterBridge. Everything else goes through the backend.
 
-Code layout (`features/pairing/`):
+Three entry paths converge into one coordinator — nearby BLE discovery is
+primary (no QR needed for the normal case); QR/manual `setup_code` entry
+are fallbacks that resolve *which* device, then re-enter the same BLE
+sequence (they never skip physically talking to the device):
 
 ```text
-PairingPage → PairingController → ProvisioningRepository → ProvisioningTransport → (future) real BLE
-                                         ↑
-                              StubProvisioningRepository (active today)
+AddInterBridgePage → OnboardingCoordinator → BleOnboardingTransport → (future) real BLE
+                            │
+                            └──────────────→ OnboardingClaimRepository → (future) real backend
 ```
 
-`ProvisioningTransport` has no implementation yet. **Before adding a
-Flutter BLE/ESP-provisioning package**, verify it is actually compatible
-with ESP-IDF Unified Provisioning / Protocomm Security 1 for the pinned
-ESP-IDF version the firmware build uses (`docs/communication-protocol.md`
-§7) — do not adopt an outdated or incompatible package.
+`BleOnboardingTransport` has no production implementation yet — only a
+debug-only `MockBleOnboardingTransport` used to exercise the flow before
+real BLE exists (`NotImplementedBleOnboardingTransport` is what production
+builds get). **Before adding a Flutter BLE/ESP-provisioning package**,
+verify it is actually compatible with ESP-IDF Unified Provisioning /
+Protocomm Security 1 for the pinned ESP-IDF version the firmware build uses
+(`docs/communication-protocol.md` §7) — do not adopt an outdated or
+incompatible package.
 
-`docs/communication-protocol.md` §6.1 for product claim:
+The onboarding claim API is conceptually:
 
 ```text
-InterApp (signed-in user)
-   ↓ scans QR (device_id + claim_code)
-DeviceBackendRepository.claimDevice(...)
-   ↓
-Backend validates + associates ownership
-   ↓
-Backend requests temporary AWS IoT Fleet Provisioning claim
-   ↓
-Temporary provisioning material → physical device, over the secure BLE session
+POST /devices/claim/start          — BLE-primary path, once a device_id is known
+POST /devices/claim/resolve-code   — QR/manual fallback, resolves a setup_code
+POST /devices/claim/complete       — after BLE delivers provisioning material
+POST /devices/claim/cancel
 ```
 
-No QR scanner package is included yet (see §7 below). `PairingPage` accepts
-`device_id`/`claim_code` typed manually as a stand-in.
+`setup_code` (`SetupCode`, `features/pairing/domain/entities/setup_code.dart`)
+is **not** the same secret as `DeviceClaim.claimCode` from the product QR
+(§4) — see PROJECT_CONTEXT.md, "setup_code vs. claim_code", for why a
+12-digit human-typeable session code and a ≥128-bit permanent ownership
+secret have to be two different things. No QR scanner/camera package is
+included yet; `AddInterBridgePage`'s QR fallback accepts pasted text as a
+stand-in.
 
 ## 3. What the app never receives or stores
 
@@ -123,14 +129,19 @@ The app also must never persist or log, beyond the moment they're used:
 
 - the product `claim_code`, after the claim flow completes;
 - the BLE Proof of Possession;
-- Wi-Fi credentials (only ever held in memory for the duration of the BLE
-  provisioning call — see `ProvisioningRepository.provision`'s doc
-  comment);
-- the temporary AWS Fleet Provisioning material.
+- Wi-Fi credentials (only ever held in memory for the duration of
+  `OnboardingCoordinator.submitWifi`, cleared from the UI's text field
+  right after);
+- the temporary AWS Fleet Provisioning material;
+- the full onboarding `setup_code` in logs/analytics — use
+  `SetupCode.maskedForLogging` (last 4 digits only) instead.
 
 `DeviceClaim.toString()` redacts `claimCode` specifically because a naive
 logger calling `toString()` on a caught exception/object is a realistic way
-for a secret to leak by accident.
+for a secret to leak by accident. `SetupCode.toString()` deliberately does
+**not** redact — the user actively sees/types that value in the UI, so
+hiding it there would break normal display code; only logging/analytics
+call sites are required to use the masked form.
 
 ## 4. MQTT is not implemented in the UI
 

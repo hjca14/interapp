@@ -371,7 +371,8 @@ lib/
 │   │   │   └── repositories/
 │   │   ├── domain/
 │   │   │   ├── entities/
-│   │   │   └── repositories/
+│   │   │   ├── repositories/
+│   │   │   └── services/
 │   │   └── presentation/
 │   │       ├── controllers/
 │   │       ├── pages/
@@ -467,23 +468,49 @@ Tocar em um favorito:
 
 ---
 
-# 13. Pairing
+# 13. Onboarding (pareamento de um novo InterBridge)
 
-O protocolo v1.1 define o mecanismo de pareamento (`docs/communication-protocol.md` §6-7): BLE com ESP-IDF Unified Provisioning/Protocomm Security 1, QR `device_id + claim_code` para claim de propriedade, e AWS IoT Fleet Provisioning para a credencial permanente. Isso deixou de ser "ainda não definido" — o que falta é a implementação real (BLE de verdade, scanner de QR, backend de claim).
+Três caminhos de entrada convergem num único coordinator:
+
+```text
+1. Descoberta BLE por perto — PRIMÁRIO (não exige QR)
+2. QR com setup_code       — FALLBACK
+3. Código digitado à mão   — FALLBACK
+```
+
+O caminho primário não pede QR: "Adicionar InterBridge" → instrução (luz piscando azul) → escaneia BLE por perto → usuário confirma o aparelho físico → conecta por BLE → escolhe Wi-Fi → sessão de claim autenticada → material de provisioning temporário entregue ao dispositivo por BLE → dispositivo faz o Fleet Provisioning na AWS → verifica online → sucesso. **AWS IoT, MQTT, X.509, CSR, Fleet Provisioning, Thing nunca aparecem para o usuário** — só nos comentários do código.
 
 Arquitetura em `features/pairing/`:
 
 ```text
-PairingPage → PairingController → ProvisioningRepository → ProvisioningTransport → BLE real (futuro)
-                                          ↑
-                               StubProvisioningRepository (ativa hoje)
+AddInterBridgePage → OnboardingCoordinator → BleOnboardingTransport → BLE real (futuro)
+                            │
+                            └──────────────→ OnboardingClaimRepository → backend real (futuro)
 ```
 
-* `ProvisioningState`/`ProvisioningPhase` — máquina de estados com as 13 fases do onboarding (idle, scanning, deviceFound, establishingSecureSession, awaitingWifi, sendingWifi, requestingCloudClaim, transferringFleetProvisioningMaterial, waitingForDeviceWifi, waitingForFleetProvisioning, waitingForCloudConnection, completed, failed).
-* `DeviceClaim`/`DeviceClaimResult` (`features/pairing/domain/entities/device_claim.dart`) — `device_id` + `claim_code` do QR. `claim_code` nunca aparece em `toString()`, logs, nem é persistido. `parseDeviceClaimQrPayload` assume payload JSON como placeholder — **o formato real do texto do QR ainda não está definido no protocolo**, confirmar antes de integrar um scanner de verdade.
-* `ProvisioningRepository` — orquestra o fluxo completo (BLE + claim + Fleet Provisioning), expõe `Stream<ProvisioningState>` em vez de callbacks espalhados. `StubProvisioningRepository` é a única implementação hoje: reporta honestamente que BLE não está implementado (emite `scanning` → `deviceFound` → `failed`), nunca finge sucesso.
-* `ProvisioningTransport` — camada mais baixa (scan/connect/secure session/enviar Wi-Fi/enviar material de Fleet Provisioning), reservada para uma implementação BLE real. **Antes de adicionar um pacote Flutter de BLE/ESP provisioning, validar compatibilidade com ESP-IDF Unified Provisioning/Protocomm Security 1** (protocolo §7) — não adotar pacote obsoleto/incompatível.
-* `PairingPage` — acessível pelo ícone de Bluetooth no app bar de `HomePage`. Sem scanner de QR ainda: `device_id`/`claim_code` são digitados manualmente como placeholder. Senha de Wi-Fi só existe em memória durante a chamada e é limpa logo depois (nunca vai para `shared_preferences`/`DeviceSettings`/logs).
+* `OnboardingState`/`OnboardingPhase` (`domain/entities/onboarding_state.dart`) — as 14 fases primárias (idle, checkingSetupMode, scanningBle, deviceFound, confirmingDevice, connectingBle, selectingWifi, sendingWifi, startingClaim, claimActive, awsProvisioning, verifyingDevice, success, error) + 3 de fallback (scanningQr, enteringSetupCode, resolvingSetupCode). `OnboardingFailureKind` classifica o motivo de `error` (bleUnavailable/scanTimeout/connectionFailed/wifiFailed/claimFailed/alreadyOwned/invalidOrExpiredCode/rateLimited/unknown) para a UI escolher a ação de recuperação certa, sem precisar de uma fase por motivo.
+* `OnboardingCoordinator` (`presentation/controllers/`) — **a única** máquina de estados; `AddInterBridgePage` só lê `state` e chama métodos nela, sem lógica de provisioning na tela. Os dois fallbacks convergem no mesmo caminho BLE do primário — QR/código manual só respondem "qual dispositivo", nunca pulam a presença física por Bluetooth.
+* `SetupCode` (`domain/entities/setup_code.dart`) — código de 12 dígitos, aceita espaços/traços e normaliza. **Não é o mesmo conceito que `DeviceClaim.claimCode`** (ver "setup_code vs. claim_code" abaixo). `maskedForLogging` mostra só os últimos 4 dígitos — nunca logar o código completo.
+* `DiscoveredInterBridge` — só expõe `friendlyName` (ex.: `InterBridge-A91C`) pra UI normal; `deviceId` técnico fica reservado para uma futura tela de diagnóstico/desenvolvedor.
+* `ClaimSession` (`domain/entities/claim_session.dart`) + `OnboardingClaimRepository` (`domain/repositories/`) — `start`/`resolveSetupCode`/`complete`/`cancel`, espelhando a API conceitual `POST /devices/claim/*`. Falhas viram `OnboardingClaimException` com um motivo genérico (`invalidOrExpiredCode`/`alreadyOwned`/`rateLimited`/`backendUnavailable`) — a UI nunca revela se um código existe, já foi usado ou pertence a outra pessoa.
+* `BleOnboardingTransport` (`domain/repositories/`) — scan/connect/secure session/Wi-Fi/material de Fleet Provisioning. **Antes de adicionar um pacote Flutter de BLE/ESP provisioning, validar compatibilidade com ESP-IDF Unified Provisioning/Protocomm Security 1** (protocolo §7) — não adotar pacote obsoleto/incompatível.
+* `OnboardingAnalytics` (`domain/services/`) — eventos não sensíveis (`onboarding_started`, `ble_scan_started`, `device_discovered`, `device_confirmed`, `ble_connected`, `wifi_config_sent`, `claim_started`, `provisioning_started`, `onboarding_completed`, `onboarding_failed`, `fallback_qr_used`, `fallback_manual_used`). Nunca inclui senha de Wi-Fi, `setup_code` completo, token de claim ou chave privada.
+
+## Stub (produção) vs. mock (debug)
+
+Igual ao padrão já usado no resto do app (`LocalDeviceConnectionRepository`): produção usa uma implementação honesta que reporta "não implementado"; builds de debug usam um fake funcional pra dar pra testar o fluxo inteiro sem hardware, selecionado automaticamente por `kDebugMode` em `pairing_providers.dart` — nunca manualmente em produção.
+
+* `NotImplementedBleOnboardingTransport` (produção) / `MockBleOnboardingTransport` (debug, simula achar `InterBridge-A91C`).
+* `LocalOnboardingClaimRepository` (produção, sempre `backendUnavailable`) / `MockOnboardingClaimRepository` (debug, sempre sucesso).
+
+## setup_code vs. claim_code — não são o mesmo segredo
+
+Achado importante ao implementar esta tarefa: `setup_code` (12 dígitos, ~40 bits de entropia) e `DeviceClaim.claimCode` (seção 26, ≥128 bits exigidos pelo protocolo) **não podem ser o mesmo valor** — 12 dígitos decimais não têm entropia suficiente para ser o segredo de posse permanente do produto. São conceitos complementares, não conflitantes:
+
+* **QR do produto** (`docs/communication-protocol.md` §4): `device_id` + `claim_code` de alta entropia, impresso no aparelho, segredo de posse permanente.
+* **`setup_code` de onboarding** (esta tarefa): código curto, de sessão, rate-limited e de vida curta, usado só para o backend correlacionar um scan/digitação a uma tentativa de claim — não concede posse sozinho.
+
+`parseDeviceClaimQrPayload`/`DeviceClaim` (seção 26) continuam existindo para o QR do produto definido no protocolo; o novo fluxo de onboarding usa `parseSetupCodeQrPayload`/`SetupCode` em vez disso. Não foram unificados propositalmente — servem a momentos diferentes do fluxo.
 
 Ver `docs/communication-integration.md` (seção 2) e `docs/APP_COMMUNICATION_STATUS.md` para o estado exato de cada peça.
 
@@ -798,8 +825,8 @@ Antes de alterar a arquitetura:
 * [x] Modelos de domínio do protocolo v1.1: `DeviceCommand`/`DeviceCommandResult`/`DeviceProtocolError`/`DeviceEvent`/`IntercomState`, `DeviceStatus` alinhado ao Device Shadow (ver seção 26)
 * [x] Contratos `DeviceBackendRepository`/`AuthRepository` + stubs honestos (`LocalDeviceBackendRepository`/`LocalAuthRepository`, nunca fingem sucesso)
 * [x] Fluxo `OPEN_DOOR` real na UI: máquina de estados idle/sending/accepted/completed/failed/rejected/timedOut, sem duplo-toque, sem reenvio automático (ver seção 26)
-* [x] Arquitetura de pairing/provisioning (stub): `ProvisioningState`/`ProvisioningRepository`/`ProvisioningTransport`/`PairingController`/`PairingPage`, honesta sobre BLE não estar implementado (ver seção 13)
 * [x] Alinhamento dos modelos/parsers com o contrato oficial v1: timestamps de comando em epoch segundos, 18 códigos de erro, vocabulário de `intercom_state`, formato do QR (`interbridge://claim?v=1&...`) — ver seção 26, "Alinhamento com o contrato v1"
+* [x] Onboarding de novo InterBridge (BLE primário + QR/manual fallback): `OnboardingCoordinator` (máquina de estados única, 17 fases), `AddInterBridgePage`, contratos `BleOnboardingTransport`/`OnboardingClaimRepository` (stub honesto em produção, mock em debug), `SetupCode`, análise de eventos (`OnboardingAnalytics`) — substitui a arquitetura anterior de `ProvisioningState`/`ProvisioningRepository`/`ProvisioningTransport`/`PairingController`/`PairingPage` (ver seção 13)
 
 ## Fase 2 — Primeiro hardware
 
@@ -807,8 +834,8 @@ Antes de alterar a arquitetura:
 * [ ] Definir hardware final/protótipo
 * [ ] Definir interface elétrica com o interfone
 * [ ] Implementar o backend de aplicação AWS real (Cognito/API/Lambda) + `RemoteDeviceBackendRepository`
-* [ ] Validar/implementar BLE real (`ProvisioningTransport`) — confirmar compatibilidade com ESP-IDF Unified Provisioning/Protocomm Security 1 antes de escolher pacote
-* [ ] Scanner de QR real (hoje `PairingPage` usa entrada manual) — confirmar antes o formato de serialização do QR
+* [ ] Validar/implementar BLE real (`BleOnboardingTransport`) — confirmar compatibilidade com ESP-IDF Unified Provisioning/Protocomm Security 1 (versão pinada ao firmware) antes de escolher pacote
+* [ ] Scanner de QR real (hoje o fallback de QR em `AddInterBridgePage` usa entrada manual do payload) — confirmar antes o formato de serialização do QR de `setup_code`
 * [ ] Ativar `CloudDeviceConnectionRepository` como implementação padrão de `deviceConnectionRepositoryProvider`
 * [ ] Pareamento de verdade (ponta a ponta)
 * [ ] Descoberta/conexão local

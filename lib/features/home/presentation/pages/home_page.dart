@@ -7,7 +7,7 @@ import 'package:interapp/features/devices/domain/entities/interbridge_device.dar
 import 'package:interapp/features/devices/presentation/pages/device_form_page.dart';
 import 'package:interapp/features/devices/presentation/pages/devices_page.dart';
 import 'package:interapp/features/devices/presentation/providers/devices_providers.dart';
-import 'package:interapp/features/pairing/presentation/pages/pairing_page.dart';
+import 'package:interapp/features/pairing/presentation/pages/add_interbridge_page.dart';
 import 'package:interapp/features/profile/presentation/pages/registration_page.dart';
 import 'package:interapp/features/settings/presentation/pages/settings_page.dart';
 
@@ -137,11 +137,12 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   /// Entry point for onboarding a new physical InterBridge. See
-  /// `PairingPage`'s doc comment for what's actually implemented today.
+  /// `AddInterBridgePage`'s doc comment for what's actually implemented
+  /// today.
   void _openPairing() {
     Navigator.of(
       context,
-    ).push(MaterialPageRoute(builder: (_) => const PairingPage()));
+    ).push(MaterialPageRoute(builder: (_) => const AddInterBridgePage()));
   }
 
   @override
