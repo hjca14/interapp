@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -100,6 +102,101 @@ void main() {
   });
 
   group('locked gate', () {
+    testWidgets('cold start blocks before protected content is shown', (
+      tester,
+    ) async {
+      await _pumpGate(
+        tester,
+        biometrics: _FakeBiometrics(
+          result: BiometricAuthenticationResult.canceled,
+        ),
+      );
+
+      expect(find.text('Conteúdo protegido'), findsNothing);
+      expect(find.text('Desbloqueie para continuar'), findsOneWidget);
+    });
+
+    testWidgets('cold start opens exactly one prompt', (tester) async {
+      final biometrics = _FakeBiometrics(
+        result: BiometricAuthenticationResult.canceled,
+      );
+      await _pumpGate(tester, biometrics: biometrics);
+
+      expect(biometrics.authenticateCalls, 1);
+      await tester.pump();
+      expect(biometrics.authenticateCalls, 1);
+    });
+
+    testWidgets('native prompt lifecycle events do not duplicate cold prompt', (
+      tester,
+    ) async {
+      final authentication = Completer<BiometricAuthenticationResult>();
+      final biometrics = _FakeBiometrics(authentication: authentication);
+      await _pumpGate(
+        tester,
+        biometrics: biometrics,
+        settle: false,
+      );
+
+      expect(biometrics.authenticateCalls, 1);
+      await tester.binding.handleAppLifecycleStateChanged(
+        AppLifecycleState.inactive,
+      );
+      await tester.binding.handleAppLifecycleStateChanged(
+        AppLifecycleState.resumed,
+      );
+      authentication.complete(BiometricAuthenticationResult.canceled);
+      await tester.pump();
+      await tester.pump();
+
+      expect(biometrics.authenticateCalls, 1);
+      expect(find.text('Desbloqueie para continuar'), findsOneWidget);
+    });
+
+    testWidgets('disabled cold start shows protected content normally', (
+      tester,
+    ) async {
+      final biometrics = _FakeBiometrics();
+      await _pumpGate(tester, biometrics: biometrics, enabled: false);
+
+      expect(find.text('Conteúdo protegido'), findsOneWidget);
+      expect(biometrics.authenticateCalls, 0);
+    });
+
+    testWidgets('loading preferences never flashes protected content', (
+      tester,
+    ) async {
+      final repository = _DeferredSettingsRepository();
+      await _pumpGate(
+        tester,
+        biometrics: _FakeBiometrics(
+          result: BiometricAuthenticationResult.canceled,
+        ),
+        repository: repository,
+        settle: false,
+      );
+
+      expect(find.text('Conteúdo protegido'), findsNothing);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+      repository.complete(
+        const BiometricLockSettings(enabled: true),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Conteúdo protegido'), findsNothing);
+      expect(find.text('Desbloqueie para continuar'), findsOneWidget);
+    });
+
+    testWidgets('successful cold-start authentication releases content', (
+      tester,
+    ) async {
+      await _pumpGate(tester, biometrics: _FakeBiometrics());
+
+      expect(find.text('Conteúdo protegido'), findsOneWidget);
+      expect(find.text('Desbloqueie para continuar'), findsNothing);
+    });
+
     testWidgets('automatic prompt occurs once and cancel keeps gate locked', (
       tester,
     ) async {
@@ -112,6 +209,26 @@ void main() {
       expect(find.text('Desbloqueie para continuar'), findsOneWidget);
       await tester.pump();
       expect(biometrics.authenticateCalls, 1);
+    });
+
+    testWidgets('background and resume still locks after cold-start unlock', (
+      tester,
+    ) async {
+      final biometrics = _FakeBiometrics(
+        results: [
+          BiometricAuthenticationResult.success,
+          BiometricAuthenticationResult.canceled,
+        ],
+      );
+      await _pumpGate(
+        tester,
+        biometrics: biometrics,
+        simulateBackground: true,
+      );
+
+      expect(biometrics.authenticateCalls, 2);
+      expect(find.text('Desbloqueie para continuar'), findsOneWidget);
+      expect(find.text('Conteúdo protegido'), findsNothing);
     });
 
     testWidgets(
@@ -179,17 +296,36 @@ Future<void> _pumpLockedGate(
   LocalAuthRepository? auth,
   TextScaler textScaler = TextScaler.noScaling,
 }) async {
+  await _pumpGate(
+    tester,
+    biometrics: biometrics,
+    auth: auth,
+    textScaler: textScaler,
+  );
+}
+
+Future<void> _pumpGate(
+  WidgetTester tester, {
+  required _FakeBiometrics biometrics,
+  LocalAuthRepository? auth,
+  TextScaler textScaler = TextScaler.noScaling,
+  bool enabled = true,
+  bool simulateBackground = false,
+  bool settle = true,
+  BiometricLockSettingsRepository? repository,
+}) async {
   var now = DateTime(2026);
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         biometricLockSettingsRepositoryProvider.overrideWithValue(
-          _MemorySettingsRepository(
-            const BiometricLockSettings(
-              enabled: true,
-              backgroundTimeout: Duration.zero,
-            ),
-          ),
+          repository ??
+              _MemorySettingsRepository(
+                BiometricLockSettings(
+                  enabled: enabled,
+                  backgroundTimeout: Duration.zero,
+                ),
+              ),
         ),
         biometricAuthenticatorProvider.overrideWithValue(biometrics),
         authRepositoryProvider.overrideWithValue(
@@ -215,6 +351,12 @@ Future<void> _pumpLockedGate(
     ),
   );
   await tester.pump();
+  if (settle) {
+    await tester.pump();
+  }
+  if (!simulateBackground) {
+    return;
+  }
   await tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
   now = now.add(const Duration(seconds: 1));
   await tester.binding.handleAppLifecycleStateChanged(
@@ -242,14 +384,31 @@ class _MemorySettingsRepository implements BiometricLockSettingsRepository {
   }
 }
 
+class _DeferredSettingsRepository implements BiometricLockSettingsRepository {
+  final _completer = Completer<BiometricLockSettings>();
+
+  void complete(BiometricLockSettings settings) => _completer.complete(settings);
+
+  @override
+  Future<BiometricLockSettings> load() => _completer.future;
+
+  @override
+  Future<void> save(BiometricLockSettings settings) async {}
+}
+
 class _FakeBiometrics implements BiometricAuthenticator {
   _FakeBiometrics({
     this.configuredAvailability = BiometricAvailability.available,
     this.result = BiometricAuthenticationResult.success,
-  });
+    List<BiometricAuthenticationResult>? results,
+    Completer<BiometricAuthenticationResult>? authentication,
+  }) : _results = results,
+       _authentication = authentication;
 
   final BiometricAvailability configuredAvailability;
   final BiometricAuthenticationResult result;
+  final List<BiometricAuthenticationResult>? _results;
+  final Completer<BiometricAuthenticationResult>? _authentication;
   int authenticateCalls = 0;
 
   @override
@@ -258,6 +417,11 @@ class _FakeBiometrics implements BiometricAuthenticator {
   @override
   Future<BiometricAuthenticationResult> authenticate() async {
     authenticateCalls++;
-    return result;
+    final authentication = _authentication;
+    if (authentication != null) {
+      return authentication.future;
+    }
+    final results = _results;
+    return results == null ? result : results[authenticateCalls - 1];
   }
 }

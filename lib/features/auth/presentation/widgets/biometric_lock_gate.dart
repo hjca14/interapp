@@ -24,6 +24,7 @@ class _BiometricLockGateState extends ConsumerState<BiometricLockGate>
     with WidgetsBindingObserver {
   DateTime? _backgroundedAt;
   bool _locked = false;
+  bool _initialSettingsHandled = false;
   bool _unlocking = false;
   bool _automaticAttemptScheduled = false;
   String? _message;
@@ -104,7 +105,25 @@ class _BiometricLockGateState extends ConsumerState<BiometricLockGate>
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(biometricLockSettingsProvider);
-    final enabled = settings.value?.enabled == true;
+    if (settings.isLoading && !settings.hasValue) {
+      return ColoredBox(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: const Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (!settings.hasValue) {
+      return ColoredBox(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: const Center(
+          child: Text('Não foi possível carregar as preferências de segurança.'),
+        ),
+      );
+    }
+    final enabled = settings.requireValue.enabled;
+    if (!_initialSettingsHandled) {
+      _initialSettingsHandled = true;
+      _locked = enabled;
+    }
     if (!enabled || !_locked) {
       return widget.child;
     }
