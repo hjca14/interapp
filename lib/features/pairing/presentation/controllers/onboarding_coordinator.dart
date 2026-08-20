@@ -200,7 +200,10 @@ class OnboardingCoordinator extends ChangeNotifier {
   Future<void> submitQrPayload(String raw) async {
     final code = parseSetupCodeQrPayload(raw);
     if (code == null) {
-      _fail(OnboardingFailureKind.invalidOrExpiredCode, _claimFailureMessage(OnboardingFailureKind.invalidOrExpiredCode));
+      _fail(
+        OnboardingFailureKind.invalidOrExpiredCode,
+        _claimFailureMessage(OnboardingFailureKind.invalidOrExpiredCode),
+      );
       return;
     }
     await _resolveSetupCode(code);

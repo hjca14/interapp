@@ -1,24 +1,65 @@
-import 'package:interapp/features/auth/domain/entities/auth_session.dart';
+import '../entities/auth_session.dart';
 
-/// Contract for human authentication against the application backend.
-///
-/// The decision leans toward Amazon Cognito (§27 of
-/// `docs/communication-protocol.md`), but no widget/controller should
-/// depend on a Cognito SDK directly — everything goes through this
-/// abstraction instead, the same way device transport goes through
-/// `DeviceConnectionRepository`.
-///
-/// Entirely separate from device authentication: this identifies a human
-/// user to the backend; device X.509/mTLS identifies a physical InterBridge
-/// to AWS IoT Core. Neither substitutes for the other.
+/// Provider-independent contract for human authentication.
 abstract class AuthRepository {
-  /// The current session, or `null` when signed out. Updates whenever
-  /// sign-in state changes.
-  Stream<AuthSession?> watchSession();
+  Stream<AuthSession> watchSession();
 
-  Future<AuthSession?> get currentSession;
+  Future<AuthSession> get currentSession;
 
-  Future<void> signIn();
+  Future<AuthSignUpResult> signUp(String email, String password);
+
+  Future<void> confirmSignUp(String email, String code);
+
+  Future<void> resendSignUpCode(String email);
+
+  Future<void> signIn(String email, String password);
 
   Future<void> signOut();
+
+  Future<void> beginPasswordReset(String email);
+
+  Future<void> confirmPasswordReset(
+    String email,
+    String code,
+    String newPassword,
+  );
+
+  /// Returns a valid access token for internal HTTP transport only.
+  ///
+  /// UI code must never call or display this method's result. A forced refresh
+  /// delegates refresh-token handling to the authentication SDK.
+  Future<String> getValidAccessToken({bool forceRefresh = false});
+
+  /// Invalidates local authentication after a terminal authorization failure.
+  Future<void> invalidateSession();
+}
+
+/// Result of starting Cognito sign-up.
+class AuthSignUpResult {
+  const AuthSignUpResult({required this.confirmationRequired});
+
+  final bool confirmationRequired;
+}
+
+/// Sanitized authentication failure categories exposed outside data code.
+enum AuthFailureKind {
+  invalidPassword,
+  invalidCredentials,
+  userNotConfirmed,
+  invalidOrExpiredCode,
+  userAlreadyExists,
+  rateLimited,
+  unavailable,
+  unknown,
+}
+
+/// Authentication error containing no provider payload or sensitive input.
+class AuthFailure implements Exception {
+  const AuthFailure(this.kind, this.safeMessage);
+
+  final AuthFailureKind kind;
+  final String safeMessage;
+
+  @override
+  String toString() => safeMessage;
 }

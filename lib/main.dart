@@ -1,21 +1,51 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:interapp/app/app.dart';
-import 'package:interapp/features/devices/presentation/providers/devices_providers.dart';
 
-/// App entry point.
-///
-/// A [ProviderContainer] is created manually (instead of just wrapping
-/// [InterApp] in a [ProviderScope]) because [IncomingCallNotificationService]
-/// needs an `await` before the first frame is drawn — it asks the OS for
-/// notification permission and registers the notification channel. The same
-/// container is then handed to the widget tree via [UncontrolledProviderScope]
-/// so the rest of the app keeps using `ref.watch`/`ref.read` normally.
+import 'app/app.dart';
+import 'core/config/amplify_bootstrap.dart';
+import 'core/config/app_environment.dart';
+import 'features/devices/presentation/providers/devices_providers.dart';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final container = ProviderContainer();
-  await container.read(incomingCallNotificationServiceProvider).initialize();
-  runApp(
-    UncontrolledProviderScope(container: container, child: const InterApp()),
-  );
+  try {
+    final config = AppConfig.fromEnvironment();
+    await AmplifyBootstrap.configure(config);
+    final container = ProviderContainer(
+      overrides: [appConfigProvider.overrideWithValue(config)],
+    );
+    await container.read(incomingCallNotificationServiceProvider).initialize();
+    runApp(
+      UncontrolledProviderScope(
+        container: container,
+        child: const InterApp(),
+      ),
+    );
+  } on Object {
+    runApp(const _ConfigurationErrorApp());
+  }
+}
+
+class _ConfigurationErrorApp extends StatelessWidget {
+  const _ConfigurationErrorApp();
+
+  @override
+  Widget build(BuildContext context) {
+    return const MaterialApp(
+      home: Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Text(
+                'Configuração inválida. Informe todos os valores exigidos '
+                'via --dart-define e reinicie o aplicativo.',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
