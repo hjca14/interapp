@@ -9,9 +9,13 @@ class SettingsPage extends StatelessWidget {
     super.key,
     required this.profileName,
     required this.onEditProfile,
+    required this.onSecurity,
+    required this.onLogout,
   });
   final String? profileName;
   final VoidCallback onEditProfile;
+  final VoidCallback onSecurity;
+  final VoidCallback onLogout;
 
   @override
   Widget build(BuildContext context) => ListView(
@@ -23,6 +27,20 @@ class SettingsPage extends StatelessWidget {
         subtitle: const Text('Perfil do InterBridge'),
         trailing: const Icon(Icons.chevron_right),
         onTap: onEditProfile,
+      ),
+      const Divider(),
+      ListTile(
+        leading: const Icon(Icons.security_outlined),
+        title: const Text('Segurança'),
+        subtitle: const Text('Biometria e bloqueio do aplicativo'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: onSecurity,
+      ),
+      ListTile(
+        leading: const Icon(Icons.logout),
+        title: const Text('Sair'),
+        subtitle: const Text('Encerrar a sessão neste dispositivo'),
+        onTap: onLogout,
       ),
       const Divider(),
       const ListTile(

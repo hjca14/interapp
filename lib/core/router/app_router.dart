@@ -8,6 +8,7 @@ import '../../features/auth/presentation/providers/auth_providers.dart';
 import '../../features/auth/domain/entities/auth_session.dart';
 import '../../features/devices/presentation/pages/api_device_detail_page.dart';
 import '../../features/home/presentation/pages/home_page.dart';
+import '../../features/pairing/presentation/pages/add_interbridge_page.dart';
 
 const _authenticationPaths = {
   '/login',
@@ -41,6 +42,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             CodePage(email: state.extra as String? ?? '', passwordReset: true),
       ),
       GoRoute(path: '/', builder: (_, _) => const HomePage()),
+      GoRoute(
+        path: '/add-interbridge',
+        builder: (_, _) => const AddInterBridgePage(),
+      ),
       GoRoute(
         path: '/security',
         builder: (_, _) => const SecuritySettingsPage(),
