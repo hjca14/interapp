@@ -75,12 +75,16 @@ class _FavoritesPageState extends State<FavoritesPage> {
   /// only a snackbar is shown, since `shared_preferences` writes essentially
   /// never fail in practice.
   Future<void> _editFavorite({Favorite? favorite}) async {
-    if (widget.deviceId == null) return;
+    if (widget.deviceId == null) {
+      return;
+    }
     final result = await showDialog<Favorite>(
       context: context,
       builder: (_) => FavoriteFormDialog(favorite: favorite),
     );
-    if (result == null) return;
+    if (result == null) {
+      return;
+    }
     setState(() {
       if (favorite == null) {
         _favorites.add(result);
@@ -101,7 +105,9 @@ class _FavoritesPageState extends State<FavoritesPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (widget.deviceId == null) {
       return const Center(
         child: Text(
@@ -149,7 +155,9 @@ class _FavoritesPageState extends State<FavoritesPage> {
                         await _editFavorite(favorite: favorite);
                       }
                       if (action == 'remove') {
-                        setState(() => _favorites.remove(favorite));
+                        setState(() {
+                          _favorites.remove(favorite);
+                        });
                         await _save();
                       }
                     },

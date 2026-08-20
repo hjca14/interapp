@@ -31,7 +31,9 @@ class _DeviceFormPageState extends State<DeviceFormPage> {
   /// `id`/`createdAt` are kept so only the name changes.
   void _save() {
     final name = _nameController.text.trim();
-    if (name.isEmpty) return;
+    if (name.isEmpty) {
+      return;
+    }
     Navigator.of(context).pop(
       InterBridgeDevice(
         id:

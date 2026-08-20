@@ -13,13 +13,17 @@ import 'package:interapp/features/pairing/domain/services/onboarding_analytics.d
 /// Release builds get the honest "not implemented" transport — never the
 /// mock, per "Production builds must use the real implementation".
 final bleOnboardingTransportProvider = Provider<BleOnboardingTransport>(
-  (_) => kDebugMode ? MockBleOnboardingTransport() : NotImplementedBleOnboardingTransport(),
+  (_) => kDebugMode
+      ? MockBleOnboardingTransport()
+      : NotImplementedBleOnboardingTransport(),
 );
 
 /// Same debug/release split as [bleOnboardingTransportProvider] — see
 /// `MockOnboardingClaimRepository`/`LocalOnboardingClaimRepository`.
 final onboardingClaimRepositoryProvider = Provider<OnboardingClaimRepository>(
-  (_) => kDebugMode ? MockOnboardingClaimRepository() : LocalOnboardingClaimRepository(),
+  (_) => kDebugMode
+      ? MockOnboardingClaimRepository()
+      : LocalOnboardingClaimRepository(),
 );
 
 final onboardingAnalyticsProvider = Provider<OnboardingAnalytics>(

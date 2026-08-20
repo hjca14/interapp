@@ -1,0 +1,140 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../domain/services/biometric_lock.dart';
+import '../providers/auth_providers.dart';
+import '../providers/biometric_lock_providers.dart';
+
+/// Covers authenticated content after the configured background timeout.
+///
+/// This gate does not wrap registration, confirmation, or recovery routes.
+/// It can only unlock after [BiometricUnlockService] verifies that Cognito is
+/// still signed in, and always offers normal login as a fallback.
+class BiometricLockGate extends ConsumerStatefulWidget {
+  const BiometricLockGate({super.key, required this.child, this.now});
+
+  final Widget child;
+  final DateTime Function()? now;
+
+  @override
+  ConsumerState<BiometricLockGate> createState() => _BiometricLockGateState();
+}
+
+class _BiometricLockGateState extends ConsumerState<BiometricLockGate>
+    with WidgetsBindingObserver {
+  DateTime? _backgroundedAt;
+  bool _locked = false;
+  bool _unlocking = false;
+  String? _message;
+
+  DateTime get _now => (widget.now ?? DateTime.now)();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      _backgroundedAt ??= _now;
+      return;
+    }
+    if (state != AppLifecycleState.resumed || _backgroundedAt == null) {
+      return;
+    }
+    final settings = ref.read(biometricLockSettingsProvider).value;
+    final elapsed = _now.difference(_backgroundedAt!);
+    _backgroundedAt = null;
+    if (settings != null && shouldLockAfterBackground(settings, elapsed)) {
+      setState(() {
+        _locked = true;
+        _message = null;
+      });
+    }
+  }
+
+  Future<void> _unlock() async {
+    if (_unlocking) {
+      return;
+    }
+    setState(() {
+      _unlocking = true;
+      _message = null;
+    });
+    final result = await ref.read(biometricUnlockServiceProvider).unlock();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _unlocking = false;
+      if (result == BiometricAuthenticationResult.success) {
+        _locked = false;
+      } else if (result == BiometricAuthenticationResult.unavailable) {
+        _message = 'Biometria indisponível neste aparelho.';
+      } else if (result == BiometricAuthenticationResult.canceled) {
+        _message = 'Autenticação cancelada.';
+      } else {
+        _message = 'Não foi possível confirmar sua biometria.';
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = ref.watch(biometricLockSettingsProvider);
+    final enabled = settings.value?.enabled == true;
+    if (!enabled || !_locked) {
+      return widget.child;
+    }
+    return ColoredBox(
+      color: Theme.of(context).scaffoldBackgroundColor,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.fingerprint, size: 72),
+              const SizedBox(height: 16),
+              Text(
+                'InterBridge bloqueado',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Use a biometria do aparelho para desbloquear esta sessão.',
+                textAlign: TextAlign.center,
+              ),
+              if (_message != null) ...[
+                const SizedBox(height: 12),
+                Text(_message!, textAlign: TextAlign.center),
+              ],
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: _unlocking ? null : _unlock,
+                icon: const Icon(Icons.fingerprint),
+                label: Text(_unlocking ? 'Verificando...' : 'Desbloquear'),
+              ),
+              TextButton(
+                onPressed: _unlocking
+                    ? null
+                    : () => ref.read(authRepositoryProvider).signOut(),
+                child: const Text('Entrar com e-mail e senha'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

@@ -29,8 +29,12 @@ class SetupCode {
   /// this is user-typed/scanned input, so it must never throw.
   static SetupCode? tryParse(String input) {
     final normalized = input.replaceAll(_separators, '');
-    if (normalized.length != length) return null;
-    if (!_digitsOnly.hasMatch(normalized)) return null;
+    if (normalized.length != length) {
+      return null;
+    }
+    if (!_digitsOnly.hasMatch(normalized)) {
+      return null;
+    }
     return SetupCode._(normalized);
   }
 
@@ -70,9 +74,15 @@ SetupCode? parseSetupCodeQrPayload(String raw) {
   } on FormatException {
     return null;
   }
-  if (decoded is! Map<String, dynamic>) return null;
-  if (decoded['version'] != 1) return null;
+  if (decoded is! Map<String, dynamic>) {
+    return null;
+  }
+  if (decoded['version'] != 1) {
+    return null;
+  }
   final rawCode = decoded['setup_code'];
-  if (rawCode is! String) return null;
+  if (rawCode is! String) {
+    return null;
+  }
   return SetupCode.tryParse(rawCode);
 }

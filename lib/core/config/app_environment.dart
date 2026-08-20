@@ -1,51 +1,118 @@
-/// Which backend environment the app is built against, per
-/// `docs/communication-protocol.md` §11 ("At minimum: DEV, PROD").
-///
-/// DEV must never be able to authenticate against PROD infrastructure —
-/// keeping this as a build-time value (not something toggled at runtime in
-/// the UI) is what makes that guarantee possible.
+/// Backend environment selected at build time.
 enum AppEnvironment { dev, prod }
 
-/// App-side configuration that varies per [AppEnvironment].
+/// Validated configuration needed by Cognito and the InterBridge HTTP API.
 ///
-/// Deliberately small: the app does not need to know the AWS IoT endpoint,
-/// AWS region, or any AWS-specific identifier, because all cloud
-/// communication goes through the application backend (see
-/// `docs/communication-integration.md`). Only what the app itself calls
-/// directly belongs here.
-///
-/// Values are read from `--dart-define` at build time, never hardcoded —
-/// there is intentionally no PROD URL committed to this file. Until a real
-/// backend exists, [apiBaseUrl] is empty and callers must treat that as
-/// "not configured" rather than defaulting to some guessed address.
+/// Values are supplied only through `--dart-define`. Missing or malformed
+/// values fail startup instead of silently selecting a fictitious backend.
 class AppConfig {
-  const AppConfig({required this.environment, required this.apiBaseUrl});
+  const AppConfig({
+    required this.environment,
+    required this.apiBaseUrl,
+    required this.awsRegion,
+    required this.cognitoUserPoolId,
+    required this.cognitoAppClientId,
+  });
 
   final AppEnvironment environment;
-
-  /// Base URL of the AWS application backend's API. Empty when not
-  /// configured for this build.
   final String apiBaseUrl;
+  final String awsRegion;
+  final String cognitoUserPoolId;
+  final String cognitoAppClientId;
 
-  bool get isConfigured => apiBaseUrl.isNotEmpty;
-
-  /// Resolves configuration from `--dart-define`d values.
-  ///
-  /// Example: `flutter run --dart-define=APP_ENVIRONMENT=dev
-  /// --dart-define=API_BASE_URL=https://dev.example.com`. With neither
-  /// define set (today's normal case, since no backend exists yet), this
-  /// resolves to [AppEnvironment.dev] with an empty, "not configured"
-  /// [apiBaseUrl].
   factory AppConfig.fromEnvironment() {
-    const environmentName = String.fromEnvironment(
-      'APP_ENVIRONMENT',
-      defaultValue: 'dev',
-    );
-    return AppConfig(
-      environment: environmentName == 'prod'
-          ? AppEnvironment.prod
-          : AppEnvironment.dev,
+    return AppConfig.fromValues(
+      environment: const String.fromEnvironment('APP_ENVIRONMENT'),
       apiBaseUrl: const String.fromEnvironment('API_BASE_URL'),
+      awsRegion: const String.fromEnvironment('AWS_REGION'),
+      cognitoUserPoolId: const String.fromEnvironment('COGNITO_USER_POOL_ID'),
+      cognitoAppClientId: const String.fromEnvironment('COGNITO_APP_CLIENT_ID'),
     );
   }
+
+  /// Validates raw configuration values and normalizes the API URL.
+  factory AppConfig.fromValues({
+    required String environment,
+    required String apiBaseUrl,
+    required String awsRegion,
+    required String cognitoUserPoolId,
+    required String cognitoAppClientId,
+  }) {
+    final valuesByName = <String, String>{
+      'APP_ENVIRONMENT': environment,
+      'API_BASE_URL': apiBaseUrl,
+      'AWS_REGION': awsRegion,
+      'COGNITO_USER_POOL_ID': cognitoUserPoolId,
+      'COGNITO_APP_CLIENT_ID': cognitoAppClientId,
+    };
+    final missingNames = valuesByName.entries
+        .where((entry) => entry.value.trim().isEmpty)
+        .map((entry) => entry.key)
+        .toList();
+    if (missingNames.isNotEmpty) {
+      throw AppConfigException(
+        'Configuração ausente: ${missingNames.join(', ')}. '
+        'Informe via --dart-define.',
+      );
+    }
+
+    final parsedEnvironment = _parseEnvironment(environment);
+    final normalizedRegion = awsRegion.trim();
+    final normalizedPoolId = cognitoUserPoolId.trim();
+    final normalizedClientId = cognitoAppClientId.trim();
+    final normalizedApiUrl = _parseAndNormalizeApiUrl(apiBaseUrl);
+
+    if (parsedEnvironment == AppEnvironment.dev &&
+        normalizedRegion != 'sa-east-1') {
+      throw const AppConfigException('A região de DEV deve ser sa-east-1.');
+    }
+    if (!normalizedPoolId.startsWith('${normalizedRegion}_')) {
+      throw const AppConfigException(
+        'COGNITO_USER_POOL_ID não corresponde à região configurada.',
+      );
+    }
+
+    return AppConfig(
+      environment: parsedEnvironment,
+      apiBaseUrl: normalizedApiUrl,
+      awsRegion: normalizedRegion,
+      cognitoUserPoolId: normalizedPoolId,
+      cognitoAppClientId: normalizedClientId,
+    );
+  }
+
+  static AppEnvironment _parseEnvironment(String value) {
+    return switch (value.trim().toLowerCase()) {
+      'dev' => AppEnvironment.dev,
+      'prod' => AppEnvironment.prod,
+      _ => throw const AppConfigException(
+        'APP_ENVIRONMENT deve ser dev ou prod.',
+      ),
+    };
+  }
+
+  static String _parseAndNormalizeApiUrl(String value) {
+    final trimmedValue = value.trim();
+    final uri = Uri.tryParse(trimmedValue);
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        uri.host.isEmpty ||
+        uri.hasFragment ||
+        uri.hasQuery) {
+      throw const AppConfigException(
+        'API_BASE_URL deve ser uma URL HTTPS válida, sem query ou fragmento.',
+      );
+    }
+    return trimmedValue.replaceFirst(RegExp(r'/+$'), '');
+  }
+}
+
+/// Safe configuration failure suitable for display during app bootstrap.
+class AppConfigException implements Exception {
+  const AppConfigException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
 }

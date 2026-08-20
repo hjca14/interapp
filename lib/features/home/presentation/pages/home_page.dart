@@ -1,202 +1,180 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:interapp/features/devices/domain/entities/interbridge_device.dart';
-import 'package:interapp/features/devices/presentation/pages/device_form_page.dart';
-import 'package:interapp/features/devices/presentation/pages/devices_page.dart';
-import 'package:interapp/features/devices/presentation/providers/devices_providers.dart';
-import 'package:interapp/features/pairing/presentation/pages/add_interbridge_page.dart';
-import 'package:interapp/features/profile/presentation/pages/registration_page.dart';
-import 'package:interapp/features/settings/presentation/pages/settings_page.dart';
 
-/// The app's root screen: Dispositivos / Ajustes tabs, reached at route `/`.
-///
-/// Owns the in-memory devices list and profile name as plain [State], not
-/// Riverpod providers — both are small, screen-local, and read once through
-/// their repositories at start. It also prompts for registration
-/// ([RegistrationPage]) the first time there's no saved profile name.
-class HomePage extends ConsumerStatefulWidget {
+import '../../../auth/presentation/providers/auth_providers.dart';
+import '../../../auth/presentation/widgets/biometric_lock_gate.dart';
+import '../../../devices/domain/entities/api_device.dart';
+import '../../../devices/presentation/providers/api_devices_provider.dart';
+
+/// Authenticated home screen backed by the read-only device API.
+class HomePage extends ConsumerWidget {
   const HomePage({super.key});
 
   @override
-  ConsumerState<HomePage> createState() => _HomePageState();
-}
-
-class _HomePageState extends ConsumerState<HomePage> {
-  late final _profileRepository = ref.read(profileRepositoryProvider);
-  late final _devicesRepository = ref.read(devicesRepositoryProvider);
-  String? _profileName;
-  int _selectedIndex = 0;
-
-  /// Gates the initial loading spinner. Cleared by [_loadProfile] once the
-  /// profile name is known — devices load in parallel and simply populate
-  /// `_devices` whenever they're ready, without blocking the spinner.
-  bool _loading = true;
-
-  /// Guards the post-frame registration prompt so it fires at most once per
-  /// [HomePage] instance, even if `build` runs again while it's still `null`.
-  bool _registrationPromptShown = false;
-  List<InterBridgeDevice> _devices = [];
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_loadProfile());
-    unawaited(_loadDevices());
-  }
-
-  Future<void> _loadDevices() async {
-    final devices = await _devicesRepository.getAll();
-    if (!mounted) return;
-    setState(() {
-      _devices = devices;
-    });
-  }
-
-  Future<void> _saveDevices() => _devicesRepository.saveAll(_devices);
-
-  /// Pushes [DeviceFormPage] to add ([device] `null`) or edit a device,
-  /// applies the result to the in-memory list, persists it, and marks it as
-  /// the last-selected device.
-  Future<void> _openDeviceForm({InterBridgeDevice? device}) async {
-    final result = await Navigator.of(context).push<InterBridgeDevice>(
-      MaterialPageRoute(builder: (_) => DeviceFormPage(device: device)),
-    );
-    if (result == null) return;
-    setState(() {
-      if (device == null) {
-        _devices.add(result);
-      } else {
-        _devices[_devices.indexOf(device)] = result;
-      }
-    });
-    await _saveDevices();
-    await _devicesRepository.setSelectedId(result.id);
-  }
-
-  /// Confirms with the user, then removes [device] from the local list and
-  /// persists. Note this only forgets the device on this installation — it
-  /// doesn't (and can't yet) unpair or factory-reset the physical hardware.
-  Future<void> _deleteDevice(InterBridgeDevice device) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Remover dispositivo?'),
-        content: Text('Isso remove “${device.name}” desta instalação.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Remover'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    setState(() {
-      _devices.remove(device);
-    });
-    await _saveDevices();
-  }
-
-  Future<void> _loadProfile() async {
-    final name = await _profileRepository.getName();
-    if (!mounted) return;
-    setState(() {
-      _profileName = name;
-      _loading = false;
-    });
-  }
-
-  /// Pushes [RegistrationPage] (pre-filled with [_profileName] if editing)
-  /// and applies the returned name to local state — the page itself already
-  /// persisted it before popping.
-  Future<void> _openRegistration() async {
-    final name = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (_) => RegistrationPage(initialName: _profileName),
-      ),
-    );
-    if (name == null || !mounted) return;
-    setState(() => _profileName = name);
-  }
-
-  /// Navigates to `/devices/:deviceId` via the named route, passing [device]
-  /// through `extra` (see `appRouterProvider` for why).
-  void _openDevice(InterBridgeDevice device) {
-    context.pushNamed(
-      'device-detail',
-      pathParameters: {'deviceId': device.id},
-      extra: device,
-    );
-  }
-
-  /// Entry point for onboarding a new physical InterBridge. See
-  /// `AddInterBridgePage`'s doc comment for what's actually implemented
-  /// today.
-  void _openPairing() {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const AddInterBridgePage()));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-    // First launch (no saved profile name): schedule the registration
-    // prompt for after this frame instead of navigating mid-build, and set
-    // the guard flag immediately so a rebuild before the callback runs
-    // doesn't schedule it twice.
-    if (_profileName == null && !_registrationPromptShown) {
-      _registrationPromptShown = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _openRegistration());
-    }
-
-    final pages = [
-      DevicesPage(
-        devices: _devices,
-        onAdd: _openDeviceForm,
-        onEdit: (device) => _openDeviceForm(device: device),
-        onDelete: _deleteDevice,
-        onOpen: _openDevice,
-      ),
-      SettingsPage(profileName: _profileName, onEditProfile: _openRegistration),
-    ];
+  Widget build(BuildContext context, WidgetRef ref) {
+    final deviceList = ref.watch(apiDevicesProvider);
     return Scaffold(
       appBar: AppBar(
         title: const Text('InterBridge'),
         actions: [
           IconButton(
-            tooltip: 'Parear novo InterBridge',
-            icon: const Icon(Icons.bluetooth_searching),
-            onPressed: _openPairing,
+            tooltip: 'Segurança',
+            onPressed: () => context.push('/security'),
+            icon: const Icon(Icons.security),
+          ),
+          IconButton(
+            tooltip: 'Sair',
+            onPressed: () => ref.read(authRepositoryProvider).signOut(),
+            icon: const Icon(Icons.logout),
           ),
         ],
       ),
-      body: SafeArea(child: pages[_selectedIndex]),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) =>
-            setState(() => _selectedIndex = index),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.devices_other_outlined),
-            selectedIcon: Icon(Icons.devices_other),
-            label: 'Dispositivos',
+      body: BiometricLockGate(
+        child: SafeArea(child: _DeviceListBody(state: deviceList)),
+      ),
+    );
+  }
+}
+
+class _DeviceListBody extends ConsumerWidget {
+  const _DeviceListBody({required this.state});
+
+  final DeviceListState state;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.read(apiDevicesProvider.notifier);
+    if (state.loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (state.error != null) {
+      return _InitialError(onRetry: controller.refresh);
+    }
+    return RefreshIndicator(
+      onRefresh: controller.refresh,
+      child: state.items.isEmpty
+          ? const _EmptyDeviceList()
+          : _DeviceList(state: state),
+    );
+  }
+}
+
+class _EmptyDeviceList extends StatelessWidget {
+  const _EmptyDeviceList();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      children: const [
+        SizedBox(height: 160),
+        Icon(Icons.speaker_phone, size: 64),
+        Center(
+          child: Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('Nenhum InterBridge disponível.'),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings),
-            label: 'Ajustes',
-          ),
-        ],
+        ),
+      ],
+    );
+  }
+}
+
+class _DeviceList extends ConsumerWidget {
+  const _DeviceList({required this.state});
+
+  final DeviceListState state;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: state.items.length + 1,
+      itemBuilder: (context, index) {
+        if (index == state.items.length) {
+          return _PaginationFooter(state: state);
+        }
+        return _DeviceTile(device: state.items[index]);
+      },
+    );
+  }
+}
+
+class _DeviceTile extends StatelessWidget {
+  const _DeviceTile({required this.device});
+
+  final ApiDeviceSummary device;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        leading: const CircleAvatar(child: Icon(Icons.speaker_phone)),
+        title: Text(device.safeName),
+        subtitle: Text(device.role.name.toUpperCase()),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () {
+          final encodedDeviceId = Uri.encodeComponent(device.deviceId);
+          context.push('/devices/$encodedDeviceId');
+        },
+      ),
+    );
+  }
+}
+
+class _PaginationFooter extends ConsumerWidget {
+  const _PaginationFooter({required this.state});
+
+  final DeviceListState state;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final loadMore = ref.read(apiDevicesProvider.notifier).loadMore;
+    if (state.loadMoreError != null) {
+      return TextButton(
+        onPressed: loadMore,
+        child: const Text('Falha ao carregar mais. Tentar novamente'),
+      );
+    }
+    if (state.nextCursor == null) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: FilledButton(
+        onPressed: state.loadingMore ? null : loadMore,
+        child: Text(state.loadingMore ? 'Carregando...' : 'Carregar mais'),
+      ),
+    );
+  }
+}
+
+class _InitialError extends StatelessWidget {
+  const _InitialError({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off, size: 56),
+            const SizedBox(height: 12),
+            const Text(
+              'Não foi possível carregar seus dispositivos.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: onRetry,
+              child: const Text('Tentar novamente'),
+            ),
+          ],
+        ),
       ),
     );
   }

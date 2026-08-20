@@ -1,5 +1,8 @@
 # InterBridge — Contexto do Projeto
 
+> **Atualização Fase 2C:** a Fase 2B DEV foi implantada/validada, incluindo usuário Cognito confirmado e criação atômica do primeiro Device com membership OWNER/ACTIVE. O app agora usa Cognito User Pool via Amplify (`USER_SRP_AUTH`) e access token para leitura das três rotas HTTPS de dispositivos. Refresh e armazenamento seguro são responsabilidade do Amplify. Não há Identity Pool nem acesso direto do app ao IoT Core. Outputs de ambiente entram exclusivamente por `--dart-define`; valores reais não são versionados. BLE, claim, comandos, MQTT, eventos e voz seguem adiados.
+
+
 ## 1. Visão do produto
 
 **InterBridge** é um produto de hardware + software para modernizar interfones residenciais convencionais.

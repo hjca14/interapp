@@ -2,24 +2,31 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:interapp/features/auth/data/repositories/local_auth_repository.dart';
 
 void main() {
-  group('LocalAuthRepository', () {
-    test(
-      'reports no session instead of fabricating a signed-in user',
-      () async {
-        final repository = LocalAuthRepository();
+  test('fake starts signed out and supports login and logout', () async {
+    final repository = LocalAuthRepository();
 
-        expect(await repository.currentSession, isNull);
-        expect(await repository.watchSession().first, isNull);
-      },
+    expect((await repository.currentSession).isSignedIn, isFalse);
+    await repository.signIn('person@example.invalid', 'NotAReal1');
+    expect((await repository.currentSession).isSignedIn, isTrue);
+    await repository.signOut();
+    expect((await repository.currentSession).isSignedIn, isFalse);
+  });
+
+  test('fake covers signup, confirmation and reset without network', () async {
+    final repository = LocalAuthRepository();
+
+    final signUpResult = await repository.signUp(
+      'person@example.invalid',
+      'NotAReal1',
     );
-
-    test(
-      'signIn is loudly unsupported rather than silently pretending to work',
-      () {
-        final repository = LocalAuthRepository();
-
-        expect(() => repository.signIn(), throwsUnsupportedError);
-      },
+    expect(signUpResult.confirmationRequired, isTrue);
+    await repository.confirmSignUp('person@example.invalid', '000000');
+    await repository.resendSignUpCode('person@example.invalid');
+    await repository.beginPasswordReset('person@example.invalid');
+    await repository.confirmPasswordReset(
+      'person@example.invalid',
+      '000000',
+      'Another1',
     );
   });
 }

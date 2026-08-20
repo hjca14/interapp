@@ -17,7 +17,9 @@ class NotImplementedBleOnboardingTransport implements BleOnboardingTransport {
   @override
   Stream<DiscoveredInterBridge> scanForProvisioningDevices() {
     return Stream.error(
-      UnimplementedError('BLE onboarding is not implemented in this build yet.'),
+      UnimplementedError(
+        'BLE onboarding is not implemented in this build yet.',
+      ),
     );
   }
 
@@ -26,12 +28,16 @@ class NotImplementedBleOnboardingTransport implements BleOnboardingTransport {
 
   @override
   Future<void> connect(String deviceId) {
-    throw UnimplementedError('BLE onboarding is not implemented in this build yet.');
+    throw UnimplementedError(
+      'BLE onboarding is not implemented in this build yet.',
+    );
   }
 
   @override
   Future<void> establishSecureSession() {
-    throw UnimplementedError('BLE onboarding is not implemented in this build yet.');
+    throw UnimplementedError(
+      'BLE onboarding is not implemented in this build yet.',
+    );
   }
 
   @override
@@ -39,12 +45,16 @@ class NotImplementedBleOnboardingTransport implements BleOnboardingTransport {
 
   @override
   Future<void> sendWifiCredentials(String ssid, String password) {
-    throw UnimplementedError('BLE onboarding is not implemented in this build yet.');
+    throw UnimplementedError(
+      'BLE onboarding is not implemented in this build yet.',
+    );
   }
 
   @override
   Future<void> sendFleetProvisioningMaterial(Map<String, dynamic> material) {
-    throw UnimplementedError('BLE onboarding is not implemented in this build yet.');
+    throw UnimplementedError(
+      'BLE onboarding is not implemented in this build yet.',
+    );
   }
 
   @override

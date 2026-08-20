@@ -27,16 +27,22 @@ void main() {
       expect(state.isKnown, isFalse);
     });
 
-    test('an unrecognized value becomes a safe unknown state, not an exception', () {
-      expect(() => IntercomState.fromRaw('SOME_FUTURE_STATE'), returnsNormally);
+    test(
+      'an unrecognized value becomes a safe unknown state, not an exception',
+      () {
+        expect(
+          () => IntercomState.fromRaw('SOME_FUTURE_STATE'),
+          returnsNormally,
+        );
 
-      final state = IntercomState.fromRaw('SOME_FUTURE_STATE');
+        final state = IntercomState.fromRaw('SOME_FUTURE_STATE');
 
-      expect(state.isKnown, isFalse);
-      expect(state.isReported, isTrue);
-      // The raw value is preserved for diagnostics even though it's unknown.
-      expect(state.raw, 'SOME_FUTURE_STATE');
-    });
+        expect(state.isKnown, isFalse);
+        expect(state.isReported, isTrue);
+        // The raw value is preserved for diagnostics even though it's unknown.
+        expect(state.raw, 'SOME_FUTURE_STATE');
+      },
+    );
 
     test('unknown values are distinct from every known state', () {
       final state = IntercomState.fromRaw('SOME_FUTURE_STATE');
@@ -51,7 +57,10 @@ void main() {
 
   group('IntercomState equality', () {
     test('two states parsed from the same raw value are equal', () {
-      expect(IntercomState.fromRaw('RINGING'), IntercomState.fromRaw('RINGING'));
+      expect(
+        IntercomState.fromRaw('RINGING'),
+        IntercomState.fromRaw('RINGING'),
+      );
     });
 
     test('toString exposes the raw value', () {

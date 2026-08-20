@@ -1,12 +1,15 @@
-/// A signed-in human user's session.
+/// Minimal human session exposed to application code.
 ///
-/// Deliberately minimal — human authentication (§27 of the protocol,
-/// candidate: Cognito) is entirely separate from device X.509
-/// authentication, and the app has no configured auth provider yet, so
-/// there is nothing here beyond identifying who is signed in.
+/// Cognito tokens and passwords deliberately do not belong to this entity.
 class AuthSession {
-  const AuthSession({required this.userId, this.displayName});
+  const AuthSession({required this.isSignedIn, this.userId, this.email});
 
-  final String userId;
-  final String? displayName;
+  const AuthSession.signedOut()
+    : isSignedIn = false,
+      userId = null,
+      email = null;
+
+  final bool isSignedIn;
+  final String? userId;
+  final String? email;
 }

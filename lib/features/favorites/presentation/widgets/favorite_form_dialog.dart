@@ -34,7 +34,9 @@ class _FavoriteFormDialogState extends State<FavoriteFormDialog> {
   void _save() {
     final name = _nameController.text.trim();
     final number = _numberController.text.trim();
-    if (name.isEmpty || number.isEmpty) return;
+    if (name.isEmpty || number.isEmpty) {
+      return;
+    }
     Navigator.of(context).pop(Favorite(name: name, number: number));
   }
 

@@ -68,24 +68,38 @@ class OnboardingCoordinator extends ChangeNotifier {
 
   void _startScan() {
     _analytics.track('ble_scan_started');
-    _setState(_state.copyWith(phase: OnboardingPhase.scanningBle, discoveredDevices: const []));
+    _setState(
+      _state.copyWith(
+        phase: OnboardingPhase.scanningBle,
+        discoveredDevices: const [],
+      ),
+    );
     unawaited(_scanSubscription?.cancel());
     _scanTimeoutTimer?.cancel();
     _scanSubscription = _bleTransport.scanForProvisioningDevices().listen(
       _onDeviceDiscovered,
       onError: (Object _, StackTrace _) {
-        _fail(OnboardingFailureKind.bleUnavailable, 'Não foi possível procurar dispositivos por Bluetooth.');
+        _fail(
+          OnboardingFailureKind.bleUnavailable,
+          'Não foi possível procurar dispositivos por Bluetooth.',
+        );
       },
     );
     _scanTimeoutTimer = Timer(_scanTimeout, () {
-      if (_state.phase == OnboardingPhase.scanningBle && _state.discoveredDevices.isEmpty) {
-        _fail(OnboardingFailureKind.scanTimeout, 'Nenhum InterBridge encontrado por perto.');
+      if (_state.phase == OnboardingPhase.scanningBle &&
+          _state.discoveredDevices.isEmpty) {
+        _fail(
+          OnboardingFailureKind.scanTimeout,
+          'Nenhum InterBridge encontrado por perto.',
+        );
       }
     });
   }
 
   void _onDeviceDiscovered(DiscoveredInterBridge device) {
-    if (_state.discoveredDevices.contains(device)) return;
+    if (_state.discoveredDevices.contains(device)) {
+      return;
+    }
     _analytics.track('device_discovered');
     final updated = [..._state.discoveredDevices, device];
     final nextPhase = _state.phase == OnboardingPhase.scanningBle
@@ -103,14 +117,21 @@ class OnboardingCoordinator extends ChangeNotifier {
 
   /// User tapped a device from the discovery list.
   void selectDevice(DiscoveredInterBridge device) {
-    _setState(_state.copyWith(phase: OnboardingPhase.confirmingDevice, selectedDevice: device));
+    _setState(
+      _state.copyWith(
+        phase: OnboardingPhase.confirmingDevice,
+        selectedDevice: device,
+      ),
+    );
   }
 
   /// "Não é este" — keep the devices already found, drop the wrong pick.
   void rejectSelectedDevice() {
     _setState(
       OnboardingState(
-        phase: _state.discoveredDevices.isEmpty ? OnboardingPhase.scanningBle : OnboardingPhase.deviceFound,
+        phase: _state.discoveredDevices.isEmpty
+            ? OnboardingPhase.scanningBle
+            : OnboardingPhase.deviceFound,
         discoveredDevices: _state.discoveredDevices,
       ),
     );
@@ -119,7 +140,9 @@ class OnboardingCoordinator extends ChangeNotifier {
   /// "Sim, continuar".
   Future<void> confirmDevice() async {
     final device = _state.selectedDevice;
-    if (device == null) return;
+    if (device == null) {
+      return;
+    }
     _analytics.track('device_confirmed');
     await stopBleScan();
     _setState(_state.copyWith(phase: OnboardingPhase.connectingBle));
@@ -127,7 +150,10 @@ class OnboardingCoordinator extends ChangeNotifier {
       await _bleTransport.connect(device.deviceId);
       await _bleTransport.establishSecureSession();
     } catch (_) {
-      _fail(OnboardingFailureKind.connectionFailed, 'Não foi possível conectar ao InterBridge.');
+      _fail(
+        OnboardingFailureKind.connectionFailed,
+        'Não foi possível conectar ao InterBridge.',
+      );
       return;
     }
     _analytics.track('ble_connected');
@@ -135,12 +161,17 @@ class OnboardingCoordinator extends ChangeNotifier {
   }
 
   Future<void> submitWifi(String ssid, String password) async {
-    if (ssid.trim().isEmpty) return;
+    if (ssid.trim().isEmpty) {
+      return;
+    }
     _setState(_state.copyWith(phase: OnboardingPhase.sendingWifi));
     try {
       await _bleTransport.sendWifiCredentials(ssid, password);
     } catch (_) {
-      _fail(OnboardingFailureKind.wifiFailed, 'Não foi possível enviar a configuração de Wi-Fi.');
+      _fail(
+        OnboardingFailureKind.wifiFailed,
+        'Não foi possível enviar a configuração de Wi-Fi.',
+      );
       return;
     }
     _analytics.track('wifi_config_sent');
@@ -154,7 +185,9 @@ class OnboardingCoordinator extends ChangeNotifier {
       return;
     }
     var session = _state.claimSession;
-    if (session == null || session.deviceId != device.deviceId || session.isExpired) {
+    if (session == null ||
+        session.deviceId != device.deviceId ||
+        session.isExpired) {
       _setState(_state.copyWith(phase: OnboardingPhase.startingClaim));
       try {
         session = await _claimRepository.start(deviceId: device.deviceId);
@@ -164,7 +197,12 @@ class OnboardingCoordinator extends ChangeNotifier {
       }
       _analytics.track('claim_started');
     }
-    _setState(_state.copyWith(phase: OnboardingPhase.claimActive, claimSession: session));
+    _setState(
+      _state.copyWith(
+        phase: OnboardingPhase.claimActive,
+        claimSession: session,
+      ),
+    );
     await _runProvisioning(session);
   }
 
@@ -172,15 +210,25 @@ class OnboardingCoordinator extends ChangeNotifier {
     _setState(_state.copyWith(phase: OnboardingPhase.awsProvisioning));
     _analytics.track('provisioning_started');
     try {
-      await _bleTransport.sendFleetProvisioningMaterial({'claim_session_id': session.claimSessionId});
+      await _bleTransport.sendFleetProvisioningMaterial({
+        'claim_session_id': session.claimSessionId,
+      });
     } catch (_) {
-      _fail(OnboardingFailureKind.claimFailed, 'O InterBridge não conseguiu concluir o provisionamento.');
+      _fail(
+        OnboardingFailureKind.claimFailed,
+        'O InterBridge não conseguiu concluir o provisionamento.',
+      );
       return;
     }
     _setState(_state.copyWith(phase: OnboardingPhase.verifyingDevice));
     try {
       final completed = await _claimRepository.complete(session.claimSessionId);
-      _setState(_state.copyWith(phase: OnboardingPhase.success, claimSession: completed));
+      _setState(
+        _state.copyWith(
+          phase: OnboardingPhase.success,
+          claimSession: completed,
+        ),
+      );
       _analytics.track('onboarding_completed');
       unawaited(_bleTransport.disconnect());
     } on OnboardingClaimException catch (e) {
@@ -200,7 +248,10 @@ class OnboardingCoordinator extends ChangeNotifier {
   Future<void> submitQrPayload(String raw) async {
     final code = parseSetupCodeQrPayload(raw);
     if (code == null) {
-      _fail(OnboardingFailureKind.invalidOrExpiredCode, _claimFailureMessage(OnboardingFailureKind.invalidOrExpiredCode));
+      _fail(
+        OnboardingFailureKind.invalidOrExpiredCode,
+        _claimFailureMessage(OnboardingFailureKind.invalidOrExpiredCode),
+      );
       return;
     }
     await _resolveSetupCode(code);
@@ -220,7 +271,9 @@ class OnboardingCoordinator extends ChangeNotifier {
   /// error phase — matches how the rest of the app treats form errors.
   Future<bool> submitManualCode(String rawInput) async {
     final code = SetupCode.tryParse(rawInput);
-    if (code == null) return false;
+    if (code == null) {
+      return false;
+    }
     await _resolveSetupCode(code);
     return true;
   }
@@ -232,7 +285,12 @@ class OnboardingCoordinator extends ChangeNotifier {
       // Converge into the same BLE path the primary flow uses — QR/manual
       // only ever answers "which device", never skips physical BLE
       // presence.
-      _setState(OnboardingState(phase: OnboardingPhase.checkingSetupMode, claimSession: session));
+      _setState(
+        OnboardingState(
+          phase: OnboardingPhase.checkingSetupMode,
+          claimSession: session,
+        ),
+      );
       await _checkAvailabilityAndScan();
     } on OnboardingClaimException catch (e) {
       _failClaim(e.reason);
@@ -282,7 +340,9 @@ class OnboardingCoordinator extends ChangeNotifier {
         );
       case OnboardingFailureKind.invalidOrExpiredCode:
       case OnboardingFailureKind.rateLimited:
-        _setState(const OnboardingState(phase: OnboardingPhase.enteringSetupCode));
+        _setState(
+          const OnboardingState(phase: OnboardingPhase.enteringSetupCode),
+        );
       case OnboardingFailureKind.alreadyOwned:
       case OnboardingFailureKind.unknown:
       case null:
@@ -296,15 +356,25 @@ class OnboardingCoordinator extends ChangeNotifier {
 
   void _fail(OnboardingFailureKind kind, String reason) {
     _analytics.track('onboarding_failed', {'kind': kind.name});
-    _setState(_state.copyWith(phase: OnboardingPhase.error, failureKind: kind, failureReason: reason));
+    _setState(
+      _state.copyWith(
+        phase: OnboardingPhase.error,
+        failureKind: kind,
+        failureReason: reason,
+      ),
+    );
   }
 
   void _failClaim(OnboardingClaimFailureReason reason) {
     final kind = switch (reason) {
-      OnboardingClaimFailureReason.backendUnavailable => OnboardingFailureKind.claimFailed,
-      OnboardingClaimFailureReason.invalidOrExpiredCode => OnboardingFailureKind.invalidOrExpiredCode,
-      OnboardingClaimFailureReason.alreadyOwned => OnboardingFailureKind.alreadyOwned,
-      OnboardingClaimFailureReason.rateLimited => OnboardingFailureKind.rateLimited,
+      OnboardingClaimFailureReason.backendUnavailable =>
+        OnboardingFailureKind.claimFailed,
+      OnboardingClaimFailureReason.invalidOrExpiredCode =>
+        OnboardingFailureKind.invalidOrExpiredCode,
+      OnboardingClaimFailureReason.alreadyOwned =>
+        OnboardingFailureKind.alreadyOwned,
+      OnboardingClaimFailureReason.rateLimited =>
+        OnboardingFailureKind.rateLimited,
     };
     _fail(kind, _claimFailureMessage(kind));
   }

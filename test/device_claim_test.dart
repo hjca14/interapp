@@ -141,33 +141,45 @@ void main() {
       expect(parseDeviceClaimQrPayload(''), isNull);
     });
 
-    test('rejects an invalid percent-encoded UTF-8 sequence instead of throwing', () {
-      // %FF alone is not a valid UTF-8 byte sequence — Dart's Uri decoder
-      // throws FormatException for this (unlike a merely non-hex escape,
-      // see the test below), which parseDeviceClaimQrPayload must catch.
-      const malformed =
-          'interbridge://claim?v=1&device_id=$validDeviceId&claim_code=%FF';
+    test(
+      'rejects an invalid percent-encoded UTF-8 sequence instead of throwing',
+      () {
+        // %FF alone is not a valid UTF-8 byte sequence — Dart's Uri decoder
+        // throws FormatException for this (unlike a merely non-hex escape,
+        // see the test below), which parseDeviceClaimQrPayload must catch.
+        const malformed =
+            'interbridge://claim?v=1&device_id=$validDeviceId&claim_code=%FF';
 
-      expect(() => parseDeviceClaimQrPayload(malformed), returnsNormally);
-      expect(parseDeviceClaimQrPayload(malformed), isNull);
-    });
+        expect(() => parseDeviceClaimQrPayload(malformed), returnsNormally);
+        expect(parseDeviceClaimQrPayload(malformed), isNull);
+      },
+    );
 
-    test('a non-hex escape is passed through literally rather than crashing', () {
-      // '%zz' isn't valid percent-encoding, but Dart's Uri leaves such
-      // sequences as literal text instead of throwing — still safe (no
-      // exception), just not a "rejection" the way invalid UTF-8 is.
-      final claim = parseDeviceClaimQrPayload(
-        'interbridge://claim?v=1&device_id=$validDeviceId&claim_code=bad%zz',
-      );
+    test(
+      'a non-hex escape is passed through literally rather than crashing',
+      () {
+        // '%zz' isn't valid percent-encoding, but Dart's Uri leaves such
+        // sequences as literal text instead of throwing — still safe (no
+        // exception), just not a "rejection" the way invalid UTF-8 is.
+        final claim = parseDeviceClaimQrPayload(
+          'interbridge://claim?v=1&device_id=$validDeviceId&claim_code=bad%zz',
+        );
 
-      expect(claim, isNotNull);
-      expect(claim!.claimCode, 'bad%zz');
-    });
+        expect(claim, isNotNull);
+        expect(claim!.claimCode, 'bad%zz');
+      },
+    );
 
-    test('never throws, for any input — so a secret can never leak via an exception message', () {
-      const secret = 'super-secret-value';
-      expect(() => parseDeviceClaimQrPayload('garbage-$secret'), returnsNormally);
-      expect(() => parseDeviceClaimQrPayload(secret), returnsNormally);
-    });
+    test(
+      'never throws, for any input — so a secret can never leak via an exception message',
+      () {
+        const secret = 'super-secret-value';
+        expect(
+          () => parseDeviceClaimQrPayload('garbage-$secret'),
+          returnsNormally,
+        );
+        expect(() => parseDeviceClaimQrPayload(secret), returnsNormally);
+      },
+    );
   });
 }

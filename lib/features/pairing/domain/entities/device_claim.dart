@@ -51,9 +51,15 @@ final RegExp _deviceIdPattern = RegExp(r'^ib-[0-9a-f]{32}$');
 /// codebase.
 DeviceClaim? parseDeviceClaimQrPayload(String raw) {
   final uri = Uri.tryParse(raw);
-  if (uri == null) return null;
-  if (uri.scheme != 'interbridge') return null;
-  if (uri.host != 'claim') return null;
+  if (uri == null) {
+    return null;
+  }
+  if (uri.scheme != 'interbridge') {
+    return null;
+  }
+  if (uri.host != 'claim') {
+    return null;
+  }
 
   Map<String, List<String>> queryParametersAll;
   try {
@@ -67,17 +73,29 @@ DeviceClaim? parseDeviceClaimQrPayload(String raw) {
     return null;
   }
 
-  if (_countOf('v', queryParametersAll) != 1) return null;
-  if (_countOf('device_id', queryParametersAll) != 1) return null;
-  if (_countOf('claim_code', queryParametersAll) != 1) return null;
+  if (_countOf('v', queryParametersAll) != 1) {
+    return null;
+  }
+  if (_countOf('device_id', queryParametersAll) != 1) {
+    return null;
+  }
+  if (_countOf('claim_code', queryParametersAll) != 1) {
+    return null;
+  }
 
-  if (queryParametersAll['v']!.single != '1') return null;
+  if (queryParametersAll['v']!.single != '1') {
+    return null;
+  }
 
   final deviceId = queryParametersAll['device_id']!.single;
-  if (!_deviceIdPattern.hasMatch(deviceId)) return null;
+  if (!_deviceIdPattern.hasMatch(deviceId)) {
+    return null;
+  }
 
   final claimCode = queryParametersAll['claim_code']!.single;
-  if (claimCode.isEmpty) return null;
+  if (claimCode.isEmpty) {
+    return null;
+  }
 
   return DeviceClaim(deviceId: deviceId, claimCode: claimCode);
 }

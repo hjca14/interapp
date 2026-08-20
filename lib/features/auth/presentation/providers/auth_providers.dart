@@ -1,7 +1,13 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:interapp/features/auth/data/repositories/local_auth_repository.dart';
-import 'package:interapp/features/auth/domain/repositories/auth_repository.dart';
+
+import '../../../auth/data/repositories/cognito_auth_repository.dart';
+import '../../domain/entities/auth_session.dart';
+import '../../domain/repositories/auth_repository.dart';
 
 final authRepositoryProvider = Provider<AuthRepository>(
-  (_) => LocalAuthRepository(),
+  (_) => CognitoAuthRepository(),
 );
+
+final authSessionProvider = StreamProvider<AuthSession>((ref) {
+  return ref.watch(authRepositoryProvider).watchSession();
+});

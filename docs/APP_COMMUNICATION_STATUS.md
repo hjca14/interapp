@@ -1,5 +1,12 @@
 # InterApp — Communication Implementation Status
 
+## Fase 2C — implementada no app
+
+O backend Fase 2B DEV foi implantado e validado com usuário confirmado e primeiro Device + membership OWNER/ACTIVE registrados atomicamente. O app autentica por e-mail/senha no User Pool existente usando Amplify/`USER_SRP_AUTH`, com refresh e armazenamento seguro nativo gerenciados pelo SDK. A API recebe o access token; o ID token nunca é usado como credencial HTTP. Estão conectadas somente as três rotas GET de dispositivos. Identity Pool, IoT direto, BLE, claim, commands, MQTT, eventos, realtime e voz estão adiados.
+
+O bloqueio biométrico opcional usa a biometria nativa somente para liberar localmente uma sessão Cognito ainda válida. Ele é desativado por padrão, possui timeout de background configurável, nunca armazena senha e sempre oferece retorno ao login. Passkeys/WebAuthn permanecem uma solução futura para login biométrico real.
+
+
 Companion to `docs/communication-integration.md`. This is a status snapshot,
 not a design document — see that file (and `PROJECT_CONTEXT.md`) for the
 "why" behind each row.

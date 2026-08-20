@@ -93,8 +93,12 @@ class DevicesPage extends StatelessWidget {
                         ),
                         PopupMenuButton<String>(
                           onSelected: (action) {
-                            if (action == 'edit') onEdit(device);
-                            if (action == 'delete') onDelete(device);
+                            if (action == 'edit') {
+                              onEdit(device);
+                            }
+                            if (action == 'delete') {
+                              onDelete(device);
+                            }
                           },
                           itemBuilder: (_) => const [
                             PopupMenuItem(value: 'edit', child: Text('Editar')),

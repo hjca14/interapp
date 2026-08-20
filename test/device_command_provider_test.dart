@@ -32,7 +32,9 @@ class _FakeDeviceConnectionRepository implements DeviceConnectionRepository {
   @override
   Future<DeviceCommandResult> openDoor(String deviceId) async {
     openDoorCallCount++;
-    if (gate != null) await gate!.future;
+    if (gate != null) {
+      await gate!.future;
+    }
     return openDoorResult();
   }
 

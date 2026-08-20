@@ -1,5 +1,9 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:interapp/core/config/app_environment.dart';
+import 'package:interapp/core/network/interbridge_api_client.dart';
+import 'package:interapp/features/auth/presentation/providers/auth_providers.dart';
+import 'package:interapp/features/devices/data/repositories/http_device_repository.dart';
 import 'package:interapp/features/devices/data/repositories/local_device_backend_repository.dart';
 import 'package:interapp/features/devices/data/repositories/local_device_connection_repository.dart';
 import 'package:interapp/features/devices/data/repositories/local_device_settings_repository.dart';
@@ -19,6 +23,21 @@ import 'package:interapp/features/profile/data/repositories/local_profile_reposi
 final devicesRepositoryProvider = Provider<LocalDevicesRepository>(
   (_) => LocalDevicesRepository(),
 );
+
+final appConfigProvider = Provider<AppConfig>(
+  (_) => throw StateError('AppConfig não inicializado'),
+);
+
+final apiClientProvider = Provider<InterBridgeApiClient>((ref) {
+  return InterBridgeApiClient(
+    baseUrl: ref.watch(appConfigProvider).apiBaseUrl,
+    auth: ref.watch(authRepositoryProvider),
+  );
+});
+
+final httpDeviceRepositoryProvider = Provider<HttpDeviceRepository>((ref) {
+  return HttpDeviceRepository(ref.watch(apiClientProvider));
+});
 
 /// Typed as the abstract [DeviceConnectionRepository], not the local class —
 /// this is the seam a future Bluetooth/Wi-Fi/MQTT implementation plugs into

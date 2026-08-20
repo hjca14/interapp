@@ -48,7 +48,9 @@ enum OnboardingPhase {
   bool get isTerminal => this == success || this == error;
 
   bool get isFallbackOnly =>
-      this == scanningQr || this == enteringSetupCode || this == resolvingSetupCode;
+      this == scanningQr ||
+      this == enteringSetupCode ||
+      this == resolvingSetupCode;
 }
 
 /// Coarse reason for [OnboardingPhase.error], so the UI can pick the right

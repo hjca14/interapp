@@ -1,5 +1,10 @@
 # InterApp — Communication Integration
 
+## Integração móvel da Fase 2C
+
+`e-mail/senha → Cognito User Pool (SRP) → access token → HTTPS API → três rotas de leitura`. O Amplify configura em runtime o User Pool existente a partir de dart-defines, faz persistência segura e refresh; widgets recebem apenas sessão sem tokens. Em 401 o cliente força refresh uma vez, repete uma vez e encerra a sessão após o segundo 401. Cursors são opacos e não persistidos. Não há Identity Pool nem chamada direta do app ao AWS IoT Core.
+
+
 **Scope:** how the InterApp Flutter code implements/consumes InterBridge Communication Protocol **v1.1** (`docs/communication-protocol.md`).
 
 This document does **not** redefine the firmware/cloud protocol. `docs/communication-protocol.md` is the single source of truth for topics, commands, event names, error codes, Device Shadow shape, provisioning, OTA, and security. This document only explains how the app-side code is structured around it, and what is real vs. scaffolding today. See `PROJECT_CONTEXT.md` for the app's broader architecture (Feature First, Riverpod, repository pattern) that all of this follows.

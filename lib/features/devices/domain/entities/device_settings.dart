@@ -24,9 +24,15 @@ enum CallAlertMode {
       this == notificationOnly || this == ringAndNotification;
 
   static CallAlertMode from({required bool ring, required bool notification}) {
-    if (ring && notification) return ringAndNotification;
-    if (ring) return ringOnly;
-    if (notification) return notificationOnly;
+    if (ring && notification) {
+      return ringAndNotification;
+    }
+    if (ring) {
+      return ringOnly;
+    }
+    if (notification) {
+      return notificationOnly;
+    }
     return none;
   }
 }
@@ -84,9 +90,13 @@ class DeviceCallSettings {
 }
 
 CallAlertMode? _callAlertModeFromName(Object? name) {
-  if (name is! String) return null;
+  if (name is! String) {
+    return null;
+  }
   for (final mode in CallAlertMode.values) {
-    if (mode.name == name) return mode;
+    if (mode.name == name) {
+      return mode;
+    }
   }
   return null;
 }
@@ -101,9 +111,13 @@ enum QuietHoursBehavior {
 }
 
 QuietHoursBehavior? _quietHoursBehaviorFromName(Object? name) {
-  if (name is! String) return null;
+  if (name is! String) {
+    return null;
+  }
   for (final behavior in QuietHoursBehavior.values) {
-    if (behavior.name == name) return behavior;
+    if (behavior.name == name) {
+      return behavior;
+    }
   }
   return null;
 }
