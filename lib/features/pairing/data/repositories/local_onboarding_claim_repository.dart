@@ -9,21 +9,29 @@ import 'package:interapp/features/pairing/domain/repositories/onboarding_claim_r
 class LocalOnboardingClaimRepository implements OnboardingClaimRepository {
   @override
   Future<ClaimSession> start({required String deviceId}) {
-    throw const OnboardingClaimException(OnboardingClaimFailureReason.backendUnavailable);
+    throw const OnboardingClaimException(
+      OnboardingClaimFailureReason.backendUnavailable,
+    );
   }
 
   @override
   Future<ClaimSession> resolveSetupCode(SetupCode setupCode) {
-    throw const OnboardingClaimException(OnboardingClaimFailureReason.backendUnavailable);
+    throw const OnboardingClaimException(
+      OnboardingClaimFailureReason.backendUnavailable,
+    );
   }
 
   @override
   Future<ClaimSession> complete(String claimSessionId) {
-    throw const OnboardingClaimException(OnboardingClaimFailureReason.backendUnavailable);
+    throw const OnboardingClaimException(
+      OnboardingClaimFailureReason.backendUnavailable,
+    );
   }
 
   @override
   Future<void> cancel(String claimSessionId) {
-    throw const OnboardingClaimException(OnboardingClaimFailureReason.backendUnavailable);
+    throw const OnboardingClaimException(
+      OnboardingClaimFailureReason.backendUnavailable,
+    );
   }
 }

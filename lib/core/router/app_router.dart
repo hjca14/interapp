@@ -24,10 +24,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     initialLocation: '/',
     redirect: (_, state) => _redirectForSession(session, state),
     routes: [
-      GoRoute(
-        path: '/splash',
-        builder: (_, _) => const _BootstrapPage(),
-      ),
+      GoRoute(path: '/splash', builder: (_, _) => const _BootstrapPage()),
       GoRoute(path: '/login', builder: (_, _) => const LoginPage()),
       GoRoute(path: '/sign-up', builder: (_, _) => const SignUpPage()),
       GoRoute(
@@ -40,10 +37,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/reset',
-        builder: (_, state) => CodePage(
-          email: state.extra as String? ?? '',
-          passwordReset: true,
-        ),
+        builder: (_, state) =>
+            CodePage(email: state.extra as String? ?? '', passwordReset: true),
       ),
       GoRoute(path: '/', builder: (_, _) => const HomePage()),
       GoRoute(

@@ -36,27 +36,27 @@ void main() {
         biometrics,
       );
 
-      expect(
-        await service.unlock(),
-        BiometricAuthenticationResult.unavailable,
-      );
+      expect(await service.unlock(), BiometricAuthenticationResult.unavailable);
       expect(biometrics.authenticateCalls, 0);
     });
 
-    test('expired session never simulates biometric reauthentication', () async {
-      final biometrics = _FakeBiometrics(
-        available: true,
-        result: BiometricAuthenticationResult.success,
-      );
-      final service = BiometricUnlockService(
-        LocalAuthRepository(),
-        biometrics,
-      );
+    test(
+      'expired session never simulates biometric reauthentication',
+      () async {
+        final biometrics = _FakeBiometrics(
+          available: true,
+          result: BiometricAuthenticationResult.success,
+        );
+        final service = BiometricUnlockService(
+          LocalAuthRepository(),
+          biometrics,
+        );
 
-      expect(await service.unlock(), BiometricAuthenticationResult.failed);
-      expect(biometrics.availabilityCalls, 0);
-      expect(biometrics.authenticateCalls, 0);
-    });
+        expect(await service.unlock(), BiometricAuthenticationResult.failed);
+        expect(biometrics.availabilityCalls, 0);
+        expect(biometrics.authenticateCalls, 0);
+      },
+    );
   });
 
   test('background policy observes enablement and configured timeout', () {

@@ -45,7 +45,9 @@ class MockBleOnboardingTransport implements BleOnboardingTransport {
   }
 
   @override
-  Future<void> sendFleetProvisioningMaterial(Map<String, dynamic> material) async {
+  Future<void> sendFleetProvisioningMaterial(
+    Map<String, dynamic> material,
+  ) async {
     await Future<void>.delayed(const Duration(milliseconds: 800));
   }
 

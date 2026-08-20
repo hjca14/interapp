@@ -108,12 +108,16 @@ final apiDevicesProvider =
       ApiDevicesController.new,
     );
 
-final apiDeviceDetailProvider =
-    FutureProvider.family<ApiDeviceDetail, String>((ref, deviceId) {
-      return ref.watch(httpDeviceRepositoryProvider).detail(deviceId);
-    });
+final apiDeviceDetailProvider = FutureProvider.family<ApiDeviceDetail, String>((
+  ref,
+  deviceId,
+) {
+  return ref.watch(httpDeviceRepositoryProvider).detail(deviceId);
+});
 
-final apiDeviceStatusProvider =
-    FutureProvider.family<ApiDeviceStatus, String>((ref, deviceId) {
-      return ref.watch(httpDeviceRepositoryProvider).status(deviceId);
-    });
+final apiDeviceStatusProvider = FutureProvider.family<ApiDeviceStatus, String>((
+  ref,
+  deviceId,
+) {
+  return ref.watch(httpDeviceRepositoryProvider).status(deviceId);
+});

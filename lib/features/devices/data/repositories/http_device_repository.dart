@@ -37,9 +37,7 @@ class HttpDeviceRepository {
   /// Gets status separately from device identity/details.
   Future<ApiDeviceStatus> status(String deviceId) async {
     final encodedDeviceId = Uri.encodeComponent(deviceId);
-    final responseJson = await _api.get(
-      '/v1/devices/$encodedDeviceId/status',
-    );
+    final responseJson = await _api.get('/v1/devices/$encodedDeviceId/status');
     return _parser.parseDeviceStatus(responseJson);
   }
 }

@@ -16,10 +16,7 @@ Future<void> main() async {
     );
     await container.read(incomingCallNotificationServiceProvider).initialize();
     runApp(
-      UncontrolledProviderScope(
-        container: container,
-        child: const InterApp(),
-      ),
+      UncontrolledProviderScope(container: container, child: const InterApp()),
     );
   } on Object {
     runApp(const _ConfigurationErrorApp());

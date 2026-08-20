@@ -37,7 +37,8 @@ class MockOnboardingClaimRepository implements OnboardingClaimRepository {
 
   ClaimSession _session(String deviceId) {
     return ClaimSession(
-      claimSessionId: generateEventId(), // reuses the same evt-<hex> id shape; good enough for a fake session id
+      claimSessionId:
+          generateEventId(), // reuses the same evt-<hex> id shape; good enough for a fake session id
       deviceId: deviceId,
       userId: 'dev-user',
       expiresAt: DateTime.now().toUtc().add(const Duration(minutes: 10)),

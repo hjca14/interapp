@@ -48,13 +48,18 @@ void main() {
       final withMillis = DateTime.utc(2026, 8, 11, 17, 30, 25, 999);
       final withoutMillis = DateTime.utc(2026, 8, 11, 17, 30, 25);
 
-      expect(dateTimeToEpochSeconds(withMillis), dateTimeToEpochSeconds(withoutMillis));
+      expect(
+        dateTimeToEpochSeconds(withMillis),
+        dateTimeToEpochSeconds(withoutMillis),
+      );
     });
 
     test('epochSecondsToDateTime is the inverse of dateTimeToEpochSeconds', () {
       final original = DateTime.utc(2026, 8, 11, 17, 30, 25);
 
-      final roundTripped = epochSecondsToDateTime(dateTimeToEpochSeconds(original));
+      final roundTripped = epochSecondsToDateTime(
+        dateTimeToEpochSeconds(original),
+      );
 
       expect(roundTripped, original);
       expect(roundTripped.isUtc, isTrue);

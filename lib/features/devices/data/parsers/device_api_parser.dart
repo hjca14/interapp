@@ -52,9 +52,7 @@ class DeviceApiParser {
     final reader = _JsonReader(statusJson);
     return ApiDeviceStatus(
       deviceId: reader.requiredString('device_id'),
-      connectivity: _parseConnectivity(
-        reader.requiredString('connectivity'),
-      ),
+      connectivity: _parseConnectivity(reader.requiredString('connectivity')),
       freshness: _parseFreshness(reader.requiredString('freshness')),
       health: _parseDeviceHealth(reader.value('health')),
     );

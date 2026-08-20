@@ -21,10 +21,7 @@ class ApiDeviceDetailPage extends ConsumerWidget {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            _DeviceDetailCard(
-              deviceId: deviceId,
-              detail: detail,
-            ),
+            _DeviceDetailCard(deviceId: deviceId, detail: detail),
             const SizedBox(height: 12),
             _DeviceStatusCard(status: status),
             const _UnavailableCommandCard(),
@@ -58,9 +55,7 @@ class _DeviceDetailCard extends ConsumerWidget {
           subtitle: const Text('Não foi possível acessar este dispositivo.'),
           trailing: IconButton(
             tooltip: 'Tentar novamente',
-            onPressed: () => ref.invalidate(
-              apiDeviceDetailProvider(deviceId),
-            ),
+            onPressed: () => ref.invalidate(apiDeviceDetailProvider(deviceId)),
             icon: const Icon(Icons.refresh),
           ),
         ),
@@ -87,12 +82,10 @@ class _DeviceStatusCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return status.when(
-      loading: () => const Card(
-        child: ListTile(title: Text('Carregando status...')),
-      ),
-      error: (_, _) => const Card(
-        child: ListTile(title: Text('Status indisponível')),
-      ),
+      loading: () =>
+          const Card(child: ListTile(title: Text('Carregando status...'))),
+      error: (_, _) =>
+          const Card(child: ListTile(title: Text('Status indisponível'))),
       data: _buildStatusCard,
     );
   }
@@ -128,9 +121,7 @@ class _UnavailableCommandCard extends StatelessWidget {
         enabled: false,
         leading: Icon(Icons.lock_outline),
         title: Text('Abrir porta'),
-        subtitle: Text(
-          'Indisponível nesta fase. Nenhum comando será enviado.',
-        ),
+        subtitle: Text('Indisponível nesta fase. Nenhum comando será enviado.'),
       ),
     );
   }

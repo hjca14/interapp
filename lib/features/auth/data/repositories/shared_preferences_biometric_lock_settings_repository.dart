@@ -23,9 +23,6 @@ class SharedPreferencesBiometricLockSettingsRepository
   Future<void> save(BiometricLockSettings settings) async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setBool(_enabledKey, settings.enabled);
-    await preferences.setInt(
-      _timeoutKey,
-      settings.backgroundTimeout.inSeconds,
-    );
+    await preferences.setInt(_timeoutKey, settings.backgroundTimeout.inSeconds);
   }
 }

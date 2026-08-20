@@ -49,19 +49,14 @@ class CognitoAuthRepository implements AuthRepository {
           userAttributes: {CognitoUserAttributeKey.email: email},
         ),
       );
-      return AuthSignUpResult(
-        confirmationRequired: !result.isSignUpComplete,
-      );
+      return AuthSignUpResult(confirmationRequired: !result.isSignUpComplete);
     });
   }
 
   @override
   Future<void> confirmSignUp(String email, String code) {
     return _runGuarded(() async {
-      await Amplify.Auth.confirmSignUp(
-        username: email,
-        confirmationCode: code,
-      );
+      await Amplify.Auth.confirmSignUp(username: email, confirmationCode: code);
     });
   }
 
@@ -78,9 +73,7 @@ class CognitoAuthRepository implements AuthRepository {
       final result = await Amplify.Auth.signIn(
         username: email,
         password: password,
-        options: const SignInOptions(
-          authFlowType: AuthFlowType.userSrpAuth,
-        ),
+        options: const SignInOptions(authFlowType: AuthFlowType.userSrpAuth),
       );
       if (!result.isSignedIn) {
         throw const AuthFailure(
@@ -129,9 +122,11 @@ class CognitoAuthRepository implements AuthRepository {
   @override
   Future<String> getValidAccessToken({bool forceRefresh = false}) {
     return _runGuarded(() async {
-      final session = await Amplify.Auth.fetchAuthSession(
-        options: FetchAuthSessionOptions(forceRefresh: forceRefresh),
-      ) as CognitoAuthSession;
+      final session =
+          await Amplify.Auth.fetchAuthSession(
+                options: FetchAuthSessionOptions(forceRefresh: forceRefresh),
+              )
+              as CognitoAuthSession;
       return session.userPoolTokensResult.value.accessToken.raw;
     });
   }

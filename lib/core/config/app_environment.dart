@@ -26,9 +26,7 @@ class AppConfig {
       apiBaseUrl: const String.fromEnvironment('API_BASE_URL'),
       awsRegion: const String.fromEnvironment('AWS_REGION'),
       cognitoUserPoolId: const String.fromEnvironment('COGNITO_USER_POOL_ID'),
-      cognitoAppClientId: const String.fromEnvironment(
-        'COGNITO_APP_CLIENT_ID',
-      ),
+      cognitoAppClientId: const String.fromEnvironment('COGNITO_APP_CLIENT_ID'),
     );
   }
 

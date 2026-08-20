@@ -4,23 +4,26 @@ import 'package:interapp/features/devices/domain/entities/device_command.dart';
 
 void main() {
   group('DeviceCommand.toJson', () {
-    test('encodes issued_at/expires_at as Unix epoch seconds, not ISO-8601', () {
-      final command = DeviceCommand(
-        commandId: 'cmd-abc123',
-        command: DeviceCommandType.openDoor,
-        issuedAt: DateTime.utc(2026, 8, 11, 17, 30, 25),
-        expiresAt: DateTime.utc(2026, 8, 11, 17, 30, 30),
-      );
+    test(
+      'encodes issued_at/expires_at as Unix epoch seconds, not ISO-8601',
+      () {
+        final command = DeviceCommand(
+          commandId: 'cmd-abc123',
+          command: DeviceCommandType.openDoor,
+          issuedAt: DateTime.utc(2026, 8, 11, 17, 30, 25),
+          expiresAt: DateTime.utc(2026, 8, 11, 17, 30, 30),
+        );
 
-      final json = command.toJson();
+        final json = command.toJson();
 
-      expect(json['protocol_version'], kProtocolVersion);
-      expect(json['command_id'], 'cmd-abc123');
-      expect(json['command'], 'OPEN_DOOR');
-      expect(json['issued_at'], isA<int>());
-      expect(json['issued_at'], 1786469425);
-      expect(json['expires_at'], 1786469430);
-    });
+        expect(json['protocol_version'], kProtocolVersion);
+        expect(json['command_id'], 'cmd-abc123');
+        expect(json['command'], 'OPEN_DOOR');
+        expect(json['issued_at'], isA<int>());
+        expect(json['issued_at'], 1786469425);
+        expect(json['expires_at'], 1786469430);
+      },
+    );
 
     test('omits payload when null and includes it when present', () {
       final withoutPayload = DeviceCommand(
@@ -60,29 +63,35 @@ void main() {
       expect(decoded.issuedAt.isUtc, isTrue);
     });
 
-    test('throws UnsupportedProtocolVersionException for a future protocol version', () {
-      expect(
-        () => DeviceCommand.fromJson(const {
-          'protocol_version': 2,
+    test(
+      'throws UnsupportedProtocolVersionException for a future protocol version',
+      () {
+        expect(
+          () => DeviceCommand.fromJson(const {
+            'protocol_version': 2,
+            'command_id': 'cmd-1',
+            'command': 'OPEN_DOOR',
+            'issued_at': 1786469425,
+            'expires_at': 1786469430,
+          }),
+          throwsA(isA<UnsupportedProtocolVersionException>()),
+        );
+      },
+    );
+
+    test(
+      'an unrecognized command name becomes unknown instead of throwing',
+      () {
+        final decoded = DeviceCommand.fromJson(const {
+          'protocol_version': 1,
           'command_id': 'cmd-1',
-          'command': 'OPEN_DOOR',
+          'command': 'SOME_FUTURE_COMMAND',
           'issued_at': 1786469425,
           'expires_at': 1786469430,
-        }),
-        throwsA(isA<UnsupportedProtocolVersionException>()),
-      );
-    });
+        });
 
-    test('an unrecognized command name becomes unknown instead of throwing', () {
-      final decoded = DeviceCommand.fromJson(const {
-        'protocol_version': 1,
-        'command_id': 'cmd-1',
-        'command': 'SOME_FUTURE_COMMAND',
-        'issued_at': 1786469425,
-        'expires_at': 1786469430,
-      });
-
-      expect(decoded.command, DeviceCommandType.unknown);
-    });
+        expect(decoded.command, DeviceCommandType.unknown);
+      },
+    );
   });
 }

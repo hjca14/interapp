@@ -96,9 +96,7 @@ void main() {
     final auth = LocalAuthRepository(
       initial: const AuthSession(isSignedIn: true),
     );
-    final httpClient = MockClient(
-      (_) async => http.Response('not-json', 200),
-    );
+    final httpClient = MockClient((_) async => http.Response('not-json', 200));
     final repository = _createRepository(auth, httpClient);
 
     expect(repository.list, throwsA(isA<ApiFailure>()));

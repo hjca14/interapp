@@ -1,12 +1,7 @@
 import '../entities/auth_session.dart';
 import '../repositories/auth_repository.dart';
 
-enum BiometricAuthenticationResult {
-  success,
-  unavailable,
-  canceled,
-  failed,
-}
+enum BiometricAuthenticationResult { success, unavailable, canceled, failed }
 
 abstract class BiometricAuthenticator {
   Future<bool> isAvailable();
@@ -23,10 +18,7 @@ class BiometricLockSettings {
   final bool enabled;
   final Duration backgroundTimeout;
 
-  BiometricLockSettings copyWith({
-    bool? enabled,
-    Duration? backgroundTimeout,
-  }) {
+  BiometricLockSettings copyWith({bool? enabled, Duration? backgroundTimeout}) {
     return BiometricLockSettings(
       enabled: enabled ?? this.enabled,
       backgroundTimeout: backgroundTimeout ?? this.backgroundTimeout,

@@ -118,12 +118,16 @@ class _AddInterBridgePageState extends ConsumerState<AddInterBridgePage> {
           onSubmit: _submitWifi,
         );
       case OnboardingPhase.sendingWifi:
-        return const _ProgressStep(message: 'Enviando configuração do Wi-Fi...');
+        return const _ProgressStep(
+          message: 'Enviando configuração do Wi-Fi...',
+        );
       case OnboardingPhase.startingClaim:
       case OnboardingPhase.claimActive:
         return const _ProgressStep(message: 'Registrando o dispositivo...');
       case OnboardingPhase.awsProvisioning:
-        return const _ProgressStep(message: 'Conectando o InterBridge à internet...');
+        return const _ProgressStep(
+          message: 'Conectando o InterBridge à internet...',
+        );
       case OnboardingPhase.verifyingDevice:
         return const _ProgressStep(message: 'Finalizando configuração...');
       case OnboardingPhase.success:
@@ -142,7 +146,8 @@ class _AddInterBridgePageState extends ConsumerState<AddInterBridgePage> {
       case OnboardingPhase.scanningQr:
         return _QrFallbackStep(
           controller: _qrPayloadController,
-          onSubmit: () => _coordinator.submitQrPayload(_qrPayloadController.text),
+          onSubmit: () =>
+              _coordinator.submitQrPayload(_qrPayloadController.text),
           onBack: _coordinator.startBleOnboarding,
         );
       case OnboardingPhase.enteringSetupCode:
@@ -172,7 +177,10 @@ class _IntroStep extends StatelessWidget {
         '2. Verifique se a luz está piscando azul rapidamente.\n'
         '3. Toque em Continuar.',
       ),
-      primaryAction: FilledButton(onPressed: onContinue, child: const Text('Continuar')),
+      primaryAction: FilledButton(
+        onPressed: onContinue,
+        child: const Text('Continuar'),
+      ),
     );
   }
 }
@@ -188,7 +196,10 @@ class _ScanningStep extends StatelessWidget {
       loading: true,
       title: 'Procurando InterBridge próximo...',
       body: const Text('Mantenha o aplicativo aberto e o Bluetooth ligado.'),
-      secondaryAction: _FallbackLinks(onUseQr: onUseQr, onUseManualCode: onUseManualCode),
+      secondaryAction: _FallbackLinks(
+        onUseQr: onUseQr,
+        onUseManualCode: onUseManualCode,
+      ),
     );
   }
 }
@@ -211,7 +222,10 @@ class _DeviceListStep extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('InterBridge encontrados', style: Theme.of(context).textTheme.titleLarge),
+        Text(
+          'InterBridge encontrados',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
         const SizedBox(height: 8),
         const Text('Ainda procurando outros dispositivos por perto...'),
         const SizedBox(height: 16),
@@ -233,7 +247,11 @@ class _DeviceListStep extends StatelessWidget {
 }
 
 class _ConfirmDeviceStep extends StatelessWidget {
-  const _ConfirmDeviceStep({required this.device, required this.onConfirm, required this.onReject});
+  const _ConfirmDeviceStep({
+    required this.device,
+    required this.onConfirm,
+    required this.onReject,
+  });
 
   final DiscoveredInterBridge? device;
   final VoidCallback onConfirm;
@@ -244,9 +262,17 @@ class _ConfirmDeviceStep extends StatelessWidget {
     return _StepScaffold(
       icon: Icons.bluetooth_searching,
       title: 'Encontramos um InterBridge próximo.',
-      body: Text('${device?.friendlyName ?? ''}\n\nA luz dele está piscando azul rapidamente?'),
-      primaryAction: FilledButton(onPressed: onConfirm, child: const Text('Sim, continuar')),
-      secondaryAction: TextButton(onPressed: onReject, child: const Text('Não é este')),
+      body: Text(
+        '${device?.friendlyName ?? ''}\n\nA luz dele está piscando azul rapidamente?',
+      ),
+      primaryAction: FilledButton(
+        onPressed: onConfirm,
+        child: const Text('Sim, continuar'),
+      ),
+      secondaryAction: TextButton(
+        onPressed: onReject,
+        child: const Text('Não é este'),
+      ),
     );
   }
 }
@@ -267,7 +293,10 @@ class _WifiFormStep extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('Conectar à internet', style: Theme.of(context).textTheme.titleLarge),
+        Text(
+          'Conectar à internet',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
         const SizedBox(height: 16),
         TextField(
           controller: ssidController,
@@ -297,7 +326,10 @@ class _SuccessStep extends StatelessWidget {
       icon: Icons.check_circle,
       title: 'InterBridge configurado com sucesso.',
       body: const Text('Seu InterBridge já aparece na lista de dispositivos.'),
-      primaryAction: FilledButton(onPressed: onDone, child: const Text('Concluir')),
+      primaryAction: FilledButton(
+        onPressed: onDone,
+        child: const Text('Concluir'),
+      ),
     );
   }
 }
@@ -331,10 +363,14 @@ class _ErrorStep extends StatelessWidget {
       icon: Icons.error_outline,
       title: 'Não foi possível continuar.',
       body: Text(state.failureReason ?? 'Tente novamente.'),
-      primaryAction: FilledButton(onPressed: onRetry, child: const Text('Tentar novamente')),
+      primaryAction: FilledButton(
+        onPressed: onRetry,
+        child: const Text('Tentar novamente'),
+      ),
       secondaryAction: Column(
         children: [
-          if (_offersFallback) _FallbackLinks(onUseQr: onUseQr, onUseManualCode: onUseManualCode),
+          if (_offersFallback)
+            _FallbackLinks(onUseQr: onUseQr, onUseManualCode: onUseManualCode),
           TextButton(onPressed: onCancel, child: const Text('Cancelar')),
         ],
       ),
@@ -343,7 +379,11 @@ class _ErrorStep extends StatelessWidget {
 }
 
 class _QrFallbackStep extends StatelessWidget {
-  const _QrFallbackStep({required this.controller, required this.onSubmit, required this.onBack});
+  const _QrFallbackStep({
+    required this.controller,
+    required this.onSubmit,
+    required this.onBack,
+  });
 
   final TextEditingController controller;
   final VoidCallback onSubmit;
@@ -354,14 +394,20 @@ class _QrFallbackStep extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('Escanear código QR', style: Theme.of(context).textTheme.titleLarge),
+        Text(
+          'Escanear código QR',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
         const SizedBox(height: 8),
         const Text(
           'A leitura por câmera ainda não está disponível neste app — cole '
           'abaixo o conteúdo do código QR para testar o fluxo.',
         ),
         const SizedBox(height: 16),
-        TextField(controller: controller, decoration: const InputDecoration(labelText: 'Conteúdo do QR')),
+        TextField(
+          controller: controller,
+          decoration: const InputDecoration(labelText: 'Conteúdo do QR'),
+        ),
         const SizedBox(height: 16),
         FilledButton(onPressed: onSubmit, child: const Text('Continuar')),
         TextButton(onPressed: onBack, child: const Text('Voltar')),
@@ -388,13 +434,19 @@ class _ManualCodeStep extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('Digitar código manualmente', style: Theme.of(context).textTheme.titleLarge),
+        Text(
+          'Digitar código manualmente',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
         const SizedBox(height: 16),
         TextField(
           controller: controller,
           keyboardType: TextInputType.number,
           onSubmitted: (_) => onSubmit(),
-          decoration: InputDecoration(labelText: 'Código de 12 dígitos', errorText: errorText),
+          decoration: InputDecoration(
+            labelText: 'Código de 12 dígitos',
+            errorText: errorText,
+          ),
         ),
         const SizedBox(height: 16),
         FilledButton(onPressed: onSubmit, child: const Text('Continuar')),
@@ -416,7 +468,10 @@ class _FallbackLinks extends StatelessWidget {
         const SizedBox(height: 8),
         const Text('Não encontrou seu InterBridge?'),
         TextButton(onPressed: onUseQr, child: const Text('Escanear código QR')),
-        TextButton(onPressed: onUseManualCode, child: const Text('Digitar código manualmente')),
+        TextButton(
+          onPressed: onUseManualCode,
+          child: const Text('Digitar código manualmente'),
+        ),
       ],
     );
   }
@@ -445,14 +500,24 @@ class _StepScaffold extends StatelessWidget {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        if (loading) const CircularProgressIndicator() else if (icon != null) Icon(icon, size: 64),
+        if (loading)
+          const CircularProgressIndicator()
+        else if (icon != null)
+          Icon(icon, size: 64),
         const SizedBox(height: 24),
-        Text(title, textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineSmall),
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
         const SizedBox(height: 12),
         DefaultTextStyle.merge(textAlign: TextAlign.center, child: body),
         const SizedBox(height: 32),
         ?primaryAction,
-        if (secondaryAction != null) ...[const SizedBox(height: 8), secondaryAction!],
+        if (secondaryAction != null) ...[
+          const SizedBox(height: 8),
+          secondaryAction!,
+        ],
       ],
     );
   }
@@ -465,6 +530,10 @@ class _ProgressStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _StepScaffold(loading: true, title: message, body: const SizedBox.shrink());
+    return _StepScaffold(
+      loading: true,
+      title: message,
+      body: const SizedBox.shrink(),
+    );
   }
 }

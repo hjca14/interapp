@@ -64,13 +64,15 @@ class InterBridgeApiClient {
     );
     final uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
     try {
-      return await _client.get(
-        uri,
-        headers: {
-          'Authorization': 'Bearer $accessToken',
-          'Accept': 'application/json',
-        },
-      ).timeout(timeout);
+      return await _client
+          .get(
+            uri,
+            headers: {
+              'Authorization': 'Bearer $accessToken',
+              'Accept': 'application/json',
+            },
+          )
+          .timeout(timeout);
     } on TimeoutException {
       throw const ApiFailure(
         ApiFailureKind.timeout,

@@ -6,7 +6,10 @@
 /// never need to read/type the full technical id. [deviceId] exists for the
 /// coordinator/backend and for a future diagnostics/developer view only.
 class DiscoveredInterBridge {
-  const DiscoveredInterBridge({required this.deviceId, required this.friendlyName});
+  const DiscoveredInterBridge({
+    required this.deviceId,
+    required this.friendlyName,
+  });
 
   final String deviceId;
   final String friendlyName;
@@ -24,6 +27,8 @@ class DiscoveredInterBridge {
 /// transports that only advertise the raw id over BLE.
 String friendlyInterBridgeName(String deviceId) {
   final hexOnly = deviceId.replaceAll(RegExp('[^0-9a-fA-F]'), '');
-  final suffix = hexOnly.length >= 4 ? hexOnly.substring(hexOnly.length - 4) : hexOnly;
+  final suffix = hexOnly.length >= 4
+      ? hexOnly.substring(hexOnly.length - 4)
+      : hexOnly;
   return 'InterBridge-${suffix.toUpperCase()}';
 }

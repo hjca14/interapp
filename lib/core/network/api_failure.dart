@@ -13,12 +13,7 @@ enum ApiFailureKind {
 
 /// Typed API failure that never includes sensitive response bodies.
 class ApiFailure implements Exception {
-  const ApiFailure(
-    this.kind,
-    this.message, {
-    this.requestId,
-    this.retryAfter,
-  });
+  const ApiFailure(this.kind, this.message, {this.requestId, this.retryAfter});
 
   final ApiFailureKind kind;
   final String message;

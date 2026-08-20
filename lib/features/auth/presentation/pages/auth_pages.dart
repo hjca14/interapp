@@ -162,11 +162,7 @@ class _SignUpPageState extends ConsumerState<SignUpPage> {
 
 /// Confirmation-code screen shared by sign-up and password reset.
 class CodePage extends ConsumerStatefulWidget {
-  const CodePage({
-    super.key,
-    required this.email,
-    this.passwordReset = false,
-  });
+  const CodePage({super.key, required this.email, this.passwordReset = false});
 
   final String email;
   final bool passwordReset;
@@ -283,8 +279,7 @@ class ForgotPasswordPage extends ConsumerStatefulWidget {
   const ForgotPasswordPage({super.key});
 
   @override
-  ConsumerState<ForgotPasswordPage> createState() =>
-      _ForgotPasswordPageState();
+  ConsumerState<ForgotPasswordPage> createState() => _ForgotPasswordPageState();
 }
 
 class _ForgotPasswordPageState extends ConsumerState<ForgotPasswordPage> {

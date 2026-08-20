@@ -8,8 +8,8 @@ void main() {
 
   test('biometric lock is disabled by default', () async {
     SharedPreferences.setMockInitialValues({});
-    final settings =
-        await SharedPreferencesBiometricLockSettingsRepository().load();
+    final settings = await SharedPreferencesBiometricLockSettingsRepository()
+        .load();
 
     expect(settings.enabled, isFalse);
     expect(settings.backgroundTimeout, const Duration(minutes: 1));
@@ -17,8 +17,7 @@ void main() {
 
   test('persists only enabled state and background timeout', () async {
     SharedPreferences.setMockInitialValues({});
-    final repository =
-        SharedPreferencesBiometricLockSettingsRepository();
+    final repository = SharedPreferencesBiometricLockSettingsRepository();
     await repository.save(
       const BiometricLockSettings(
         enabled: true,
