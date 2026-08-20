@@ -1,10 +1,19 @@
 import '../entities/auth_session.dart';
 import '../repositories/auth_repository.dart';
 
-enum BiometricAuthenticationResult { success, unavailable, canceled, failed }
+enum BiometricAvailability { available, notEnrolled, unsupported }
+
+enum BiometricAuthenticationResult {
+  success,
+  notEnrolled,
+  unsupported,
+  canceled,
+  temporarilyLocked,
+  failed,
+}
 
 abstract class BiometricAuthenticator {
-  Future<bool> isAvailable();
+  Future<BiometricAvailability> availability();
 
   Future<BiometricAuthenticationResult> authenticate();
 }
@@ -46,10 +55,14 @@ class BiometricUnlockService {
       await _auth.invalidateSession();
       return BiometricAuthenticationResult.failed;
     }
-    if (!await _biometrics.isAvailable()) {
-      return BiometricAuthenticationResult.unavailable;
+    switch (await _biometrics.availability()) {
+      case BiometricAvailability.available:
+        return _biometrics.authenticate();
+      case BiometricAvailability.notEnrolled:
+        return BiometricAuthenticationResult.notEnrolled;
+      case BiometricAvailability.unsupported:
+        return BiometricAuthenticationResult.unsupported;
     }
-    return _biometrics.authenticate();
   }
 }
 

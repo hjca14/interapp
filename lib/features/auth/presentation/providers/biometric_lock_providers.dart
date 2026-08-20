@@ -23,9 +23,20 @@ class BiometricLockSettingsController
 
   Future<void> setEnabled(bool enabled) async {
     final previous = state.value ?? const BiometricLockSettings();
-    if (enabled &&
-        !await ref.read(biometricAuthenticatorProvider).isAvailable()) {
-      throw const BiometricUnavailableException();
+    if (enabled) {
+      final authenticator = ref.read(biometricAuthenticatorProvider);
+      final availability = await authenticator.availability();
+      if (availability != BiometricAvailability.available) {
+        throw BiometricActivationException(
+          availability == BiometricAvailability.notEnrolled
+              ? BiometricAuthenticationResult.notEnrolled
+              : BiometricAuthenticationResult.unsupported,
+        );
+      }
+      final result = await authenticator.authenticate();
+      if (result != BiometricAuthenticationResult.success) {
+        throw BiometricActivationException(result);
+      }
     }
     final updated = previous.copyWith(enabled: enabled);
     await ref.read(biometricLockSettingsRepositoryProvider).save(updated);
@@ -40,9 +51,25 @@ class BiometricLockSettingsController
   }
 }
 
-class BiometricUnavailableException implements Exception {
-  const BiometricUnavailableException();
+class BiometricActivationException implements Exception {
+  const BiometricActivationException(this.result);
+
+  final BiometricAuthenticationResult result;
 }
+
+String biometricResultMessage(BiometricAuthenticationResult result) =>
+    switch (result) {
+  BiometricAuthenticationResult.notEnrolled =>
+    'Cadastre uma biometria nas configurações do aparelho para continuar.',
+  BiometricAuthenticationResult.unsupported =>
+    'Este aparelho não oferece suporte à autenticação biométrica.',
+  BiometricAuthenticationResult.canceled => 'Autenticação cancelada.',
+  BiometricAuthenticationResult.temporarilyLocked =>
+    'Biometria temporariamente bloqueada. Aguarde e tente novamente.',
+  BiometricAuthenticationResult.failed =>
+    'Não foi possível confirmar sua biometria. Tente novamente.',
+  BiometricAuthenticationResult.success => '',
+};
 
 final biometricLockSettingsProvider =
     AsyncNotifierProvider<

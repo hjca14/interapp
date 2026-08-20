@@ -25,6 +25,7 @@ class _BiometricLockGateState extends ConsumerState<BiometricLockGate>
   DateTime? _backgroundedAt;
   bool _locked = false;
   bool _unlocking = false;
+  bool _automaticAttemptScheduled = false;
   String? _message;
 
   DateTime get _now => (widget.now ?? DateTime.now)();
@@ -43,6 +44,11 @@ class _BiometricLockGateState extends ConsumerState<BiometricLockGate>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // The native biometric sheet can itself emit inactive/resumed events.
+    // Ignoring those events prevents its dismissal from scheduling a new sheet.
+    if (_unlocking) {
+      return;
+    }
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
@@ -59,8 +65,18 @@ class _BiometricLockGateState extends ConsumerState<BiometricLockGate>
       setState(() {
         _locked = true;
         _message = null;
+        _automaticAttemptScheduled = false;
       });
+      _scheduleAutomaticUnlock();
     }
+  }
+
+  void _scheduleAutomaticUnlock() {
+    if (_automaticAttemptScheduled) return;
+    _automaticAttemptScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _locked) _unlock();
+    });
   }
 
   Future<void> _unlock() async {
@@ -79,12 +95,8 @@ class _BiometricLockGateState extends ConsumerState<BiometricLockGate>
       _unlocking = false;
       if (result == BiometricAuthenticationResult.success) {
         _locked = false;
-      } else if (result == BiometricAuthenticationResult.unavailable) {
-        _message = 'Biometria indisponível neste aparelho.';
-      } else if (result == BiometricAuthenticationResult.canceled) {
-        _message = 'Autenticação cancelada.';
       } else {
-        _message = 'Não foi possível confirmar sua biometria.';
+        _message = biometricResultMessage(result);
       }
     });
   }
@@ -96,42 +108,58 @@ class _BiometricLockGateState extends ConsumerState<BiometricLockGate>
     if (!enabled || !_locked) {
       return widget.child;
     }
+    _scheduleAutomaticUnlock();
     return ColoredBox(
       color: Theme.of(context).scaffoldBackgroundColor,
-      child: Center(
-        child: Padding(
+      child: SafeArea(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.fingerprint, size: 72),
-              const SizedBox(height: 16),
-              Text(
-                'InterBridge bloqueado',
-                style: Theme.of(context).textTheme.headlineSmall,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: MediaQuery.sizeOf(context).height -
+                  MediaQuery.paddingOf(context).vertical -
+                  48,
+            ),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.fingerprint, size: 72),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Desbloqueie para continuar',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Confirme sua biometria para acessar o InterBridge.',
+                      textAlign: TextAlign.center,
+                    ),
+                    if (_message != null) ...[
+                      const SizedBox(height: 12),
+                      Text(_message!, textAlign: TextAlign.center),
+                    ],
+                    const SizedBox(height: 20),
+                    FilledButton.icon(
+                      onPressed: _unlocking ? null : _unlock,
+                      icon: const Icon(Icons.fingerprint),
+                      label: Text(
+                        _unlocking ? 'Verificando...' : 'Desbloquear',
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _unlocking
+                          ? null
+                          : () => ref.read(authRepositoryProvider).signOut(),
+                      child: const Text('Entrar com e-mail e senha'),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 8),
-              const Text(
-                'Use a biometria do aparelho para desbloquear esta sessão.',
-                textAlign: TextAlign.center,
-              ),
-              if (_message != null) ...[
-                const SizedBox(height: 12),
-                Text(_message!, textAlign: TextAlign.center),
-              ],
-              const SizedBox(height: 20),
-              FilledButton.icon(
-                onPressed: _unlocking ? null : _unlock,
-                icon: const Icon(Icons.fingerprint),
-                label: Text(_unlocking ? 'Verificando...' : 'Desbloquear'),
-              ),
-              TextButton(
-                onPressed: _unlocking
-                    ? null
-                    : () => ref.read(authRepositoryProvider).signOut(),
-                child: const Text('Entrar com e-mail e senha'),
-              ),
-            ],
+            ),
           ),
         ),
       ),

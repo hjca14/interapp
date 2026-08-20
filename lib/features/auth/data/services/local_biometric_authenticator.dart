@@ -10,12 +10,17 @@ class LocalBiometricAuthenticator implements BiometricAuthenticator {
   final LocalAuthentication _authentication;
 
   @override
-  Future<bool> isAvailable() async {
+  Future<BiometricAvailability> availability() async {
     try {
-      return await _authentication.isDeviceSupported() &&
-          await _authentication.canCheckBiometrics;
+      if (!await _authentication.isDeviceSupported()) {
+        return BiometricAvailability.unsupported;
+      }
+      final enrolled = await _authentication.getAvailableBiometrics();
+      return enrolled.isEmpty
+          ? BiometricAvailability.notEnrolled
+          : BiometricAvailability.available;
     } on Object {
-      return false;
+      return BiometricAvailability.unsupported;
     }
   }
 
@@ -30,6 +35,20 @@ class LocalBiometricAuthenticator implements BiometricAuthenticator {
       return authenticated
           ? BiometricAuthenticationResult.success
           : BiometricAuthenticationResult.canceled;
+    } on LocalAuthException catch (error) {
+      return switch (error.code) {
+        LocalAuthExceptionCode.noBiometricsEnrolled =>
+          BiometricAuthenticationResult.notEnrolled,
+        LocalAuthExceptionCode.noBiometricHardware =>
+          BiometricAuthenticationResult.unsupported,
+        LocalAuthExceptionCode.userCanceled ||
+        LocalAuthExceptionCode.systemCanceled =>
+          BiometricAuthenticationResult.canceled,
+        LocalAuthExceptionCode.temporaryLockout ||
+        LocalAuthExceptionCode.biometricLockout =>
+          BiometricAuthenticationResult.temporarilyLocked,
+        _ => BiometricAuthenticationResult.failed,
+      };
     } on Object {
       return BiometricAuthenticationResult.failed;
     }
