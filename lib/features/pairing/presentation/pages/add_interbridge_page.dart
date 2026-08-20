@@ -48,7 +48,9 @@ class _AddInterBridgePageState extends ConsumerState<AddInterBridgePage> {
 
   Future<void> _submitWifi() async {
     final ssid = _wifiSsidController.text.trim();
-    if (ssid.isEmpty) return;
+    if (ssid.isEmpty) {
+      return;
+    }
     final password = _wifiPasswordController.text;
     await _coordinator.submitWifi(ssid, password);
     // The password only ever lived in this controller and the call above;
@@ -57,8 +59,14 @@ class _AddInterBridgePageState extends ConsumerState<AddInterBridgePage> {
   }
 
   Future<void> _submitManualCode() async {
-    final accepted = await _coordinator.submitManualCode(_manualCodeController.text);
-    setState(() => _manualCodeError = accepted ? null : 'Código inválido. Confira os 12 dígitos.');
+    final accepted = await _coordinator.submitManualCode(
+      _manualCodeController.text,
+    );
+    setState(() {
+      _manualCodeError = accepted
+          ? null
+          : 'Código inválido. Confira os 12 dígitos.';
+    });
   }
 
   @override

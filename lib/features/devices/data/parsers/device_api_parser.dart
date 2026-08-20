@@ -56,12 +56,14 @@ class DeviceApiParser {
         reader.requiredString('connectivity'),
       ),
       freshness: _parseFreshness(reader.requiredString('freshness')),
-      health: _parseNullableDeviceHealth(reader.value('health')),
+      health: _parseDeviceHealth(reader.value('health')),
     );
   }
 
-  ApiDeviceHealth? _parseNullableDeviceHealth(Object? healthValue) {
-    if (healthValue == null) return null;
+  ApiDeviceHealth? _parseDeviceHealth(Object? healthValue) {
+    if (healthValue == null) {
+      return null;
+    }
     final healthJson = _requiredObject(healthValue);
     final reader = _JsonReader(healthJson);
     return ApiDeviceHealth(
@@ -122,7 +124,9 @@ class DeviceApiParser {
 
   IntercomState _parseIntercomState(String rawState) {
     final state = IntercomState.fromRaw(rawState);
-    if (!state.isKnown) throw _unknownEnumFailure('estado do interfone');
+    if (!state.isKnown) {
+      throw _unknownEnumFailure('estado do interfone');
+    }
     return state;
   }
 
@@ -164,7 +168,9 @@ class _JsonReader {
 
   String? nullableString(String key) {
     final fieldValue = json[key];
-    if (fieldValue == null) return null;
+    if (fieldValue == null) {
+      return null;
+    }
     if (fieldValue is! String) {
       throw const ApiFailure(
         ApiFailureKind.invalidResponse,

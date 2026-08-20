@@ -22,7 +22,9 @@ class DialerController extends ChangeNotifier {
   /// Removes the last character, e.g. from the backspace button. No-op on an
   /// empty number.
   void deleteLast() {
-    if (_number.isEmpty) return;
+    if (_number.isEmpty) {
+      return;
+    }
     setNumber(_number.substring(0, _number.length - 1));
   }
 }

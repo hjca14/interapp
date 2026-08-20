@@ -48,7 +48,9 @@ class _DeviceDetailPageState extends ConsumerState<DeviceDetailPage> {
   /// and jumps to the Discar tab (index 1).
   void _dialFavorite(String number) {
     _dialerController.setNumber(number);
-    setState(() => _selectedIndex = 1);
+    setState(() {
+      _selectedIndex = 1;
+    });
   }
 
   /// Debug-only action behind the [kDebugMode] button in the app bar. Only
@@ -112,8 +114,11 @@ class _DeviceDetailPageState extends ConsumerState<DeviceDetailPage> {
         body: SafeArea(child: pages[_selectedIndex]),
         bottomNavigationBar: NavigationBar(
           selectedIndex: _selectedIndex,
-          onDestinationSelected: (index) =>
-              setState(() => _selectedIndex = index),
+          onDestinationSelected: (index) {
+            setState(() {
+              _selectedIndex = index;
+            });
+          },
           destinations: const [
             NavigationDestination(
               icon: Icon(Icons.info_outline),
@@ -360,7 +365,9 @@ class _LastSeenStatus extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final lastSeen = _statusValue(status)?.lastSeen;
-    if (lastSeen == null) return const SizedBox.shrink();
+    if (lastSeen == null) {
+      return const SizedBox.shrink();
+    }
     final localTime = lastSeen.toLocal();
     final formatted =
         '${localTime.day.toString().padLeft(2, '0')}/'

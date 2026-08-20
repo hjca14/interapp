@@ -85,7 +85,9 @@ class OnboardingCoordinator extends ChangeNotifier {
   }
 
   void _onDeviceDiscovered(DiscoveredInterBridge device) {
-    if (_state.discoveredDevices.contains(device)) return;
+    if (_state.discoveredDevices.contains(device)) {
+      return;
+    }
     _analytics.track('device_discovered');
     final updated = [..._state.discoveredDevices, device];
     final nextPhase = _state.phase == OnboardingPhase.scanningBle
@@ -119,7 +121,9 @@ class OnboardingCoordinator extends ChangeNotifier {
   /// "Sim, continuar".
   Future<void> confirmDevice() async {
     final device = _state.selectedDevice;
-    if (device == null) return;
+    if (device == null) {
+      return;
+    }
     _analytics.track('device_confirmed');
     await stopBleScan();
     _setState(_state.copyWith(phase: OnboardingPhase.connectingBle));
@@ -135,7 +139,9 @@ class OnboardingCoordinator extends ChangeNotifier {
   }
 
   Future<void> submitWifi(String ssid, String password) async {
-    if (ssid.trim().isEmpty) return;
+    if (ssid.trim().isEmpty) {
+      return;
+    }
     _setState(_state.copyWith(phase: OnboardingPhase.sendingWifi));
     try {
       await _bleTransport.sendWifiCredentials(ssid, password);
@@ -223,7 +229,9 @@ class OnboardingCoordinator extends ChangeNotifier {
   /// error phase — matches how the rest of the app treats form errors.
   Future<bool> submitManualCode(String rawInput) async {
     final code = SetupCode.tryParse(rawInput);
-    if (code == null) return false;
+    if (code == null) {
+      return false;
+    }
     await _resolveSetupCode(code);
     return true;
   }

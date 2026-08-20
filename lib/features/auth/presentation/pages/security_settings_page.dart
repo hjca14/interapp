@@ -90,8 +90,14 @@ class SecuritySettingsPage extends ConsumerWidget {
 }
 
 String _timeoutLabel(Duration timeout) {
-  if (timeout == Duration.zero) return 'Imediatamente';
-  if (timeout.inSeconds == 30) return '30 segundos';
-  if (timeout.inMinutes == 1) return '1 minuto';
+  if (timeout == Duration.zero) {
+    return 'Imediatamente';
+  }
+  if (timeout.inSeconds == 30) {
+    return '30 segundos';
+  }
+  if (timeout.inMinutes == 1) {
+    return '1 minuto';
+  }
   return '${timeout.inMinutes} minutos';
 }

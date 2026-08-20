@@ -23,7 +23,9 @@ class CognitoAuthRepository implements AuthRepository {
   Future<AuthSession> get currentSession async {
     try {
       final amplifySession = await Amplify.Auth.fetchAuthSession();
-      if (!amplifySession.isSignedIn) return const AuthSession.signedOut();
+      if (!amplifySession.isSignedIn) {
+        return const AuthSession.signedOut();
+      }
 
       final user = await Amplify.Auth.getCurrentUser();
       final attributes = await Amplify.Auth.fetchUserAttributes();

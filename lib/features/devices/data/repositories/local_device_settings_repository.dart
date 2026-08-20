@@ -18,7 +18,9 @@ class LocalDeviceSettingsRepository implements DeviceSettingsRepository {
   Future<DeviceSettings> get(String deviceId) async {
     final preferences = await SharedPreferences.getInstance();
     final raw = preferences.getString('$_keyPrefix$deviceId');
-    if (raw == null) return const DeviceSettings();
+    if (raw == null) {
+      return const DeviceSettings();
+    }
     try {
       final map = jsonDecode(raw) as Map<String, dynamic>;
       return DeviceSettings.fromMap(map);

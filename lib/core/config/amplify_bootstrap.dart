@@ -14,7 +14,9 @@ class AmplifyBootstrap {
   }
 
   static Future<void> _configure(AppConfig config) async {
-    if (Amplify.isConfigured) return;
+    if (Amplify.isConfigured) {
+      return;
+    }
 
     await Amplify.addPlugin(AmplifyAuthCognito());
     await Amplify.configure(jsonEncode(_buildConfiguration(config)));

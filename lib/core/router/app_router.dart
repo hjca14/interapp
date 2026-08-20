@@ -68,12 +68,18 @@ String? _redirectForSession(
   GoRouterState routerState,
 ) {
   final location = routerState.matchedLocation;
-  if (session.isLoading) return location == '/splash' ? null : '/splash';
+  if (session.isLoading) {
+    return location == '/splash' ? null : '/splash';
+  }
 
   final signedIn = session.value?.isSignedIn == true;
   final isAuthenticationPath = _authenticationPaths.contains(location);
-  if (!signedIn && !isAuthenticationPath) return '/login';
-  if (signedIn && (isAuthenticationPath || location == '/splash')) return '/';
+  if (!signedIn && !isAuthenticationPath) {
+    return '/login';
+  }
+  if (signedIn && (isAuthenticationPath || location == '/splash')) {
+    return '/';
+  }
   return null;
 }
 

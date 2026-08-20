@@ -32,7 +32,9 @@ class _FakeBleTransport implements BleOnboardingTransport {
 
   @override
   Stream<DiscoveredInterBridge> scanForProvisioningDevices() {
-    if (scanError != null) return Stream.error(scanError!);
+    if (scanError != null) {
+      return Stream.error(scanError!);
+    }
     return Stream.fromIterable(devicesToDiscover);
   }
 
@@ -42,7 +44,9 @@ class _FakeBleTransport implements BleOnboardingTransport {
   @override
   Future<void> connect(String deviceId) async {
     connectCallCount++;
-    if (connectError != null) throw connectError!;
+    if (connectError != null) {
+      throw connectError!;
+    }
   }
 
   @override
@@ -53,7 +57,9 @@ class _FakeBleTransport implements BleOnboardingTransport {
 
   @override
   Future<void> sendWifiCredentials(String ssid, String password) async {
-    if (wifiError != null) throw wifiError!;
+    if (wifiError != null) {
+      throw wifiError!;
+    }
   }
 
   @override
@@ -89,20 +95,28 @@ class _FakeClaimRepository implements OnboardingClaimRepository {
   @override
   Future<ClaimSession> start({required String deviceId}) async {
     startCallCount++;
-    if (startFailure != null) throw OnboardingClaimException(startFailure!);
+    if (startFailure != null) {
+      throw OnboardingClaimException(startFailure!);
+    }
     return _session(deviceId, expired: false);
   }
 
   @override
   Future<ClaimSession> resolveSetupCode(SetupCode setupCode) async {
-    if (resolveFailure != null) throw OnboardingClaimException(resolveFailure!);
+    if (resolveFailure != null) {
+      throw OnboardingClaimException(resolveFailure!);
+    }
     return _session(resolvedDeviceId, expired: resolvedSessionExpired);
   }
 
   @override
   Future<ClaimSession> complete(String claimSessionId) async {
-    if (completeGate != null) await completeGate!.future;
-    if (completeFailure != null) throw OnboardingClaimException(completeFailure!);
+    if (completeGate != null) {
+      await completeGate!.future;
+    }
+    if (completeFailure != null) {
+      throw OnboardingClaimException(completeFailure!);
+    }
     return ClaimSession(
       claimSessionId: claimSessionId,
       deviceId: resolvedDeviceId,

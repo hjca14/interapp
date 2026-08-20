@@ -237,7 +237,9 @@ class _PresenceCard extends StatelessWidget {
           trailing: DropdownButton<CallAlertMode>(
             value: calls.remoteNetworkAlertMode,
             onChanged: (mode) {
-              if (mode != null) onRemoteModeChanged(mode);
+              if (mode != null) {
+                onRemoteModeChanged(mode);
+              }
             },
             items: CallAlertMode.values
                 .map(
@@ -297,7 +299,9 @@ class _QuietHoursCard extends StatelessWidget {
       context: context,
       initialTime: TimeOfDay(hour: initial.hour, minute: initial.minute),
     );
-    if (picked == null) return;
+    if (picked == null) {
+      return;
+    }
     final clockTime = ClockTime(hour: picked.hour, minute: picked.minute);
     onChanged(
       isStart
@@ -308,7 +312,9 @@ class _QuietHoursCard extends StatelessWidget {
 
   void _toggleWeekday(int day) {
     final updated = Set<int>.from(settings.weekdays);
-    if (!updated.remove(day)) updated.add(day);
+    if (!updated.remove(day)) {
+      updated.add(day);
+    }
     onChanged(settings.copyWith(weekdays: updated));
   }
 
