@@ -6,8 +6,8 @@ import '../parsers/device_api_parser.dart';
 class HttpDeviceRepository {
   const HttpDeviceRepository(
     this._api, {
-    DeviceApiParser parser = const DeviceApiParser(),
-  }) : _parser = parser;
+    this._parser = const DeviceApiParser(),
+  });
 
   final InterBridgeApiClient _api;
   final DeviceApiParser _parser;
@@ -22,7 +22,7 @@ class HttpDeviceRepository {
     }
     final responseJson = await _api.get(
       '/v1/devices',
-      query: {'limit': '$limit', if (cursor != null) 'cursor': cursor},
+      query: {'limit': '$limit', 'cursor': ?cursor},
     );
     return _parser.parseDevicePage(responseJson);
   }
