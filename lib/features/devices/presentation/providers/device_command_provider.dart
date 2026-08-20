@@ -52,7 +52,9 @@ class DeviceCommandController extends Notifier<OpenDoorRequestState> {
   OpenDoorRequestState build() => const OpenDoorRequestState();
 
   Future<void> openDoor() async {
-    if (state.isBusy) return;
+    if (state.isBusy) {
+      return;
+    }
     state = const OpenDoorRequestState(phase: OpenDoorRequestPhase.sending);
     final result = await ref
         .read(deviceConnectionRepositoryProvider)

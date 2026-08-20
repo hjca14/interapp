@@ -24,9 +24,13 @@ class IntercomState {
   static const _known = [idle, ringing, offHook, inCall, error];
 
   factory IntercomState.fromRaw(String? raw) {
-    if (raw == null) return unreported;
+    if (raw == null) {
+      return unreported;
+    }
     for (final state in _known) {
-      if (state.raw == raw) return state;
+      if (state.raw == raw) {
+        return state;
+      }
     }
     return IntercomState._(raw);
   }

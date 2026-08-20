@@ -49,7 +49,9 @@ class _BiometricLockGateState extends ConsumerState<BiometricLockGate>
       _backgroundedAt ??= _now;
       return;
     }
-    if (state != AppLifecycleState.resumed || _backgroundedAt == null) return;
+    if (state != AppLifecycleState.resumed || _backgroundedAt == null) {
+      return;
+    }
     final settings = ref.read(biometricLockSettingsProvider).value;
     final elapsed = _now.difference(_backgroundedAt!);
     _backgroundedAt = null;
@@ -62,13 +64,17 @@ class _BiometricLockGateState extends ConsumerState<BiometricLockGate>
   }
 
   Future<void> _unlock() async {
-    if (_unlocking) return;
+    if (_unlocking) {
+      return;
+    }
     setState(() {
       _unlocking = true;
       _message = null;
     });
     final result = await ref.read(biometricUnlockServiceProvider).unlock();
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _unlocking = false;
       if (result == BiometricAuthenticationResult.success) {
@@ -87,7 +93,9 @@ class _BiometricLockGateState extends ConsumerState<BiometricLockGate>
   Widget build(BuildContext context) {
     final settings = ref.watch(biometricLockSettingsProvider);
     final enabled = settings.value?.enabled == true;
-    if (!enabled || !_locked) return widget.child;
+    if (!enabled || !_locked) {
+      return widget.child;
+    }
     return ColoredBox(
       color: Theme.of(context).scaffoldBackgroundColor,
       child: Center(

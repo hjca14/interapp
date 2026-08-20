@@ -26,7 +26,9 @@ class ApiDeviceSummary {
 
   /// Friendly fallback that reveals only a short distinguishing suffix.
   String get safeName {
-    if (displayName != null) return displayName!;
+    if (displayName != null) {
+      return displayName!;
+    }
     final suffixStart = deviceId.length > 4 ? deviceId.length - 4 : 0;
     return 'Meu InterBridge •${deviceId.substring(suffixStart)}';
   }

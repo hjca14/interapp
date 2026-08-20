@@ -34,7 +34,9 @@ class ApiDevicesController extends Notifier<DeviceListState> {
 
   /// Restarts pagination from the first page and drops the old cursor.
   Future<void> refresh() async {
-    if (_requestInFlight) return;
+    if (_requestInFlight) {
+      return;
+    }
     _requestInFlight = true;
     state = const DeviceListState();
     try {
@@ -54,7 +56,9 @@ class ApiDevicesController extends Notifier<DeviceListState> {
   /// Loads one additional page while preserving existing items on failure.
   Future<void> loadMore() async {
     final requestedCursor = state.nextCursor;
-    if (requestedCursor == null || _requestInFlight) return;
+    if (requestedCursor == null || _requestInFlight) {
+      return;
+    }
 
     _requestInFlight = true;
     state = DeviceListState(

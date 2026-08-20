@@ -61,7 +61,9 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
     ref
         .read(incomingCallNotificationServiceProvider)
         .showIncomingCall(widget.deviceId, widget.deviceName);
-    if (_callPageOpen) return;
+    if (_callPageOpen) {
+      return;
+    }
     _callPageOpen = true;
     Navigator.of(context)
         .push(

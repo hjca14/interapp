@@ -33,10 +33,16 @@ class _RegistrationPageState extends State<RegistrationPage> {
   /// field.
   Future<void> _save() async {
     final name = _nameController.text.trim();
-    if (name.isEmpty) return;
-    setState(() => _saving = true);
+    if (name.isEmpty) {
+      return;
+    }
+    setState(() {
+      _saving = true;
+    });
     await _repository.saveName(name);
-    if (mounted) Navigator.of(context).pop(name);
+    if (mounted) {
+      Navigator.of(context).pop(name);
+    }
   }
 
   @override

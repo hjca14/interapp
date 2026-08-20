@@ -27,7 +27,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 
   Future<void> _submit() async {
-    if (_submitting) return;
+    if (_submitting) {
+      return;
+    }
     setState(() {
       _submitting = true;
       _errorMessage = null;
@@ -38,9 +40,17 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           .signIn(_emailController.text.trim(), _passwordController.text);
       _passwordController.clear();
     } on AuthFailure catch (failure) {
-      if (mounted) setState(() => _errorMessage = failure.safeMessage);
+      if (mounted) {
+        setState(() {
+          _errorMessage = failure.safeMessage;
+        });
+      }
     } finally {
-      if (mounted) setState(() => _submitting = false);
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+        });
+      }
     }
   }
 
@@ -96,7 +106,9 @@ class _SignUpPageState extends ConsumerState<SignUpPage> {
   }
 
   Future<void> _submit() async {
-    if (_submitting) return;
+    if (_submitting) {
+      return;
+    }
     setState(() {
       _submitting = true;
       _errorMessage = null;
@@ -107,11 +119,21 @@ class _SignUpPageState extends ConsumerState<SignUpPage> {
           .read(authRepositoryProvider)
           .signUp(email, _passwordController.text);
       _passwordController.clear();
-      if (mounted) context.push('/confirm', extra: email);
+      if (mounted) {
+        context.push('/confirm', extra: email);
+      }
     } on AuthFailure catch (failure) {
-      if (mounted) setState(() => _errorMessage = failure.safeMessage);
+      if (mounted) {
+        setState(() {
+          _errorMessage = failure.safeMessage;
+        });
+      }
     } finally {
-      if (mounted) setState(() => _submitting = false);
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+        });
+      }
     }
   }
 
@@ -167,7 +189,9 @@ class _CodePageState extends ConsumerState<CodePage> {
   }
 
   Future<void> _submit() async {
-    if (_submitting) return;
+    if (_submitting) {
+      return;
+    }
     setState(() {
       _submitting = true;
       _errorMessage = null;
@@ -184,11 +208,21 @@ class _CodePageState extends ConsumerState<CodePage> {
       } else {
         await auth.confirmSignUp(widget.email, _codeController.text.trim());
       }
-      if (mounted) context.go('/login');
+      if (mounted) {
+        context.go('/login');
+      }
     } on AuthFailure catch (failure) {
-      if (mounted) setState(() => _errorMessage = failure.safeMessage);
+      if (mounted) {
+        setState(() {
+          _errorMessage = failure.safeMessage;
+        });
+      }
     } finally {
-      if (mounted) setState(() => _submitting = false);
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+        });
+      }
     }
   }
 
@@ -201,7 +235,11 @@ class _CodePageState extends ConsumerState<CodePage> {
         ).showSnackBar(const SnackBar(content: Text('Código reenviado.')));
       }
     } on AuthFailure catch (failure) {
-      if (mounted) setState(() => _errorMessage = failure.safeMessage);
+      if (mounted) {
+        setState(() {
+          _errorMessage = failure.safeMessage;
+        });
+      }
     }
   }
 
@@ -261,7 +299,9 @@ class _ForgotPasswordPageState extends ConsumerState<ForgotPasswordPage> {
   }
 
   Future<void> _submit() async {
-    if (_submitting) return;
+    if (_submitting) {
+      return;
+    }
     setState(() {
       _submitting = true;
       _errorMessage = null;
@@ -269,11 +309,21 @@ class _ForgotPasswordPageState extends ConsumerState<ForgotPasswordPage> {
     final email = _emailController.text.trim();
     try {
       await ref.read(authRepositoryProvider).beginPasswordReset(email);
-      if (mounted) context.push('/reset', extra: email);
+      if (mounted) {
+        context.push('/reset', extra: email);
+      }
     } on AuthFailure catch (failure) {
-      if (mounted) setState(() => _errorMessage = failure.safeMessage);
+      if (mounted) {
+        setState(() {
+          _errorMessage = failure.safeMessage;
+        });
+      }
     } finally {
-      if (mounted) setState(() => _submitting = false);
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+        });
+      }
     }
   }
 
@@ -374,7 +424,11 @@ class _PasswordFieldState extends State<_PasswordField> {
         labelText: 'Senha',
         suffixIcon: IconButton(
           tooltip: _visible ? 'Ocultar senha' : 'Mostrar senha',
-          onPressed: () => setState(() => _visible = !_visible),
+          onPressed: () {
+            setState(() {
+              _visible = !_visible;
+            });
+          },
           icon: Icon(_visible ? Icons.visibility_off : Icons.visibility),
         ),
       ),
@@ -401,7 +455,9 @@ class _InlineError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (message == null) return const SizedBox.shrink();
+    if (message == null) {
+      return const SizedBox.shrink();
+    }
     return Text(
       message!,
       style: TextStyle(color: Theme.of(context).colorScheme.error),

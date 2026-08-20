@@ -136,7 +136,9 @@ class _PaginationFooter extends ConsumerWidget {
         child: const Text('Falha ao carregar mais. Tentar novamente'),
       );
     }
-    if (state.nextCursor == null) return const SizedBox.shrink();
+    if (state.nextCursor == null) {
+      return const SizedBox.shrink();
+    }
     return Padding(
       padding: const EdgeInsets.all(12),
       child: FilledButton(
