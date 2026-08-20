@@ -3,39 +3,39 @@ import 'dart:async';
 import 'package:amplify_auth_cognito/amplify_auth_cognito.dart';
 import 'package:amplify_flutter/amplify_flutter.dart';
 
-import '../../domain/entities/auth_session.dart';
+import '../../domain/entities/auth_session.dart' as domain;
 import '../../domain/repositories/auth_repository.dart';
 
 /// Cognito implementation of [AuthRepository] backed by the official SDK.
 ///
 /// The repository is the only auth layer that handles provider tokens. Widgets
-/// receive only [AuthSession] and sanitized [AuthFailure] values.
+/// receive only [domain.AuthSession] and sanitized [AuthFailure] values.
 class CognitoAuthRepository implements AuthRepository {
-  final _sessionChanges = StreamController<AuthSession>.broadcast();
+  final _sessionChanges = StreamController<domain.AuthSession>.broadcast();
 
   @override
-  Stream<AuthSession> watchSession() async* {
+  Stream<domain.AuthSession> watchSession() async* {
     yield await currentSession;
     yield* _sessionChanges.stream;
   }
 
   @override
-  Future<AuthSession> get currentSession async {
+  Future<domain.AuthSession> get currentSession async {
     try {
       final amplifySession = await Amplify.Auth.fetchAuthSession();
       if (!amplifySession.isSignedIn) {
-        return const AuthSession.signedOut();
+        return const domain.AuthSession.signedOut();
       }
 
       final user = await Amplify.Auth.getCurrentUser();
       final attributes = await Amplify.Auth.fetchUserAttributes();
-      return AuthSession(
+      return domain.AuthSession(
         isSignedIn: true,
         userId: user.userId,
         email: _findEmail(attributes),
       );
     } on AuthException {
-      return const AuthSession.signedOut();
+      return const domain.AuthSession.signedOut();
     }
   }
 
@@ -73,7 +73,6 @@ class CognitoAuthRepository implements AuthRepository {
       final result = await Amplify.Auth.signIn(
         username: email,
         password: password,
-        options: const SignInOptions(authFlowType: AuthFlowType.userSrpAuth),
       );
       if (!result.isSignedIn) {
         throw const AuthFailure(
@@ -89,7 +88,7 @@ class CognitoAuthRepository implements AuthRepository {
   Future<void> signOut() {
     return _runGuarded(() async {
       await Amplify.Auth.signOut();
-      _sessionChanges.add(const AuthSession.signedOut());
+      _sessionChanges.add(const domain.AuthSession.signedOut());
     });
   }
 

@@ -24,10 +24,8 @@ class LocalBiometricAuthenticator implements BiometricAuthenticator {
     try {
       final authenticated = await _authentication.authenticate(
         localizedReason: 'Desbloqueie o InterBridge para continuar',
-        options: const AuthenticationOptions(
-          biometricOnly: true,
-          persistAcrossBackgrounding: true,
-        ),
+        biometricOnly: true,
+        persistAcrossBackgrounding: true,
       );
       return authenticated
           ? BiometricAuthenticationResult.success
