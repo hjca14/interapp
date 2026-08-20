@@ -69,29 +69,34 @@ void main() {
     expect(find.textContaining('RECENTLYSEEN'), findsOneWidget);
     expect(find.textContaining('2.0.1'), findsOneWidget);
     expect(
-      tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Abrir')).onPressed,
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Abrir'))
+          .onPressed,
       isNull,
     );
   });
 
-  testWidgets('favorite fills dialer and dial action only reports unavailable', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      subject(favorites: const [Favorite(name: 'Casa', number: '101')]),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Favoritos'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Casa'));
-    await tester.pumpAndSettle();
+  testWidgets(
+    'favorite fills dialer and dial action only reports unavailable',
+    (tester) async {
+      await tester.pumpWidget(
+        subject(
+          favorites: const [Favorite(name: 'Casa', number: '101')],
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Favoritos'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Casa'));
+      await tester.pumpAndSettle();
 
-    expect(find.text('101'), findsOneWidget);
-    await tester.tap(find.byIcon(Icons.call));
-    await tester.pump();
-    expect(
-      find.text('Conexão com o InterBridge será implementada aqui.'),
-      findsOneWidget,
-    );
-  });
+      expect(find.text('101'), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.call));
+      await tester.pump();
+      expect(
+        find.text('Conexão com o InterBridge será implementada aqui.'),
+        findsOneWidget,
+      );
+    },
+  );
 }

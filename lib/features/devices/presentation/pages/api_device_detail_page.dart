@@ -72,9 +72,21 @@ class _ApiDeviceDetailPageState extends ConsumerState<ApiDeviceDetailPage> {
         onDestinationSelected: (value) =>
             setState(() => _selectedIndex = value),
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.info_outline), selectedIcon: Icon(Icons.info), label: 'Resumo'),
-          NavigationDestination(icon: Icon(Icons.speaker_phone), selectedIcon: Icon(Icons.dialpad), label: 'Discar'),
-          NavigationDestination(icon: Icon(Icons.star_outline), selectedIcon: Icon(Icons.star), label: 'Favoritos'),
+          NavigationDestination(
+            icon: Icon(Icons.info_outline),
+            selectedIcon: Icon(Icons.info),
+            label: 'Resumo',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.speaker_phone),
+            selectedIcon: Icon(Icons.dialpad),
+            label: 'Discar',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.star_outline),
+            selectedIcon: Icon(Icons.star),
+            label: 'Favoritos',
+          ),
         ],
       ),
     );
@@ -108,17 +120,24 @@ class _DeviceOverview extends ConsumerWidget {
               enabled: false,
               leading: Icon(Icons.lock_open_outlined),
               title: Text('Abrir porta'),
-              subtitle: Text('Indisponível até a API de comandos. Nenhum comando será enviado.'),
+              subtitle: Text(
+                'Indisponível até a API de comandos. Nenhum comando será enviado.',
+              ),
               trailing: FilledButton(onPressed: null, child: Text('Abrir')),
             ),
           ),
           const SizedBox(height: 24),
-          Text('Eventos recentes', style: Theme.of(context).textTheme.titleLarge),
+          Text(
+            'Eventos recentes',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
           const Card(
             child: ListTile(
               leading: Icon(Icons.history),
               title: Text('Histórico ainda indisponível'),
-              subtitle: Text('Eventos reais aparecerão aqui em uma fase futura.'),
+              subtitle: Text(
+                'Eventos reais aparecerão aqui em uma fase futura.',
+              ),
             ),
           ),
         ],
@@ -133,17 +152,32 @@ class _DetailCard extends ConsumerWidget {
   final AsyncValue<ApiDeviceDetail> detail;
   @override
   Widget build(BuildContext context, WidgetRef ref) => detail.when(
-    loading: () => const Card(child: ListTile(title: Text('Carregando dispositivo...'), trailing: CircularProgressIndicator())),
-    error: (_, _) => Card(child: ListTile(
-      title: const Text('Recurso indisponível'),
-      subtitle: const Text('Não foi possível acessar este dispositivo.'),
-      trailing: IconButton(onPressed: () => ref.invalidate(apiDeviceDetailProvider(deviceId)), icon: const Icon(Icons.refresh), tooltip: 'Tentar novamente'),
-    )),
-    data: (device) => Card(child: ListTile(
-      leading: const Icon(Icons.speaker_phone),
-      title: Text(device.displayName ?? 'Meu InterBridge'),
-      subtitle: Text('Hardware: ${device.hardwareVersion ?? 'não informado'}\nAcesso: ${device.role.name.toUpperCase()}'),
-    )),
+    loading: () => const Card(
+      child: ListTile(
+        title: Text('Carregando dispositivo...'),
+        trailing: CircularProgressIndicator(),
+      ),
+    ),
+    error: (_, _) => Card(
+      child: ListTile(
+        title: const Text('Recurso indisponível'),
+        subtitle: const Text('Não foi possível acessar este dispositivo.'),
+        trailing: IconButton(
+          onPressed: () => ref.invalidate(apiDeviceDetailProvider(deviceId)),
+          icon: const Icon(Icons.refresh),
+          tooltip: 'Tentar novamente',
+        ),
+      ),
+    ),
+    data: (device) => Card(
+      child: ListTile(
+        leading: const Icon(Icons.speaker_phone),
+        title: Text(device.displayName ?? 'Meu InterBridge'),
+        subtitle: Text(
+          'Hardware: ${device.hardwareVersion ?? 'não informado'}\nAcesso: ${device.role.name.toUpperCase()}',
+        ),
+      ),
+    ),
   );
 }
 
@@ -153,21 +187,32 @@ class _StatusCard extends ConsumerWidget {
   final AsyncValue<ApiDeviceStatus> status;
   @override
   Widget build(BuildContext context, WidgetRef ref) => status.when(
-    loading: () => const Card(child: ListTile(title: Text('Carregando status...'))),
-    error: (_, _) => Card(child: ListTile(
-      title: const Text('Status indisponível'),
-      trailing: IconButton(onPressed: () => ref.invalidate(apiDeviceStatusProvider(deviceId)), icon: const Icon(Icons.refresh), tooltip: 'Tentar novamente'),
-    )),
+    loading: () =>
+        const Card(child: ListTile(title: Text('Carregando status...'))),
+    error: (_, _) => Card(
+      child: ListTile(
+        title: const Text('Status indisponível'),
+        trailing: IconButton(
+          onPressed: () => ref.invalidate(apiDeviceStatusProvider(deviceId)),
+          icon: const Icon(Icons.refresh),
+          tooltip: 'Tentar novamente',
+        ),
+      ),
+    ),
     data: (value) {
       final health = value.health;
       final details = health == null
           ? 'Freshness: ${value.freshness.name.toUpperCase()}\nTelemetria ainda não disponível.'
           : 'Freshness: ${value.freshness.name.toUpperCase()}\nFirmware: ${health.firmwareVersion}\nInterfone: ${health.intercomState}\nÚltima comunicação: ${health.lastSeenAt.toLocal()}';
-      return Card(child: ListTile(
-        leading: const Icon(Icons.monitor_heart_outlined),
-        title: Text('Conectividade: ${value.connectivity.name.toUpperCase()}'),
-        subtitle: Text(details),
-      ));
+      return Card(
+        child: ListTile(
+          leading: const Icon(Icons.monitor_heart_outlined),
+          title: Text(
+            'Conectividade: ${value.connectivity.name.toUpperCase()}',
+          ),
+          subtitle: Text(details),
+        ),
+      );
     },
   );
 }

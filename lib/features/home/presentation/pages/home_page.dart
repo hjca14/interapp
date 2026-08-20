@@ -133,7 +133,9 @@ class _ApiDevicesTab extends ConsumerWidget {
                   if (state.loadMoreError != null) {
                     return TextButton(
                       onPressed: controller.loadMore,
-                      child: const Text('Falha ao carregar mais. Tentar novamente'),
+                      child: const Text(
+                        'Falha ao carregar mais. Tentar novamente',
+                      ),
                     );
                   }
                   if (state.nextCursor == null) return const SizedBox.shrink();
@@ -141,7 +143,9 @@ class _ApiDevicesTab extends ConsumerWidget {
                     padding: const EdgeInsets.all(12),
                     child: FilledButton(
                       onPressed: state.loadingMore ? null : controller.loadMore,
-                      child: Text(state.loadingMore ? 'Carregando...' : 'Carregar mais'),
+                      child: Text(
+                        state.loadingMore ? 'Carregando...' : 'Carregar mais',
+                      ),
                     ),
                   );
                 }
@@ -163,9 +167,8 @@ class _DeviceTile extends StatelessWidget {
       title: Text(device.safeName),
       subtitle: Text(device.role.name.toUpperCase()),
       trailing: const Icon(Icons.chevron_right),
-      onTap: () => context.push(
-        '/devices/${Uri.encodeComponent(device.deviceId)}',
-      ),
+      onTap: () =>
+          context.push('/devices/${Uri.encodeComponent(device.deviceId)}'),
     ),
   );
 }
@@ -177,7 +180,12 @@ class _EmptyDeviceList extends StatelessWidget {
     children: const [
       SizedBox(height: 160),
       Icon(Icons.speaker_phone, size: 64),
-      Center(child: Padding(padding: EdgeInsets.all(16), child: Text('Nenhum InterBridge disponível.'))),
+      Center(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Text('Nenhum InterBridge disponível.'),
+        ),
+      ),
     ],
   );
 }
@@ -189,13 +197,22 @@ class _InitialError extends StatelessWidget {
   Widget build(BuildContext context) => Center(
     child: Padding(
       padding: const EdgeInsets.all(24),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Icon(Icons.cloud_off, size: 56),
-        const SizedBox(height: 12),
-        const Text('Não foi possível carregar seus dispositivos.', textAlign: TextAlign.center),
-        const SizedBox(height: 12),
-        FilledButton(onPressed: onRetry, child: const Text('Tentar novamente')),
-      ]),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.cloud_off, size: 56),
+          const SizedBox(height: 12),
+          const Text(
+            'Não foi possível carregar seus dispositivos.',
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+          FilledButton(
+            onPressed: onRetry,
+            child: const Text('Tentar novamente'),
+          ),
+        ],
+      ),
     ),
   );
 }
