@@ -139,14 +139,15 @@ void main() {
       );
 
       expect(biometrics.authenticateCalls, 1);
-      await tester.binding.handleAppLifecycleStateChanged(
+      tester.binding.handleAppLifecycleStateChanged(
         AppLifecycleState.inactive,
       );
-      await tester.binding.handleAppLifecycleStateChanged(
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(
         AppLifecycleState.resumed,
       );
-      authentication.complete(BiometricAuthenticationResult.canceled);
       await tester.pump();
+      authentication.complete(BiometricAuthenticationResult.canceled);
       await tester.pump();
 
       expect(biometrics.authenticateCalls, 1);
@@ -357,9 +358,10 @@ Future<void> _pumpGate(
   if (!simulateBackground) {
     return;
   }
-  await tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+  tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+  await tester.pump();
   now = now.add(const Duration(seconds: 1));
-  await tester.binding.handleAppLifecycleStateChanged(
+  tester.binding.handleAppLifecycleStateChanged(
     AppLifecycleState.resumed,
   );
   await tester.pump();
@@ -400,15 +402,14 @@ class _FakeBiometrics implements BiometricAuthenticator {
   _FakeBiometrics({
     this.configuredAvailability = BiometricAvailability.available,
     this.result = BiometricAuthenticationResult.success,
-    List<BiometricAuthenticationResult>? results,
-    Completer<BiometricAuthenticationResult>? authentication,
-  }) : _results = results,
-       _authentication = authentication;
+    this.results,
+    this.authentication,
+  });
 
   final BiometricAvailability configuredAvailability;
   final BiometricAuthenticationResult result;
-  final List<BiometricAuthenticationResult>? _results;
-  final Completer<BiometricAuthenticationResult>? _authentication;
+  final List<BiometricAuthenticationResult>? results;
+  final Completer<BiometricAuthenticationResult>? authentication;
   int authenticateCalls = 0;
 
   @override
@@ -417,11 +418,13 @@ class _FakeBiometrics implements BiometricAuthenticator {
   @override
   Future<BiometricAuthenticationResult> authenticate() async {
     authenticateCalls++;
-    final authentication = _authentication;
-    if (authentication != null) {
-      return authentication.future;
+    final pendingAuthentication = authentication;
+    if (pendingAuthentication != null) {
+      return pendingAuthentication.future;
     }
-    final results = _results;
-    return results == null ? result : results[authenticateCalls - 1];
+    final authenticationResults = results;
+    return authenticationResults == null
+        ? result
+        : authenticationResults[authenticateCalls - 1];
   }
 }
