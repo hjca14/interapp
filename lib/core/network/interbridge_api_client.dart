@@ -15,10 +15,11 @@ import 'api_failure.dart';
 class InterBridgeApiClient {
   InterBridgeApiClient({
     required this.baseUrl,
-    required this._auth,
+    required AuthRepository auth,
     http.Client? client,
     this.timeout = const Duration(seconds: 15),
-  }) : _client = client ?? http.Client();
+  }) : _auth = auth,
+       _client = client ?? http.Client();
 
   final String baseUrl;
   final AuthRepository _auth;
@@ -51,6 +52,34 @@ class InterBridgeApiClient {
       );
     }
     return _decodeSuccessfulResponse(retryResponse);
+  }
+
+  /// Performs an authenticated JSON POST using the same auth and refresh path
+  /// as every other API request. Header values are deliberately never logged.
+  Future<Map<String, dynamic>> post(
+    String path, {
+    required Map<String, dynamic> body,
+    Map<String, String> headers = const {},
+    int expectedStatus = HttpStatus.ok,
+  }) async {
+    final first = await _sendPost(path, body: body, headers: headers);
+    if (first.statusCode != HttpStatus.unauthorized) {
+      return _decodeResponse(first, expectedStatus: expectedStatus);
+    }
+    final retry = await _sendPost(
+      path,
+      body: body,
+      headers: headers,
+      forceRefresh: true,
+    );
+    if (retry.statusCode == HttpStatus.unauthorized) {
+      await _auth.invalidateSession();
+      throw const ApiFailure(
+        ApiFailureKind.unauthorized,
+        'Sua sessão expirou. Entre novamente.',
+      );
+    }
+    return _decodeResponse(retry, expectedStatus: expectedStatus);
   }
 
   Future<http.Response> _sendGet(
@@ -90,10 +119,59 @@ class InterBridgeApiClient {
     }
   }
 
+  Future<http.Response> _sendPost(
+    String path, {
+    required Map<String, dynamic> body,
+    required Map<String, String> headers,
+    bool forceRefresh = false,
+  }) async {
+    final accessToken = await _auth.getValidAccessToken(
+      forceRefresh: forceRefresh,
+    );
+    try {
+      return await _client
+          .post(
+            Uri.parse('$baseUrl$path'),
+            headers: {
+              'Authorization': 'Bearer $accessToken',
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+              ...headers,
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(timeout);
+    } on TimeoutException {
+      throw const ApiFailure(
+        ApiFailureKind.timeout,
+        'O serviço demorou para responder.',
+      );
+    } on SocketException {
+      throw const ApiFailure(
+        ApiFailureKind.offline,
+        'Sem conexão com o serviço.',
+      );
+    } on http.ClientException {
+      throw const ApiFailure(
+        ApiFailureKind.offline,
+        'Sem conexão com o serviço.',
+      );
+    }
+  }
+
   Map<String, dynamic> _decodeSuccessfulResponse(http.Response response) {
+    return _decodeResponse(response);
+  }
+
+  Map<String, dynamic> _decodeResponse(
+    http.Response response, {
+    int? expectedStatus,
+  }) {
     final requestId = response.headers['x-request-id'];
-    if (response.statusCode < HttpStatus.ok ||
-        response.statusCode >= HttpStatus.multipleChoices) {
+    if (expectedStatus != null
+        ? response.statusCode != expectedStatus
+        : response.statusCode < HttpStatus.ok ||
+              response.statusCode >= HttpStatus.multipleChoices) {
       throw _mapStatusFailure(response, requestId);
     }
 
@@ -124,9 +202,24 @@ class InterBridgeApiClient {
         'A solicitação é inválida.',
         requestId: requestId,
       ),
+      HttpStatus.unauthorized => ApiFailure(
+        ApiFailureKind.unauthorized,
+        'Sua sessão expirou. Entre novamente.',
+        requestId: requestId,
+      ),
+      HttpStatus.forbidden => ApiFailure(
+        ApiFailureKind.forbidden,
+        'Você não tem permissão para esta ação.',
+        requestId: requestId,
+      ),
       HttpStatus.notFound => ApiFailure(
         ApiFailureKind.notFound,
         'Recurso indisponível.',
+        requestId: requestId,
+      ),
+      HttpStatus.conflict => ApiFailure(
+        ApiFailureKind.conflict,
+        'A tentativa conflita com uma solicitação anterior.',
         requestId: requestId,
       ),
       429 => ApiFailure(
@@ -155,6 +248,9 @@ class InterBridgeApiClient {
 
   static Duration? _parseRetryAfter(String? headerValue) {
     final seconds = int.tryParse(headerValue ?? '');
-    return seconds == null ? null : Duration(seconds: seconds);
+    if (seconds == null || seconds < 0) {
+      return null;
+    }
+    return Duration(seconds: seconds.clamp(0, 30));
   }
 }

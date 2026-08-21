@@ -1,5 +1,19 @@
 # InterApp — Communication Implementation Status
 
+## Fase 2D — camada interna preparada, integração ainda inativa
+
+O app agora contém modelos, parsing, transporte autenticado, idempotência em
+memória e acompanhamento assíncrono testável para o futuro comando
+`OPEN_DOOR`. O backend da Fase 2D ainda aguarda deploy e validação real; por
+isso, essa camada não foi conectada a providers, rotas, telas ou ao botão
+“Abrir porta”, que continua desabilitado e não envia POST.
+
+Nenhuma chamada AWS real ou ação física foi feita nesta fase. O firmware
+permanece fail-closed (`DISABLED`), sendo `REJECTED/CAPABILITY_DISABLED` o
+resultado seguro esperado. A ativação da interface depende de validação
+end-to-end posterior ao deploy. Um HTTP 202/`PENDING` é apenas aceitação para
+processamento: não significa recebimento MQTT, execução ou portão aberto.
+
 ## Fase 2C — implementada no app
 
 O backend Fase 2B DEV foi implantado e validado com usuário confirmado e primeiro Device + membership OWNER/ACTIVE registrados atomicamente. O app autentica por e-mail/senha no User Pool existente usando Amplify/`USER_SRP_AUTH`, com refresh e armazenamento seguro nativo gerenciados pelo SDK. A API recebe o access token; o ID token nunca é usado como credencial HTTP. Estão conectadas somente as três rotas GET de dispositivos. Identity Pool, IoT direto, BLE, claim, commands, MQTT, eventos, realtime e voz estão adiados.
