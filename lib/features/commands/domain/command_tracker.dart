@@ -23,16 +23,13 @@ final class CommandTrackingCancelled implements Exception {
 /// REJECTED/CAPABILITY_DISABLED is the expected fail-closed outcome.
 final class CommandTracker {
   CommandTracker({
-    required CommandRepository repository,
-    CommandScheduler scheduler = const TimerCommandScheduler(),
+    required this._repository,
+    this._scheduler = const TimerCommandScheduler(),
     DateTime Function()? now,
     Stream<void>? logoutEvents,
     this.pollInterval = const Duration(seconds: 1),
     this.totalLimit = const Duration(seconds: 30),
   }) : // ignore: prefer_initializing_formals
-       _repository = repository,
-       // ignore: prefer_initializing_formals
-       _scheduler = scheduler,
        _now = now ?? DateTime.now {
     _logoutSubscription = logoutEvents?.listen((_) => cancel());
   }

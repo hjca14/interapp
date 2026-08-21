@@ -15,11 +15,10 @@ import 'api_failure.dart';
 class InterBridgeApiClient {
   InterBridgeApiClient({
     required this.baseUrl,
-    required AuthRepository auth,
+    required this._auth,
     http.Client? client,
     this.timeout = const Duration(seconds: 15),
   }) : // ignore: prefer_initializing_formals
-       _auth = auth,
        _client = client ?? http.Client();
 
   final String baseUrl;

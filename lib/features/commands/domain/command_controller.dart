@@ -11,13 +11,10 @@ import 'idempotency.dart';
 /// widget or provider.
 final class CommandController {
   CommandController({
-    required CommandRepository repository,
-    required CommandTracker tracker,
+    required this._repository,
+    required this._tracker,
     required IdempotencyKeyGenerator keyGenerator,
   }) : // ignore: prefer_initializing_formals
-       _repository = repository,
-       // ignore: prefer_initializing_formals
-       _tracker = tracker,
        _attempt = LogicalCommandAttempt(keyGenerator);
 
   final CommandRepository _repository;
