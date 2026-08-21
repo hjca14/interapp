@@ -38,13 +38,11 @@ class SecuritySettingsPage extends ConsumerWidget {
                   await ref
                       .read(biometricLockSettingsProvider.notifier)
                       .setEnabled(enabled);
-                } on BiometricUnavailableException {
+                } on BiometricActivationException catch (error) {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Biometria indisponível ou não cadastrada neste aparelho.',
-                        ),
+                      SnackBar(
+                        content: Text(biometricResultMessage(error.result)),
                       ),
                     );
                   }

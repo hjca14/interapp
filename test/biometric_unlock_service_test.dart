@@ -8,10 +8,14 @@ void main() {
     for (final result in [
       BiometricAuthenticationResult.success,
       BiometricAuthenticationResult.canceled,
+      BiometricAuthenticationResult.temporarilyLocked,
       BiometricAuthenticationResult.failed,
     ]) {
       test('returns ${result.name} for available biometrics', () async {
-        final biometrics = _FakeBiometrics(available: true, result: result);
+        final biometrics = _FakeBiometrics(
+          configuredAvailability: BiometricAvailability.available,
+          result: result,
+        );
         final service = BiometricUnlockService(
           LocalAuthRepository(
             initial: const AuthSession(isSignedIn: true, userId: 'opaque'),
@@ -24,27 +28,37 @@ void main() {
       });
     }
 
-    test('reports unavailable without opening a biometric prompt', () async {
-      final biometrics = _FakeBiometrics(
-        available: false,
-        result: BiometricAuthenticationResult.success,
-      );
-      final service = BiometricUnlockService(
-        LocalAuthRepository(
-          initial: const AuthSession(isSignedIn: true, userId: 'opaque'),
-        ),
-        biometrics,
-      );
+    for (final availability in [
+      BiometricAvailability.notEnrolled,
+      BiometricAvailability.unsupported,
+    ]) {
+      test('$availability does not open a biometric prompt', () async {
+        final biometrics = _FakeBiometrics(
+          configuredAvailability: availability,
+          result: BiometricAuthenticationResult.success,
+        );
+        final service = BiometricUnlockService(
+          LocalAuthRepository(
+            initial: const AuthSession(isSignedIn: true, userId: 'opaque'),
+          ),
+          biometrics,
+        );
 
-      expect(await service.unlock(), BiometricAuthenticationResult.unavailable);
-      expect(biometrics.authenticateCalls, 0);
-    });
+        expect(
+          await service.unlock(),
+          availability == BiometricAvailability.notEnrolled
+              ? BiometricAuthenticationResult.notEnrolled
+              : BiometricAuthenticationResult.unsupported,
+        );
+        expect(biometrics.authenticateCalls, 0);
+      });
+    }
 
     test(
       'expired session never simulates biometric reauthentication',
       () async {
         final biometrics = _FakeBiometrics(
-          available: true,
+          configuredAvailability: BiometricAvailability.available,
           result: BiometricAuthenticationResult.success,
         );
         final service = BiometricUnlockService(
@@ -84,9 +98,9 @@ void main() {
 }
 
 class _FakeBiometrics implements BiometricAuthenticator {
-  _FakeBiometrics({required this.available, required this.result});
+  _FakeBiometrics({required this.configuredAvailability, required this.result});
 
-  final bool available;
+  final BiometricAvailability configuredAvailability;
   final BiometricAuthenticationResult result;
   int availabilityCalls = 0;
   int authenticateCalls = 0;
@@ -98,8 +112,8 @@ class _FakeBiometrics implements BiometricAuthenticator {
   }
 
   @override
-  Future<bool> isAvailable() async {
+  Future<BiometricAvailability> availability() async {
     availabilityCalls++;
-    return available;
+    return configuredAvailability;
   }
 }
