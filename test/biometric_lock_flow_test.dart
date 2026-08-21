@@ -117,6 +117,29 @@ void main() {
       expect(find.text('Desbloqueie para continuar'), findsOneWidget);
     });
 
+    testWidgets('locked texts inherit the normal Material text style', (
+      tester,
+    ) async {
+      await _pumpGate(
+        tester,
+        biometrics: _FakeBiometrics(
+          result: BiometricAuthenticationResult.canceled,
+        ),
+      );
+
+      final context = tester.element(
+        find.text('Confirme sua biometria para acessar o InterBridge.'),
+      );
+      final inheritedStyle = DefaultTextStyle.of(context).style;
+      final materialStyle = Theme.of(context).textTheme.bodyMedium!;
+
+      expect(find.byType(Scaffold), findsOneWidget);
+      expect(inheritedStyle.color, materialStyle.color);
+      expect(inheritedStyle.fontFamily, materialStyle.fontFamily);
+      expect(inheritedStyle.decoration, materialStyle.decoration);
+      expect(inheritedStyle.decoration, isNot(TextDecoration.underline));
+    });
+
     testWidgets('cold start opens exactly one prompt', (tester) async {
       final biometrics = _FakeBiometrics(
         result: BiometricAuthenticationResult.canceled,

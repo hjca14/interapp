@@ -130,9 +130,9 @@ class _BiometricLockGateState extends ConsumerState<BiometricLockGate>
       return widget.child;
     }
     _scheduleAutomaticUnlock();
-    return ColoredBox(
-      color: Theme.of(context).scaffoldBackgroundColor,
-      child: SafeArea(
+    return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: ConstrainedBox(
