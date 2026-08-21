@@ -59,17 +59,17 @@ class BiometricActivationException implements Exception {
 
 String biometricResultMessage(BiometricAuthenticationResult result) =>
     switch (result) {
-  BiometricAuthenticationResult.notEnrolled =>
-    'Cadastre uma biometria nas configurações do aparelho para continuar.',
-  BiometricAuthenticationResult.unsupported =>
-    'Este aparelho não oferece suporte à autenticação biométrica.',
-  BiometricAuthenticationResult.canceled => 'Autenticação cancelada.',
-  BiometricAuthenticationResult.temporarilyLocked =>
-    'Biometria temporariamente bloqueada. Aguarde e tente novamente.',
-  BiometricAuthenticationResult.failed =>
-    'Não foi possível confirmar sua biometria. Tente novamente.',
-  BiometricAuthenticationResult.success => '',
-};
+      BiometricAuthenticationResult.notEnrolled =>
+        'Cadastre uma biometria nas configurações do aparelho para continuar.',
+      BiometricAuthenticationResult.unsupported =>
+        'Este aparelho não oferece suporte à autenticação biométrica.',
+      BiometricAuthenticationResult.canceled => 'Autenticação cancelada.',
+      BiometricAuthenticationResult.temporarilyLocked =>
+        'Biometria temporariamente bloqueada. Aguarde e tente novamente.',
+      BiometricAuthenticationResult.failed =>
+        'Não foi possível confirmar sua biometria. Tente novamente.',
+      BiometricAuthenticationResult.success => '',
+    };
 
 final biometricLockSettingsProvider =
     AsyncNotifierProvider<
