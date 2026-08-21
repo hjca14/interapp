@@ -29,7 +29,9 @@ final class CommandTracker {
     Stream<void>? logoutEvents,
     this.pollInterval = const Duration(seconds: 1),
     this.totalLimit = const Duration(seconds: 30),
-  }) : _repository = repository,
+  }) : // ignore: prefer_initializing_formals
+       _repository = repository,
+       // ignore: prefer_initializing_formals
        _scheduler = scheduler,
        _now = now ?? DateTime.now {
     _logoutSubscription = logoutEvents?.listen((_) => cancel());
@@ -41,7 +43,7 @@ final class CommandTracker {
   final Duration pollInterval;
   final Duration totalLimit;
   StreamSubscription<void>? _logoutSubscription;
-  Completer<void> _cancelled = Completer<void>();
+  final Completer<void> _cancelled = Completer<void>();
   bool _disposed = false;
 
   Future<CommandStatus?> track(DeviceId deviceId, CommandId commandId) async {

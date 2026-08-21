@@ -18,7 +18,8 @@ class InterBridgeApiClient {
     required AuthRepository auth,
     http.Client? client,
     this.timeout = const Duration(seconds: 15),
-  }) : _auth = auth,
+  }) : // ignore: prefer_initializing_formals
+       _auth = auth,
        _client = client ?? http.Client();
 
   final String baseUrl;

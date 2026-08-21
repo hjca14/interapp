@@ -14,7 +14,9 @@ final class CommandController {
     required CommandRepository repository,
     required CommandTracker tracker,
     required IdempotencyKeyGenerator keyGenerator,
-  }) : _repository = repository,
+  }) : // ignore: prefer_initializing_formals
+       _repository = repository,
+       // ignore: prefer_initializing_formals
        _tracker = tracker,
        _attempt = LogicalCommandAttempt(keyGenerator);
 
