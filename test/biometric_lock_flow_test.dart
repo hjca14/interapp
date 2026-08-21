@@ -42,9 +42,7 @@ void main() {
       await container.read(biometricLockSettingsProvider.future);
 
       await expectLater(
-        container
-            .read(biometricLockSettingsProvider.notifier)
-            .setEnabled(true),
+        container.read(biometricLockSettingsProvider.notifier).setEnabled(true),
         throwsA(
           isA<BiometricActivationException>().having(
             (error) => error.result,
@@ -81,24 +79,27 @@ void main() {
       });
     }
 
-    test('a device credential such as PIN or pattern is not biometric', () async {
-      final repository = _MemorySettingsRepository();
-      final biometrics = _FakeBiometrics(
-        configuredAvailability: BiometricAvailability.notEnrolled,
-      );
-      final container = _container(repository, biometrics);
-      addTearDown(container.dispose);
-      await container.read(biometricLockSettingsProvider.future);
+    test(
+      'a device credential such as PIN or pattern is not biometric',
+      () async {
+        final repository = _MemorySettingsRepository();
+        final biometrics = _FakeBiometrics(
+          configuredAvailability: BiometricAvailability.notEnrolled,
+        );
+        final container = _container(repository, biometrics);
+        addTearDown(container.dispose);
+        await container.read(biometricLockSettingsProvider.future);
 
-      await expectLater(
-        container
-            .read(biometricLockSettingsProvider.notifier)
-            .setEnabled(true),
-        throwsA(isA<BiometricActivationException>()),
-      );
-      expect(repository.settings.enabled, isFalse);
-      expect(biometrics.authenticateCalls, 0);
-    });
+        await expectLater(
+          container
+              .read(biometricLockSettingsProvider.notifier)
+              .setEnabled(true),
+          throwsA(isA<BiometricActivationException>()),
+        );
+        expect(repository.settings.enabled, isFalse);
+        expect(biometrics.authenticateCalls, 0);
+      },
+    );
   });
 
   group('locked gate', () {
@@ -155,20 +156,12 @@ void main() {
     ) async {
       final authentication = Completer<BiometricAuthenticationResult>();
       final biometrics = _FakeBiometrics(authentication: authentication);
-      await _pumpGate(
-        tester,
-        biometrics: biometrics,
-        settle: false,
-      );
+      await _pumpGate(tester, biometrics: biometrics, settle: false);
 
       expect(biometrics.authenticateCalls, 1);
-      tester.binding.handleAppLifecycleStateChanged(
-        AppLifecycleState.inactive,
-      );
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
       await tester.pump();
-      tester.binding.handleAppLifecycleStateChanged(
-        AppLifecycleState.resumed,
-      );
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pump();
       authentication.complete(BiometricAuthenticationResult.canceled);
       await tester.pump();
@@ -203,9 +196,7 @@ void main() {
       expect(find.text('Conteúdo protegido'), findsNothing);
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
-      repository.complete(
-        const BiometricLockSettings(enabled: true),
-      );
+      repository.complete(const BiometricLockSettings(enabled: true));
       await tester.pump();
       await tester.pump();
       expect(find.text('Conteúdo protegido'), findsNothing);
@@ -244,30 +235,25 @@ void main() {
           BiometricAuthenticationResult.canceled,
         ],
       );
-      await _pumpGate(
-        tester,
-        biometrics: biometrics,
-        simulateBackground: true,
-      );
+      await _pumpGate(tester, biometrics: biometrics, simulateBackground: true);
 
       expect(biometrics.authenticateCalls, 2);
       expect(find.text('Desbloqueie para continuar'), findsOneWidget);
       expect(find.text('Conteúdo protegido'), findsNothing);
     });
 
-    testWidgets(
-      'unlock button starts another biometric attempt',
-      (tester) async {
-        final biometrics = _FakeBiometrics(
-          result: BiometricAuthenticationResult.canceled,
-        );
-        await _pumpLockedGate(tester, biometrics: biometrics);
+    testWidgets('unlock button starts another biometric attempt', (
+      tester,
+    ) async {
+      final biometrics = _FakeBiometrics(
+        result: BiometricAuthenticationResult.canceled,
+      );
+      await _pumpLockedGate(tester, biometrics: biometrics);
 
-        await tester.tap(find.text('Desbloquear'));
-        await tester.pump();
-        expect(biometrics.authenticateCalls, 2);
-      },
-    );
+      await tester.tap(find.text('Desbloquear'));
+      await tester.pump();
+      expect(biometrics.authenticateCalls, 2);
+    });
 
     testWidgets('email fallback signs out', (tester) async {
       final auth = LocalAuthRepository(
@@ -355,10 +341,7 @@ Future<void> _pumpGate(
         authRepositoryProvider.overrideWithValue(
           auth ??
               LocalAuthRepository(
-                initial: const AuthSession(
-                  isSignedIn: true,
-                  userId: 'user',
-                ),
+                initial: const AuthSession(isSignedIn: true, userId: 'user'),
               ),
         ),
       ],
@@ -384,17 +367,13 @@ Future<void> _pumpGate(
   tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
   await tester.pump();
   now = now.add(const Duration(seconds: 1));
-  tester.binding.handleAppLifecycleStateChanged(
-    AppLifecycleState.resumed,
-  );
+  tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
   await tester.pump();
   await tester.pump();
 }
 
 class _MemorySettingsRepository implements BiometricLockSettingsRepository {
-  _MemorySettingsRepository([
-    this.settings = const BiometricLockSettings(),
-  ]);
+  _MemorySettingsRepository([this.settings = const BiometricLockSettings()]);
 
   BiometricLockSettings settings;
   int saveCalls = 0;
@@ -412,7 +391,8 @@ class _MemorySettingsRepository implements BiometricLockSettingsRepository {
 class _DeferredSettingsRepository implements BiometricLockSettingsRepository {
   final _completer = Completer<BiometricLockSettings>();
 
-  void complete(BiometricLockSettings settings) => _completer.complete(settings);
+  void complete(BiometricLockSettings settings) =>
+      _completer.complete(settings);
 
   @override
   Future<BiometricLockSettings> load() => _completer.future;

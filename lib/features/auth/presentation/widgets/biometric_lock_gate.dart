@@ -115,7 +115,9 @@ class _BiometricLockGateState extends ConsumerState<BiometricLockGate>
       return ColoredBox(
         color: Theme.of(context).scaffoldBackgroundColor,
         child: const Center(
-          child: Text('Não foi possível carregar as preferências de segurança.'),
+          child: Text(
+            'Não foi possível carregar as preferências de segurança.',
+          ),
         ),
       );
     }
@@ -135,7 +137,8 @@ class _BiometricLockGateState extends ConsumerState<BiometricLockGate>
           padding: const EdgeInsets.all(24),
           child: ConstrainedBox(
             constraints: BoxConstraints(
-              minHeight: MediaQuery.sizeOf(context).height -
+              minHeight:
+                  MediaQuery.sizeOf(context).height -
                   MediaQuery.paddingOf(context).vertical -
                   48,
             ),
