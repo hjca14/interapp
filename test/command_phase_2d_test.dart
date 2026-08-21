@@ -60,7 +60,11 @@ void main() {
         await expectLater(
           repository.createOpenDoorCommand(DeviceId(device), 'key'),
           throwsA(
-            isA<ApiFailure>().having((error) => error.kind, 'kind', entry.value),
+            isA<ApiFailure>().having(
+              (error) => error.kind,
+              'kind',
+              entry.value,
+            ),
           ),
         );
       });
@@ -89,11 +93,8 @@ void main() {
       test('bounds Retry-After ${entry.key}', () async {
         final repository = _repository(
           MockClient(
-            (_) async => http.Response(
-              '',
-              429,
-              headers: {'retry-after': ?entry.key},
-            ),
+            (_) async =>
+                http.Response('', 429, headers: {'retry-after': ?entry.key}),
           ),
         );
         try {
@@ -113,10 +114,9 @@ void main() {
         timeout: Duration.zero,
       );
       await expectLater(
-        HttpCommandRepository(api).createOpenDoorCommand(
-          DeviceId(device),
-          'key',
-        ),
+        HttpCommandRepository(
+          api,
+        ).createOpenDoorCommand(DeviceId(device), 'key'),
         throwsA(
           isA<ApiFailure>().having(
             (error) => error.kind,
@@ -326,9 +326,14 @@ final class _CommandRepository implements CommandRepository {
   int calls = 0;
 
   @override
-  Future<CommandStatus> getCommand(DeviceId deviceId, CommandId commandId) async {
+  Future<CommandStatus> getCommand(
+    DeviceId deviceId,
+    CommandId commandId,
+  ) async {
     final index = calls++;
-    final boundedIndex = index < responses.length ? index : responses.length - 1;
+    final boundedIndex = index < responses.length
+        ? index
+        : responses.length - 1;
     return responses[boundedIndex];
   }
 

@@ -26,10 +26,7 @@ final class CommandController {
 
   Future<AcceptedCommand> start(DeviceId deviceId) {
     _deviceId = deviceId;
-    return _repository.createOpenDoorCommand(
-      deviceId,
-      _attempt.startNew(),
-    );
+    return _repository.createOpenDoorCommand(deviceId, _attempt.startNew());
   }
 
   Future<AcceptedCommand> retryCreateAfterTimeout() {
@@ -37,10 +34,7 @@ final class CommandController {
     if (deviceId == null) {
       throw StateError('Não há tentativa para repetir.');
     }
-    return _repository.createOpenDoorCommand(
-      deviceId,
-      _attempt.keyForRetry(),
-    );
+    return _repository.createOpenDoorCommand(deviceId, _attempt.keyForRetry());
   }
 
   Future<CommandStatus?> track(AcceptedCommand accepted) {

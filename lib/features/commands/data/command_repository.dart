@@ -14,10 +14,7 @@ abstract interface class CommandRepository {
 /// Phase 2D transport. Constructing this repository performs no request and it
 /// is intentionally not wired to UI providers yet.
 final class HttpCommandRepository implements CommandRepository {
-  const HttpCommandRepository(
-    this._api, {
-    this.parser = const CommandParser(),
-  });
+  const HttpCommandRepository(this._api, {this.parser = const CommandParser()});
 
   final InterBridgeApiClient _api;
   final CommandParser parser;
