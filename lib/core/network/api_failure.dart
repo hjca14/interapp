@@ -2,7 +2,9 @@
 enum ApiFailureKind {
   badRequest,
   unauthorized,
+  forbidden,
   notFound,
+  conflict,
   rateLimited,
   server,
   unavailable,
