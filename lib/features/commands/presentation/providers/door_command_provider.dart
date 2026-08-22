@@ -15,6 +15,7 @@ import '../../domain/idempotency.dart';
 
 enum DoorCommandPhase {
   idle,
+  preparing,
   sending,
   waiting,
   completed,
@@ -66,7 +67,9 @@ class DoorCommandUiState {
   final Duration? retryAfter;
 
   bool get busy =>
-      phase == DoorCommandPhase.sending || phase == DoorCommandPhase.waiting;
+      phase == DoorCommandPhase.preparing ||
+      phase == DoorCommandPhase.sending ||
+      phase == DoorCommandPhase.waiting;
 }
 
 final commandRepositoryProvider = Provider<CommandRepository>((ref) {
@@ -153,8 +156,28 @@ class DoorCommandActionController extends ChangeNotifier {
   bool _cancelled = false;
   bool _lifecycleCancelled = false;
   int _controllerGeneration = 0;
+  int _preparationGeneration = 0;
 
   DoorCommandUiState get state => _state;
+
+  int? beginPreparation() {
+    if (_state.busy || _cooldownActive || _cancelled) return null;
+    final token = ++_preparationGeneration;
+    _setState(const DoorCommandUiState(phase: DoorCommandPhase.preparing));
+    return token;
+  }
+
+  bool isPreparationCurrent(int token) {
+    return !_disposed &&
+        !_cancelled &&
+        token == _preparationGeneration &&
+        _state.phase == DoorCommandPhase.preparing;
+  }
+
+  void finishPreparation(int token) {
+    if (!isPreparationCurrent(token)) return;
+    _setState(const DoorCommandUiState());
+  }
 
   Future<void> start() async {
     if (_state.busy || _cooldownActive || _cancelled) return;
@@ -327,6 +350,7 @@ class DoorCommandActionController extends ChangeNotifier {
   void _cancelAttempt() {
     if (!_state.busy || _cancelled) return;
     _cancelled = true;
+    _preparationGeneration++;
     _cooldownActive = false;
     _cooldown?.cancel();
     _cooldown = null;

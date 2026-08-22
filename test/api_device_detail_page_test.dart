@@ -17,6 +17,10 @@ import 'package:interapp/features/commands/data/command_repository.dart';
 import 'package:interapp/features/commands/domain/command_models.dart';
 import 'package:interapp/features/commands/presentation/providers/door_command_provider.dart';
 import 'package:interapp/core/network/api_failure.dart';
+import 'package:interapp/features/auth/domain/services/biometric_lock.dart';
+import 'package:interapp/features/auth/presentation/providers/biometric_lock_providers.dart';
+import 'package:interapp/features/devices/domain/entities/device_settings.dart';
+import 'package:interapp/features/devices/domain/repositories/device_settings_repository.dart';
 
 class _MemoryFavoritesRepository extends LocalFavoritesRepository {
   _MemoryFavoritesRepository(this.values);
@@ -27,6 +31,43 @@ class _MemoryFavoritesRepository extends LocalFavoritesRepository {
 
   @override
   Future<void> saveAll(String deviceId, List<Favorite> favorites) async {}
+}
+
+class _SettingsRepository implements DeviceSettingsRepository {
+  _SettingsRepository(this.result);
+  final Future<DeviceSettings> result;
+
+  @override
+  Future<DeviceSettings> get(String deviceId) => result;
+
+  @override
+  Future<void> save(String deviceId, DeviceSettings settings) async {}
+}
+
+class _Authenticator implements BiometricAuthenticator {
+  _Authenticator({
+    this.configuredAvailability = BiometricAvailability.available,
+    this.result = BiometricAuthenticationResult.success,
+    this.pendingResult,
+  });
+
+  final BiometricAvailability configuredAvailability;
+  final BiometricAuthenticationResult result;
+  final Future<BiometricAuthenticationResult>? pendingResult;
+  int availabilityCalls = 0;
+  int authenticateCalls = 0;
+
+  @override
+  Future<BiometricAvailability> availability() async {
+    availabilityCalls++;
+    return configuredAvailability;
+  }
+
+  @override
+  Future<BiometricAuthenticationResult> authenticate() {
+    authenticateCalls++;
+    return pendingResult ?? Future.value(result);
+  }
 }
 
 class _CommandRepository implements CommandRepository {
@@ -85,6 +126,8 @@ void main() {
     CommandRepository? commands,
     Stream<AuthSession>? sessions,
     DoorCommandCooldownScheduler? cooldownScheduler,
+    Future<DeviceSettings>? settings,
+    BiometricAuthenticator? authenticator,
   }) {
     return ProviderScope(
       overrides: [
@@ -112,6 +155,12 @@ void main() {
         }),
         favoritesRepositoryProvider.overrideWithValue(
           _MemoryFavoritesRepository(favorites),
+        ),
+        deviceSettingsRepositoryProvider.overrideWithValue(
+          _SettingsRepository(settings ?? Future.value(const DeviceSettings())),
+        ),
+        doorDeviceAuthenticatorProvider.overrideWithValue(
+          authenticator ?? _Authenticator(),
         ),
         authSessionProvider.overrideWith(
           (ref) =>
@@ -153,7 +202,20 @@ void main() {
       tester,
     ) async {
       final commands = _CommandRepository();
-      await tester.pumpWidget(subject(role: role, commands: commands));
+      final authenticator = _Authenticator();
+      await tester.pumpWidget(
+        subject(
+          role: role,
+          commands: commands,
+          authenticator: authenticator,
+          settings: Future.value(
+            const DeviceSettings(
+              confirmBeforeOpeningDoor: false,
+              requireDeviceAuthenticationToOpenDoor: true,
+            ),
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
       expect(
         tester
@@ -162,6 +224,7 @@ void main() {
         isNull,
       );
       expect(commands.createCalls, 0);
+      expect(authenticator.authenticateCalls, 0);
     });
   }
 
@@ -169,27 +232,289 @@ void main() {
     tester,
   ) async {
     final commands = _CommandRepository();
-    await tester.pumpWidget(subject(commands: commands));
+    final authenticator = _Authenticator();
+    await tester.pumpWidget(
+      subject(
+        commands: commands,
+        authenticator: authenticator,
+        settings: Future.value(
+          const DeviceSettings(
+            confirmBeforeOpeningDoor: true,
+            requireDeviceAuthenticationToOpenDoor: true,
+          ),
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.widgetWithText(FilledButton, 'Abrir'));
-    await tester.pumpAndSettle();
+    await tester.pump();
     expect(find.text('Abrir porta?'), findsOneWidget);
     await tester.tap(find.text('Cancelar'));
     await tester.pumpAndSettle();
     expect(commands.createCalls, 0);
+    expect(authenticator.authenticateCalls, 0);
 
     await tester.tap(find.widgetWithText(FilledButton, 'Abrir'));
-    await tester.pumpAndSettle();
+    await tester.pump();
     await tester.tap(find.text('Enviar solicitação'));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
     expect(commands.createCalls, 1);
+    expect(authenticator.authenticateCalls, 1);
     expect(
       find.textContaining('A abertura ainda não está configurada'),
       findsOneWidget,
     );
+  });
+
+  for (final confirm in [true, false]) {
+    for (final requireAuthentication in [true, false]) {
+      testWidgets(
+        'door preferences confirm=$confirm auth=$requireAuthentication',
+        (tester) async {
+          final commands = _CommandRepository();
+          final authenticator = _Authenticator();
+          await tester.pumpWidget(
+            subject(
+              commands: commands,
+              authenticator: authenticator,
+              settings: Future.value(
+                DeviceSettings(
+                  confirmBeforeOpeningDoor: confirm,
+                  requireDeviceAuthenticationToOpenDoor: requireAuthentication,
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          await tester.tap(find.widgetWithText(FilledButton, 'Abrir'));
+          await tester.pump();
+          expect(
+            find.text('Abrir porta?'),
+            confirm ? findsOneWidget : findsNothing,
+          );
+          expect(
+            authenticator.authenticateCalls,
+            !confirm && requireAuthentication ? 1 : 0,
+          );
+          if (confirm) {
+            await tester.tap(find.text('Enviar solicitação'));
+            await tester.pump();
+          }
+          await tester.pump();
+
+          expect(
+            authenticator.authenticateCalls,
+            requireAuthentication ? 1 : 0,
+          );
+          expect(commands.createCalls, 1);
+        },
+      );
+    }
+  }
+
+  testWidgets('no POST occurs before device authentication succeeds', (
+    tester,
+  ) async {
+    final authentication = Completer<BiometricAuthenticationResult>();
+    final authenticator = _Authenticator(pendingResult: authentication.future);
+    final commands = _CommandRepository();
+    await tester.pumpWidget(
+      subject(
+        commands: commands,
+        authenticator: authenticator,
+        settings: Future.value(
+          const DeviceSettings(
+            confirmBeforeOpeningDoor: true,
+            requireDeviceAuthenticationToOpenDoor: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Abrir'));
+    await tester.pump();
+    expect(authenticator.authenticateCalls, 0);
+    await tester.tap(find.text('Enviar solicitação'));
+    await tester.pump();
+    expect(authenticator.authenticateCalls, 1);
+    expect(commands.createCalls, 0);
+
+    authentication.complete(BiometricAuthenticationResult.success);
+    await tester.pump();
+    await tester.pump();
+    expect(commands.createCalls, 1);
+  });
+
+  for (final result in [
+    BiometricAuthenticationResult.canceled,
+    BiometricAuthenticationResult.temporarilyLocked,
+    BiometricAuthenticationResult.failed,
+  ]) {
+    testWidgets('authentication ${result.name} prevents POST', (tester) async {
+      final commands = _CommandRepository();
+      await tester.pumpWidget(
+        subject(
+          commands: commands,
+          authenticator: _Authenticator(result: result),
+          settings: Future.value(
+            const DeviceSettings(
+              confirmBeforeOpeningDoor: false,
+              requireDeviceAuthenticationToOpenDoor: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Abrir'));
+      await tester.pump();
+      await tester.pump();
+      expect(commands.createCalls, 0);
+      expect(find.byType(SnackBar), findsOneWidget);
+    });
+  }
+
+  testWidgets('unavailable device authentication prevents POST', (
+    tester,
+  ) async {
+    final commands = _CommandRepository();
+    final authenticator = _Authenticator(
+      configuredAvailability: BiometricAvailability.unsupported,
+    );
+    await tester.pumpWidget(
+      subject(
+        commands: commands,
+        authenticator: authenticator,
+        settings: Future.value(
+          const DeviceSettings(
+            confirmBeforeOpeningDoor: false,
+            requireDeviceAuthenticationToOpenDoor: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Abrir'));
+    await tester.pump();
+    expect(authenticator.authenticateCalls, 0);
+    expect(commands.createCalls, 0);
+    expect(
+      find.text('Autenticação segura do aparelho indisponível.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('double tap before POST still creates one command', (
+    tester,
+  ) async {
+    final commands = _CommandRepository();
+    await tester.pumpWidget(
+      subject(
+        commands: commands,
+        settings: Future.value(
+          const DeviceSettings(confirmBeforeOpeningDoor: false),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final open = find.widgetWithText(FilledButton, 'Abrir');
+    await tester.tap(open);
+    await tester.tap(open, warnIfMissed: false);
+    expect(commands.createCalls, 1);
+  });
+
+  testWidgets('lifecycle dismisses confirmation without POST', (tester) async {
+    final commands = _CommandRepository();
+    await tester.pumpWidget(subject(commands: commands));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Abrir'));
+    await tester.pump();
+    expect(find.text('Abrir porta?'), findsOneWidget);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(find.text('Abrir porta?'), findsNothing);
+    expect(commands.createCalls, 0);
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Abrir'))
+          .onPressed,
+      isNotNull,
+    );
+  });
+
+  testWidgets('lifecycle during authentication prevents late POST', (
+    tester,
+  ) async {
+    final authentication = Completer<BiometricAuthenticationResult>();
+    final commands = _CommandRepository();
+    await tester.pumpWidget(
+      subject(
+        commands: commands,
+        authenticator: _Authenticator(pendingResult: authentication.future),
+        settings: Future.value(
+          const DeviceSettings(
+            confirmBeforeOpeningDoor: false,
+            requireDeviceAuthenticationToOpenDoor: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Abrir'));
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    authentication.complete(BiometricAuthenticationResult.success);
+    await tester.pump();
+    expect(commands.createCalls, 0);
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Abrir'))
+          .onPressed,
+      isNotNull,
+    );
+  });
+
+  testWidgets('loading and failed preferences keep door action disabled', (
+    tester,
+  ) async {
+    final pending = Completer<DeviceSettings>();
+    final commands = _CommandRepository();
+    await tester.pumpWidget(
+      subject(commands: commands, settings: pending.future),
+    );
+    await tester.pump();
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Abrir'))
+          .onPressed,
+      isNull,
+    );
+
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await tester.pump();
+    final failed = Completer<DeviceSettings>();
+    await tester.pumpWidget(
+      subject(commands: commands, settings: failed.future),
+    );
+    await tester.pump();
+    failed.completeError(StateError('safe fake'));
+    await tester.pump();
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Abrir'))
+          .onPressed,
+      isNull,
+    );
+    expect(commands.createCalls, 0);
   });
 
   testWidgets('retry button honors cooldown without a real timer', (
@@ -390,7 +715,7 @@ void main() {
 
 Future<void> _confirmDoorCommand(WidgetTester tester) async {
   await tester.tap(find.widgetWithText(FilledButton, 'Abrir'));
-  await tester.pumpAndSettle();
+  await tester.pump();
   await tester.tap(find.text('Enviar solicitação'));
   await tester.pump();
 }

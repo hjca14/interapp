@@ -5,9 +5,19 @@ import '../../domain/services/biometric_lock.dart';
 /// Native `local_auth` adapter for Face ID, Touch ID, and Android biometrics.
 class LocalBiometricAuthenticator implements BiometricAuthenticator {
   LocalBiometricAuthenticator([LocalAuthentication? authentication])
-    : _authentication = authentication ?? LocalAuthentication();
+    : _authentication = authentication ?? LocalAuthentication(),
+      _biometricOnly = true,
+      _reason = 'Desbloqueie o InterBridge para continuar';
+
+  LocalBiometricAuthenticator.deviceAuthentication([
+    LocalAuthentication? authentication,
+  ]) : _authentication = authentication ?? LocalAuthentication(),
+       _biometricOnly = false,
+       _reason = 'Confirme sua identidade para abrir a porta';
 
   final LocalAuthentication _authentication;
+  final bool _biometricOnly;
+  final String _reason;
 
   @override
   Future<BiometricAvailability> availability() async {
@@ -15,6 +25,7 @@ class LocalBiometricAuthenticator implements BiometricAuthenticator {
       if (!await _authentication.isDeviceSupported()) {
         return BiometricAvailability.unsupported;
       }
+      if (!_biometricOnly) return BiometricAvailability.available;
       final enrolled = await _authentication.getAvailableBiometrics();
       return enrolled.isEmpty
           ? BiometricAvailability.notEnrolled
@@ -28,8 +39,8 @@ class LocalBiometricAuthenticator implements BiometricAuthenticator {
   Future<BiometricAuthenticationResult> authenticate() async {
     try {
       final authenticated = await _authentication.authenticate(
-        localizedReason: 'Desbloqueie o InterBridge para continuar',
-        biometricOnly: true,
+        localizedReason: _reason,
+        biometricOnly: _biometricOnly,
         persistAcrossBackgrounding: true,
       );
       return authenticated

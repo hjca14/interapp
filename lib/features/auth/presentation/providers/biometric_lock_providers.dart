@@ -9,6 +9,13 @@ final biometricAuthenticatorProvider = Provider<BiometricAuthenticator>(
   (_) => LocalBiometricAuthenticator(),
 );
 
+/// Local-auth policy for a sensitive device action. The global session lock
+/// remains biometric-only; this instance may also use a secure device
+/// credential supported by the platform.
+final doorDeviceAuthenticatorProvider = Provider<BiometricAuthenticator>(
+  (_) => LocalBiometricAuthenticator.deviceAuthentication(),
+);
+
 final biometricLockSettingsRepositoryProvider =
     Provider<BiometricLockSettingsRepository>(
       (_) => SharedPreferencesBiometricLockSettingsRepository(),
