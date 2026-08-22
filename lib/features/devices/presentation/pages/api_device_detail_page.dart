@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../dialer/presentation/controllers/dialer_controller.dart';
 import '../../../dialer/presentation/pages/dialer_page.dart';
 import '../../../favorites/presentation/pages/favorites_page.dart';
+import '../../../commands/presentation/providers/door_command_provider.dart';
+import '../../../sharing/domain/entities/device_access.dart';
 import '../../domain/entities/api_device.dart';
 import 'device_settings_page.dart';
 import '../providers/api_devices_provider.dart';
@@ -115,17 +117,7 @@ class _DeviceOverview extends ConsumerWidget {
           const SizedBox(height: 12),
           _StatusCard(deviceId: deviceId, status: status),
           const SizedBox(height: 12),
-          const Card(
-            child: ListTile(
-              enabled: false,
-              leading: Icon(Icons.lock_open_outlined),
-              title: Text('Abrir porta'),
-              subtitle: Text(
-                'Indisponível até a API de comandos. Nenhum comando será enviado.',
-              ),
-              trailing: FilledButton(onPressed: null, child: Text('Abrir')),
-            ),
-          ),
+          _DoorCommandCard(deviceId: deviceId, detail: detail),
           const SizedBox(height: 24),
           Text(
             'Eventos recentes',
@@ -143,6 +135,95 @@ class _DeviceOverview extends ConsumerWidget {
         ],
       ),
     );
+  }
+}
+
+class _DoorCommandCard extends ConsumerWidget {
+  const _DoorCommandCard({required this.deviceId, required this.detail});
+
+  final String deviceId;
+  final AsyncValue<ApiDeviceDetail> detail;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final action = ref.watch(doorCommandProvider(deviceId));
+    final command = action.state;
+    final isOwner = detail.value?.role == DeviceRole.owner;
+    final cooldown = command.retryAfter != null;
+    final cancelled = command.phase == DoorCommandPhase.cancelled;
+    final enabled = isOwner && !command.busy && !cooldown && !cancelled;
+    final subtitle = !isOwner
+        ? 'Somente o proprietário pode enviar esta solicitação.'
+        : switch (command.phase) {
+            DoorCommandPhase.sending => 'Enviando solicitação…',
+            DoorCommandPhase.waiting => 'Aguardando resposta do dispositivo…',
+            DoorCommandPhase.cancelled => 'Solicitação interrompida.',
+            _ =>
+              command.message ??
+                  'A abertura só será confirmada após a resposta do aparelho.',
+          };
+
+    return Card(
+      child: ListTile(
+        leading: command.busy
+            ? const SizedBox.square(
+                dimension: 24,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              )
+            : const Icon(Icons.lock_open_outlined),
+        title: const Text('Abrir porta'),
+        subtitle: Text(subtitle),
+        trailing: command.canRetryCreate
+            ? FilledButton(
+                onPressed: !isOwner || command.busy || cooldown || cancelled
+                    ? null
+                    : action.retryCreateAfterTimeout,
+                child: const Text('Tentar novamente'),
+              )
+            : Semantics(
+                button: true,
+                enabled: enabled,
+                label: 'Enviar solicitação para abrir porta',
+                child: Tooltip(
+                  message: enabled ? 'Abrir porta' : 'Ação indisponível',
+                  child: FilledButton(
+                    onPressed: enabled
+                        ? () => _confirmAndStart(context, action)
+                        : null,
+                    child: const Text('Abrir'),
+                  ),
+                ),
+              ),
+      ),
+    );
+  }
+
+  Future<void> _confirmAndStart(
+    BuildContext context,
+    DoorCommandActionController action,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Abrir porta?'),
+        content: const Text(
+          'O InterBridge enviará uma solicitação ao dispositivo. A abertura só será confirmada após a resposta do aparelho.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Enviar solicitação'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && context.mounted) {
+      await action.start();
+    }
   }
 }
 

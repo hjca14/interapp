@@ -44,6 +44,8 @@ final class CommandController {
     return _tracker.track(deviceId, accepted.commandId);
   }
 
+  void cancelTracking() => _tracker.cancel();
+
   Future<void> dispose() async {
     _attempt.clear();
     _deviceId = null;
