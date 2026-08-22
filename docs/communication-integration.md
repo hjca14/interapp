@@ -313,3 +313,12 @@ application API** — never to AWS IoT Core/MQTT directly, and it is the
 backend, not the app, that will create and publish the final command
 envelope. All of the above remains Fase 1 AWS work; see
 `docs/APP_COMMUNICATION_STATUS.md` for the up-to-date status of every area.
+# Atualização da Fase 2D
+
+A interface de detalhes compõe a camada HTTPS assíncrona de `OPEN_DOOR` e a
+expõe exclusivamente para membership `OWNER`, com confirmação explícita,
+idempotência, polling limitado e cancelamento por lifecycle/sessão. Um
+202/`PENDING` nunca é sucesso; somente `COMPLETED` confirma abertura. O hardware
+continua sem relé, GPIO, DTMF ou qualquer ação física, e o primeiro teste manual
+em DEV deve terminar em `REJECTED/CAPABILITY_DISABLED`. A validação ponta a
+ponta permanece pendente para depois do merge.

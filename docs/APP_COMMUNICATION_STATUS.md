@@ -1,18 +1,29 @@
 # InterApp — Communication Implementation Status
 
-## Fase 2D — camada interna preparada, integração ainda inativa
+## Fase 2D — integração visual controlada
 
-O app agora contém modelos, parsing, transporte autenticado, idempotência em
-memória e acompanhamento assíncrono testável para o futuro comando
-`OPEN_DOOR`. O backend da Fase 2D ainda aguarda deploy e validação real; por
-isso, essa camada não foi conectada a providers, rotas, telas ou ao botão
-“Abrir porta”, que continua desabilitado e não envia POST.
+O backend da Fase 2D está implantado em DEV e o ESP32 real está conectado ao
+AWS IoT Core por mTLS e inscrito no tópico real de comandos com QoS 1. A UI
+agora compõe o transporte autenticado, idempotência e polling assíncrono já
+existentes e os conecta ao botão “Abrir porta” da tela de detalhes. Somente a
+membership `OWNER` pode confirmar e enviar `OPEN_DOOR`; demais papéis permanecem
+bloqueados localmente, sem POST.
 
-Nenhuma chamada AWS real ou ação física foi feita nesta fase. O firmware
-permanece fail-closed (`DISABLED`), sendo `REJECTED/CAPABILITY_DISABLED` o
-resultado seguro esperado. A ativação da interface depende de validação
-end-to-end posterior ao deploy. Um HTTP 202/`PENDING` é apenas aceitação para
-processamento: não significa recebimento MQTT, execução ou portão aberto.
+Um HTTP 202/`PENDING` significa apenas que o backend aceitou a solicitação para
+processamento. Apenas `COMPLETED` permite à UI confirmar abertura. Polling é
+limitado a 30 segundos e cancelado ao sair da tela, descartar o provider ou
+encerrar/inutilizar a sessão. Timeout de criação oferece retry explícito com a
+mesma chave de idempotência; uma nova ação confirmada gera uma nova chave.
+
+O firmware continua propositalmente fail-closed (`DISABLED`). Portanto, o
+primeiro resultado real esperado é `PENDING → ACCEPTED →
+REJECTED/CAPABILITY_DISABLED`, exibido de forma amigável e sem alegar abertura.
+Nenhuma ação física está implementada: relé, GPIO, DTMF e configuração de
+abertura continuam adiados. Nenhuma chamada AWS, MQTT ou comando real foi feita
+durante esta integração. A validação ponta a ponta ainda deve ser executada
+manualmente após o merge, seguindo:
+
+`App → API → IoT → ESP32 → ACCEPTED → REJECTED/CAPABILITY_DISABLED → Basic Ingest → GET → App`.
 
 ## Fase 2C — implementada no app
 
