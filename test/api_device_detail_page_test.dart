@@ -30,11 +30,17 @@ class _MemoryFavoritesRepository extends LocalFavoritesRepository {
 }
 
 class _CommandRepository implements CommandRepository {
-  _CommandRepository({this.commandStatus, this.createErrors = const []});
+  _CommandRepository({
+    this.commandStatus,
+    this.createErrors = const [],
+    this.createResponses = const [],
+  });
 
   final Future<CommandStatus>? commandStatus;
   final List<ApiFailure> createErrors;
+  final List<Future<AcceptedCommand>> createResponses;
   int createCalls = 0;
+  int getCalls = 0;
   final List<String> idempotencyKeys = [];
 
   @override
@@ -45,6 +51,7 @@ class _CommandRepository implements CommandRepository {
     final call = createCalls++;
     idempotencyKeys.add(idempotencyKey);
     if (call < createErrors.length) throw createErrors[call];
+    if (call < createResponses.length) return createResponses[call];
     expect(idempotencyKey, isNotEmpty);
     return AcceptedCommand(
       commandId: CommandId('0123456789abcdef0123456789abcdef'),
@@ -58,6 +65,7 @@ class _CommandRepository implements CommandRepository {
     DeviceId deviceId,
     CommandId commandId,
   ) async {
+    getCalls++;
     final pendingStatus = commandStatus;
     if (pendingStatus != null) return pendingStatus;
     return CommandStatus(
@@ -232,6 +240,55 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
     expect(commands.createCalls, 1);
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Abrir'))
+          .onPressed,
+      isNotNull,
+    );
+
+    await _confirmDoorCommand(tester);
+    expect(commands.createCalls, 2);
+    expect(commands.idempotencyKeys, hasLength(2));
+    expect(commands.idempotencyKeys[1], isNot(commands.idempotencyKeys[0]));
+  });
+
+  testWidgets('late pre-pause POST cannot affect resumed controller', (
+    tester,
+  ) async {
+    final oldPost = Completer<AcceptedCommand>();
+    final commands = _CommandRepository(createResponses: [oldPost.future]);
+    await tester.pumpWidget(subject(commands: commands));
+    await tester.pumpAndSettle();
+    await _confirmDoorCommand(tester);
+    expect(find.text('Enviando solicitação…'), findsOneWidget);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    expect(find.text('Solicitação interrompida.'), findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+
+    expect(commands.createCalls, 1);
+    expect(commands.getCalls, 0);
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Abrir'))
+          .onPressed,
+      isNotNull,
+    );
+
+    oldPost.complete(
+      AcceptedCommand(
+        commandId: CommandId('fedcba9876543210fedcba9876543210'),
+        issuedAt: UtcTimestamp.parse('2026-08-22T12:01:00Z'),
+        expiresAt: UtcTimestamp.parse('2026-08-22T12:01:30Z'),
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(commands.getCalls, 0);
+    expect(find.text('Enviando solicitação…'), findsNothing);
     expect(
       tester
           .widget<FilledButton>(find.widgetWithText(FilledButton, 'Abrir'))

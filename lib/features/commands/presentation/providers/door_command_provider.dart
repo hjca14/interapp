@@ -152,19 +152,26 @@ class DoorCommandActionController extends ChangeNotifier {
   bool _cooldownActive = false;
   bool _cancelled = false;
   bool _lifecycleCancelled = false;
+  int _controllerGeneration = 0;
 
   DoorCommandUiState get state => _state;
 
   Future<void> start() async {
     if (_state.busy || _cooldownActive || _cancelled) return;
+    final operationController = _controller;
+    final operationGeneration = _controllerGeneration;
     _setState(const DoorCommandUiState(phase: DoorCommandPhase.sending));
     try {
-      final accepted = await _controller.start(_deviceId);
-      if (_disposed) return;
+      final accepted = await operationController.start(_deviceId);
+      if (!_isCurrentOperation(operationController, operationGeneration)) {
+        return;
+      }
       _setState(const DoorCommandUiState(phase: DoorCommandPhase.waiting));
-      await _track(accepted);
+      await _track(accepted, operationController, operationGeneration);
     } on ApiFailure catch (error) {
-      _handleCreateFailure(error);
+      if (_isCurrentOperation(operationController, operationGeneration)) {
+        _handleCreateFailure(error);
+      }
     } on CommandTrackingCancelled {
       // Navigation, provider disposal and logout intentionally end silently.
     }
@@ -177,23 +184,35 @@ class DoorCommandActionController extends ChangeNotifier {
         _cancelled) {
       return;
     }
+    final operationController = _controller;
+    final operationGeneration = _controllerGeneration;
     _setState(const DoorCommandUiState(phase: DoorCommandPhase.sending));
     try {
-      final accepted = await _controller.retryCreateAfterTimeout();
-      if (_disposed) return;
+      final accepted = await operationController.retryCreateAfterTimeout();
+      if (!_isCurrentOperation(operationController, operationGeneration)) {
+        return;
+      }
       _setState(const DoorCommandUiState(phase: DoorCommandPhase.waiting));
-      await _track(accepted);
+      await _track(accepted, operationController, operationGeneration);
     } on ApiFailure catch (error) {
-      _handleCreateFailure(error);
+      if (_isCurrentOperation(operationController, operationGeneration)) {
+        _handleCreateFailure(error);
+      }
     } on CommandTrackingCancelled {
       // See start(): cancellation is a lifecycle event, not user-facing error.
     }
   }
 
-  Future<void> _track(AcceptedCommand accepted) async {
+  Future<void> _track(
+    AcceptedCommand accepted,
+    CommandController operationController,
+    int operationGeneration,
+  ) async {
     try {
-      final result = await _controller.track(accepted);
-      if (_disposed) return;
+      final result = await operationController.track(accepted);
+      if (!_isCurrentOperation(operationController, operationGeneration)) {
+        return;
+      }
       if (result == null || result.state == CommandState.expired) {
         _setState(
           const DoorCommandUiState(
@@ -221,13 +240,25 @@ class DoorCommandActionController extends ChangeNotifier {
         );
       }
     } on ApiFailure catch (error) {
-      _setState(
-        DoorCommandUiState(
-          phase: DoorCommandPhase.failed,
-          message: error.message,
-        ),
-      );
+      if (_isCurrentOperation(operationController, operationGeneration)) {
+        _setState(
+          DoorCommandUiState(
+            phase: DoorCommandPhase.failed,
+            message: error.message,
+          ),
+        );
+      }
     }
+  }
+
+  bool _isCurrentOperation(
+    CommandController operationController,
+    int operationGeneration,
+  ) {
+    return !_disposed &&
+        !_cancelled &&
+        identical(operationController, _controller) &&
+        operationGeneration == _controllerGeneration;
   }
 
   void _handleCreateFailure(ApiFailure error) {
@@ -275,6 +306,7 @@ class DoorCommandActionController extends ChangeNotifier {
     if (createController == null) return;
     _lifecycleCancelled = false;
     final cancelledController = _controller;
+    _controllerGeneration++;
     _controller = createController();
     _cancelled = false;
     unawaited(cancelledController.dispose());
