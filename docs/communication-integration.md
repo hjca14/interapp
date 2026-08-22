@@ -319,8 +319,8 @@ A interface de detalhes compõe a camada HTTPS assíncrona de `OPEN_DOOR` e a
 expõe exclusivamente para membership `OWNER`, com confirmação explícita,
 idempotência, polling limitado e cancelamento por sessão, descarte ou estados
 de lifecycle `paused`/`inactive`/`hidden`/`detached`. O retorno ao app não
-retoma nem reenvia o comando; uma ação posterior exige uma tela/provider novos
-e confirmação explícita. Um
+retoma nem reenvia o comando; uma confirmação explícita posterior, inclusive
+na mesma tela, usa controller, tracker e chave novos. Um
 202/`PENDING` nunca é sucesso; somente `COMPLETED` confirma abertura. O hardware
 continua sem relé, GPIO, DTMF ou qualquer ação física, e o primeiro teste manual
 em DEV deve terminar em `REJECTED/CAPABILITY_DISABLED`. A validação ponta a

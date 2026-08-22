@@ -81,20 +81,21 @@ final doorCommandCooldownSchedulerProvider =
 final doorCommandProvider = ChangeNotifierProvider.autoDispose
     .family<DoorCommandActionController, String>((ref, deviceId) {
       final repository = ref.watch(commandRepositoryProvider);
-      final controller = CommandController(
+      CommandController createController() => CommandController(
         repository: repository,
         tracker: CommandTracker(repository: repository),
         keyGenerator: SecureIdempotencyKeyGenerator(),
       );
       final action = DoorCommandActionController(
         deviceId: deviceId,
-        controller: controller,
+        controller: createController(),
+        controllerFactory: createController,
         cooldownScheduler: ref.watch(doorCommandCooldownSchedulerProvider),
       );
       final lifecycle = _DoorCommandLifecycleObserver(action);
       ref.listen(authSessionProvider, (_, next) {
         if (next.value?.isSignedIn == false) {
-          action.cancel();
+          action.cancelForLogout();
         }
       });
       ref.onDispose(() {
@@ -117,7 +118,9 @@ final class _DoorCommandLifecycleObserver with WidgetsBindingObserver {
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
-      _action.cancel();
+      _action.cancelForLifecycle();
+    } else if (state == AppLifecycleState.resumed) {
+      _action.resumeAfterLifecycle();
     }
   }
 
@@ -128,22 +131,27 @@ class DoorCommandActionController extends ChangeNotifier {
   DoorCommandActionController({
     required String deviceId,
     required CommandController controller,
+    CommandController Function()? controllerFactory,
     DoorCommandCooldownScheduler cooldownScheduler =
         const TimerDoorCommandCooldownScheduler(),
   }) : _deviceId = DeviceId(deviceId),
        // ignore: prefer_initializing_formals
        _controller = controller,
        // ignore: prefer_initializing_formals
+       _controllerFactory = controllerFactory,
+       // ignore: prefer_initializing_formals
        _cooldownScheduler = cooldownScheduler;
 
   final DeviceId _deviceId;
-  final CommandController _controller;
+  CommandController _controller;
+  final CommandController Function()? _controllerFactory;
   final DoorCommandCooldownScheduler _cooldownScheduler;
   DoorCommandUiState _state = const DoorCommandUiState();
   bool _disposed = false;
   DoorCommandCooldown? _cooldown;
   bool _cooldownActive = false;
   bool _cancelled = false;
+  bool _lifecycleCancelled = false;
 
   DoorCommandUiState get state => _state;
 
@@ -255,7 +263,36 @@ class DoorCommandActionController extends ChangeNotifier {
     }
   }
 
-  void cancel() {
+  void cancelForLifecycle() {
+    if (!_state.busy || _cancelled) return;
+    _lifecycleCancelled = true;
+    _cancelAttempt();
+  }
+
+  void resumeAfterLifecycle() {
+    if (_disposed || !_lifecycleCancelled) return;
+    final createController = _controllerFactory;
+    if (createController == null) return;
+    _lifecycleCancelled = false;
+    final cancelledController = _controller;
+    _controller = createController();
+    _cancelled = false;
+    unawaited(cancelledController.dispose());
+    _setState(const DoorCommandUiState());
+  }
+
+  void cancelForLogout() {
+    _lifecycleCancelled = false;
+    if (_state.busy) {
+      _cancelAttempt();
+    } else {
+      _cancelled = true;
+    }
+  }
+
+  void cancel() => _cancelAttempt();
+
+  void _cancelAttempt() {
     if (!_state.busy || _cancelled) return;
     _cancelled = true;
     _cooldownActive = false;

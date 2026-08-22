@@ -35,6 +35,7 @@ class _CommandRepository implements CommandRepository {
   final Future<CommandStatus>? commandStatus;
   final List<ApiFailure> createErrors;
   int createCalls = 0;
+  final List<String> idempotencyKeys = [];
 
   @override
   Future<AcceptedCommand> createOpenDoorCommand(
@@ -42,6 +43,7 @@ class _CommandRepository implements CommandRepository {
     String idempotencyKey,
   ) async {
     final call = createCalls++;
+    idempotencyKeys.add(idempotencyKey);
     if (call < createErrors.length) throw createErrors[call];
     expect(idempotencyKey, isNotEmpty);
     return AcceptedCommand(
@@ -213,7 +215,7 @@ void main() {
     expect(commands.createCalls, 2);
   });
 
-  testWidgets('pause cancels polling and resume does not resend', (
+  testWidgets('resume enables a new explicit action with a new key', (
     tester,
   ) async {
     final commands = _CommandRepository(
@@ -230,6 +232,17 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
     expect(commands.createCalls, 1);
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Abrir'))
+          .onPressed,
+      isNotNull,
+    );
+
+    await _confirmDoorCommand(tester);
+    expect(commands.createCalls, 2);
+    expect(commands.idempotencyKeys, hasLength(2));
+    expect(commands.idempotencyKeys[1], isNot(commands.idempotencyKeys[0]));
   });
 
   testWidgets('navigation and logout cancel polling silently', (tester) async {
