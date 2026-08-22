@@ -11,9 +11,12 @@ bloqueados localmente, sem POST.
 
 Um HTTP 202/`PENDING` significa apenas que o backend aceitou a solicitação para
 processamento. Apenas `COMPLETED` permite à UI confirmar abertura. Polling é
-limitado a 30 segundos e cancelado ao sair da tela, descartar o provider ou
-encerrar/inutilizar a sessão. Timeout de criação oferece retry explícito com a
-mesma chave de idempotência; uma nova ação confirmada gera uma nova chave.
+limitado a 30 segundos e cancelado ao sair da tela, descartar o provider,
+encerrar/inutilizar a sessão ou quando o app entra em `paused`, `inactive`,
+`hidden` ou `detached`. O retorno ao app não retoma polling nem reenvia comando;
+uma nova tela e confirmação criam tracker e chave novos. Timeout de criação
+oferece retry explícito com a mesma chave de idempotência após o `Retry-After`;
+uma nova ação confirmada gera uma nova chave.
 
 O firmware continua propositalmente fail-closed (`DISABLED`). Portanto, o
 primeiro resultado real esperado é `PENDING → ACCEPTED →

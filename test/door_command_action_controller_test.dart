@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:interapp/core/network/api_failure.dart';
 import 'package:interapp/features/commands/data/command_repository.dart';
@@ -105,6 +106,33 @@ void main() {
     expect(repository.keys.last, 'key-2');
   });
 
+  test('retry cooldown is deterministic and blocks double taps', () async {
+    final cooldown = _ManualCooldownScheduler();
+    final repository = _FakeRepository(
+      createErrors: [
+        const ApiFailure(
+          ApiFailureKind.timeout,
+          'safe timeout',
+          retryAfter: Duration(seconds: 5),
+        ),
+      ],
+      status: _status(CommandState.completed),
+    );
+    final action = _action(repository, cooldownScheduler: cooldown);
+
+    await action.start();
+    expect(action.state.retryAfter, const Duration(seconds: 5));
+    await action.retryCreateAfterTimeout();
+    expect(repository.createCalls, 1);
+
+    cooldown.elapse();
+    expect(action.state.retryAfter, isNull);
+    final first = action.retryCreateAfterTimeout();
+    final second = action.retryCreateAfterTimeout();
+    await Future.wait([first, second]);
+    expect(repository.createCalls, 2);
+  });
+
   for (final failure in [
     const ApiFailure(ApiFailureKind.forbidden, 'Sem permissão.'),
     const ApiFailure(ApiFailureKind.offline, 'Sem conexão.'),
@@ -129,7 +157,7 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     action.cancel();
     await running;
-    expect(action.state.phase, DoorCommandPhase.waiting);
+    expect(action.state.phase, DoorCommandPhase.cancelled);
     action.dispose();
   });
 }
@@ -140,9 +168,12 @@ DoorCommandActionController _action(
   CommandScheduler scheduler = const _ImmediateScheduler(),
   DateTime Function()? now,
   Duration totalLimit = const Duration(seconds: 30),
+  DoorCommandCooldownScheduler cooldownScheduler =
+      const TimerDoorCommandCooldownScheduler(),
 }) {
   return DoorCommandActionController(
     deviceId: _device,
+    cooldownScheduler: cooldownScheduler,
     controller: CommandController(
       repository: repository,
       tracker: CommandTracker(
@@ -225,4 +256,27 @@ class _ImmediateScheduler implements CommandScheduler {
 class _HeldScheduler implements CommandScheduler {
   @override
   Future<void> wait(Duration duration) => Completer<void>().future;
+}
+
+class _ManualCooldownScheduler implements DoorCommandCooldownScheduler {
+  VoidCallback? _callback;
+  bool _cancelled = false;
+
+  @override
+  DoorCommandCooldown schedule(Duration duration, VoidCallback callback) {
+    _callback = callback;
+    return _ManualCooldown(() => _cancelled = true);
+  }
+
+  void elapse() {
+    if (!_cancelled) _callback?.call();
+  }
+}
+
+class _ManualCooldown implements DoorCommandCooldown {
+  _ManualCooldown(this._onCancel);
+  final VoidCallback _onCancel;
+
+  @override
+  void cancel() => _onCancel();
 }

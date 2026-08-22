@@ -150,12 +150,14 @@ class _DoorCommandCard extends ConsumerWidget {
     final command = action.state;
     final isOwner = detail.value?.role == DeviceRole.owner;
     final cooldown = command.retryAfter != null;
-    final enabled = isOwner && !command.busy && !cooldown;
+    final cancelled = command.phase == DoorCommandPhase.cancelled;
+    final enabled = isOwner && !command.busy && !cooldown && !cancelled;
     final subtitle = !isOwner
         ? 'Somente o proprietário pode enviar esta solicitação.'
         : switch (command.phase) {
             DoorCommandPhase.sending => 'Enviando solicitação…',
             DoorCommandPhase.waiting => 'Aguardando resposta do dispositivo…',
+            DoorCommandPhase.cancelled => 'Solicitação interrompida.',
             _ =>
               command.message ??
                   'A abertura só será confirmada após a resposta do aparelho.',
@@ -173,7 +175,7 @@ class _DoorCommandCard extends ConsumerWidget {
         subtitle: Text(subtitle),
         trailing: command.canRetryCreate
             ? FilledButton(
-                onPressed: !isOwner || command.busy
+                onPressed: !isOwner || command.busy || cooldown || cancelled
                     ? null
                     : action.retryCreateAfterTimeout,
                 child: const Text('Tentar novamente'),

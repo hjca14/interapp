@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,6 +16,7 @@ import 'package:interapp/features/auth/presentation/providers/auth_providers.dar
 import 'package:interapp/features/commands/data/command_repository.dart';
 import 'package:interapp/features/commands/domain/command_models.dart';
 import 'package:interapp/features/commands/presentation/providers/door_command_provider.dart';
+import 'package:interapp/core/network/api_failure.dart';
 
 class _MemoryFavoritesRepository extends LocalFavoritesRepository {
   _MemoryFavoritesRepository(this.values);
@@ -27,6 +30,10 @@ class _MemoryFavoritesRepository extends LocalFavoritesRepository {
 }
 
 class _CommandRepository implements CommandRepository {
+  _CommandRepository({this.commandStatus, this.createErrors = const []});
+
+  final Future<CommandStatus>? commandStatus;
+  final List<ApiFailure> createErrors;
   int createCalls = 0;
 
   @override
@@ -34,7 +41,8 @@ class _CommandRepository implements CommandRepository {
     DeviceId deviceId,
     String idempotencyKey,
   ) async {
-    createCalls++;
+    final call = createCalls++;
+    if (call < createErrors.length) throw createErrors[call];
     expect(idempotencyKey, isNotEmpty);
     return AcceptedCommand(
       commandId: CommandId('0123456789abcdef0123456789abcdef'),
@@ -47,11 +55,15 @@ class _CommandRepository implements CommandRepository {
   Future<CommandStatus> getCommand(
     DeviceId deviceId,
     CommandId commandId,
-  ) async => CommandStatus(
-    commandId: commandId,
-    state: CommandState.rejected,
-    rejection: const CommandRejection('CAPABILITY_DISABLED'),
-  );
+  ) async {
+    final pendingStatus = commandStatus;
+    if (pendingStatus != null) return pendingStatus;
+    return CommandStatus(
+      commandId: commandId,
+      state: CommandState.rejected,
+      rejection: const CommandRejection('CAPABILITY_DISABLED'),
+    );
+  }
 }
 
 void main() {
@@ -61,6 +73,8 @@ void main() {
     List<Favorite> favorites = const [],
     DeviceRole role = DeviceRole.owner,
     CommandRepository? commands,
+    Stream<AuthSession>? sessions,
+    DoorCommandCooldownScheduler? cooldownScheduler,
   }) {
     return ProviderScope(
       overrides: [
@@ -90,11 +104,16 @@ void main() {
           _MemoryFavoritesRepository(favorites),
         ),
         authSessionProvider.overrideWith(
-          (ref) => Stream.value(const AuthSession(isSignedIn: true)),
+          (ref) =>
+              sessions ?? Stream.value(const AuthSession(isSignedIn: true)),
         ),
         commandRepositoryProvider.overrideWithValue(
           commands ?? _CommandRepository(),
         ),
+        if (cooldownScheduler != null)
+          doorCommandCooldownSchedulerProvider.overrideWithValue(
+            cooldownScheduler,
+          ),
       ],
       child: const MaterialApp(home: ApiDeviceDetailPage(deviceId: deviceId)),
     );
@@ -163,6 +182,117 @@ void main() {
     );
   });
 
+  testWidgets('retry button honors cooldown without a real timer', (
+    tester,
+  ) async {
+    final cooldown = _ManualCooldownScheduler();
+    final commands = _CommandRepository(
+      createErrors: [
+        const ApiFailure(
+          ApiFailureKind.timeout,
+          'timeout',
+          retryAfter: Duration(seconds: 5),
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      subject(commands: commands, cooldownScheduler: cooldown),
+    );
+    await tester.pumpAndSettle();
+    await _confirmDoorCommand(tester);
+    await tester.pump();
+
+    final retry = find.widgetWithText(FilledButton, 'Tentar novamente');
+    expect(tester.widget<FilledButton>(retry).onPressed, isNull);
+    expect(commands.createCalls, 1);
+
+    cooldown.elapse();
+    await tester.pump();
+    expect(tester.widget<FilledButton>(retry).onPressed, isNotNull);
+    await tester.tap(retry);
+    expect(commands.createCalls, 2);
+  });
+
+  testWidgets('pause cancels polling and resume does not resend', (
+    tester,
+  ) async {
+    final commands = _CommandRepository(
+      commandStatus: Completer<CommandStatus>().future,
+    );
+    await tester.pumpWidget(subject(commands: commands));
+    await tester.pumpAndSettle();
+    await _confirmDoorCommand(tester);
+    expect(commands.createCalls, 1);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    expect(find.text('Solicitação interrompida.'), findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(commands.createCalls, 1);
+  });
+
+  testWidgets('navigation and logout cancel polling silently', (tester) async {
+    final sessions = StreamController<AuthSession>();
+    addTearDown(sessions.close);
+    final commands = _CommandRepository(
+      commandStatus: Completer<CommandStatus>().future,
+    );
+    await tester.pumpWidget(
+      subject(commands: commands, sessions: sessions.stream),
+    );
+    sessions.add(const AuthSession(isSignedIn: true));
+    await tester.pumpAndSettle();
+    await _confirmDoorCommand(tester);
+
+    sessions.add(const AuthSession.signedOut());
+    await tester.pump();
+    expect(find.text('Solicitação interrompida.'), findsOneWidget);
+
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await tester.pump();
+    expect(commands.createCalls, 1);
+  });
+
+  testWidgets('navigation disposes active polling without an error', (
+    tester,
+  ) async {
+    final commands = _CommandRepository(
+      commandStatus: Completer<CommandStatus>().future,
+    );
+    await tester.pumpWidget(subject(commands: commands));
+    await tester.pumpAndSettle();
+    await _confirmDoorCommand(tester);
+
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await tester.pump();
+    expect(commands.createCalls, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('recreated page requires a new explicit action', (tester) async {
+    final commands = _CommandRepository(
+      commandStatus: Completer<CommandStatus>().future,
+    );
+    await tester.pumpWidget(subject(commands: commands));
+    await tester.pumpAndSettle();
+    await _confirmDoorCommand(tester);
+    expect(commands.createCalls, 1);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(subject(commands: commands));
+    await tester.pumpAndSettle();
+    expect(commands.createCalls, 1);
+    await _confirmDoorCommand(tester);
+    expect(commands.createCalls, 2);
+  });
+
   testWidgets(
     'favorite fills dialer and dial action only reports unavailable',
     (tester) async {
@@ -186,4 +316,34 @@ void main() {
       );
     },
   );
+}
+
+Future<void> _confirmDoorCommand(WidgetTester tester) async {
+  await tester.tap(find.widgetWithText(FilledButton, 'Abrir'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Enviar solicitação'));
+  await tester.pump();
+}
+
+class _ManualCooldownScheduler implements DoorCommandCooldownScheduler {
+  VoidCallback? _callback;
+  bool _cancelled = false;
+
+  @override
+  DoorCommandCooldown schedule(Duration duration, VoidCallback callback) {
+    _callback = callback;
+    return _ManualCooldown(() => _cancelled = true);
+  }
+
+  void elapse() {
+    if (!_cancelled) _callback?.call();
+  }
+}
+
+class _ManualCooldown implements DoorCommandCooldown {
+  _ManualCooldown(this._onCancel);
+  final VoidCallback _onCancel;
+
+  @override
+  void cancel() => _onCancel();
 }

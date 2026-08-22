@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
@@ -21,6 +21,34 @@ enum DoorCommandPhase {
   rejected,
   timedOut,
   failed,
+  cancelled,
+}
+
+abstract interface class DoorCommandCooldown {
+  void cancel();
+}
+
+abstract interface class DoorCommandCooldownScheduler {
+  DoorCommandCooldown schedule(Duration duration, VoidCallback callback);
+}
+
+final class TimerDoorCommandCooldownScheduler
+    implements DoorCommandCooldownScheduler {
+  const TimerDoorCommandCooldownScheduler();
+
+  @override
+  DoorCommandCooldown schedule(Duration duration, VoidCallback callback) {
+    return _TimerDoorCommandCooldown(Timer(duration, callback));
+  }
+}
+
+final class _TimerDoorCommandCooldown implements DoorCommandCooldown {
+  _TimerDoorCommandCooldown(this._timer);
+
+  final Timer _timer;
+
+  @override
+  void cancel() => _timer.cancel();
 }
 
 @immutable
@@ -45,6 +73,11 @@ final commandRepositoryProvider = Provider<CommandRepository>((ref) {
   return HttpCommandRepository(ref.watch(apiClientProvider));
 });
 
+final doorCommandCooldownSchedulerProvider =
+    Provider<DoorCommandCooldownScheduler>(
+      (_) => const TimerDoorCommandCooldownScheduler(),
+    );
+
 final doorCommandProvider = ChangeNotifierProvider.autoDispose
     .family<DoorCommandActionController, String>((ref, deviceId) {
       final repository = ref.watch(commandRepositoryProvider);
@@ -56,34 +89,66 @@ final doorCommandProvider = ChangeNotifierProvider.autoDispose
       final action = DoorCommandActionController(
         deviceId: deviceId,
         controller: controller,
+        cooldownScheduler: ref.watch(doorCommandCooldownSchedulerProvider),
       );
+      final lifecycle = _DoorCommandLifecycleObserver(action);
       ref.listen(authSessionProvider, (_, next) {
         if (next.value?.isSignedIn == false) {
           action.cancel();
         }
       });
-      ref.onDispose(action.dispose);
+      ref.onDispose(() {
+        lifecycle.dispose();
+        action.dispose();
+      });
       return action;
     });
+
+final class _DoorCommandLifecycleObserver with WidgetsBindingObserver {
+  _DoorCommandLifecycleObserver(this._action) {
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  final DoorCommandActionController _action;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      _action.cancel();
+    }
+  }
+
+  void dispose() => WidgetsBinding.instance.removeObserver(this);
+}
 
 class DoorCommandActionController extends ChangeNotifier {
   DoorCommandActionController({
     required String deviceId,
     required CommandController controller,
+    DoorCommandCooldownScheduler cooldownScheduler =
+        const TimerDoorCommandCooldownScheduler(),
   }) : _deviceId = DeviceId(deviceId),
        // ignore: prefer_initializing_formals
-       _controller = controller;
+       _controller = controller,
+       // ignore: prefer_initializing_formals
+       _cooldownScheduler = cooldownScheduler;
 
   final DeviceId _deviceId;
   final CommandController _controller;
+  final DoorCommandCooldownScheduler _cooldownScheduler;
   DoorCommandUiState _state = const DoorCommandUiState();
   bool _disposed = false;
-  Timer? _cooldownTimer;
+  DoorCommandCooldown? _cooldown;
+  bool _cooldownActive = false;
+  bool _cancelled = false;
 
   DoorCommandUiState get state => _state;
 
   Future<void> start() async {
-    if (_state.busy || _cooldownTimer?.isActive == true) return;
+    if (_state.busy || _cooldownActive || _cancelled) return;
     _setState(const DoorCommandUiState(phase: DoorCommandPhase.sending));
     try {
       final accepted = await _controller.start(_deviceId);
@@ -98,7 +163,12 @@ class DoorCommandActionController extends ChangeNotifier {
   }
 
   Future<void> retryCreateAfterTimeout() async {
-    if (!_state.canRetryCreate || _state.busy) return;
+    if (!_state.canRetryCreate ||
+        _state.busy ||
+        _cooldownActive ||
+        _cancelled) {
+      return;
+    }
     _setState(const DoorCommandUiState(phase: DoorCommandPhase.sending));
     try {
       final accepted = await _controller.retryCreateAfterTimeout();
@@ -169,8 +239,11 @@ class DoorCommandActionController extends ChangeNotifier {
     );
     final retryAfter = error.retryAfter;
     if (retryAfter != null && retryAfter > Duration.zero) {
-      _cooldownTimer?.cancel();
-      _cooldownTimer = Timer(retryAfter, () {
+      _cooldown?.cancel();
+      _cooldownActive = true;
+      _cooldown = _cooldownScheduler.schedule(retryAfter, () {
+        _cooldownActive = false;
+        _cooldown = null;
         _setState(
           DoorCommandUiState(
             phase: _state.phase,
@@ -182,7 +255,20 @@ class DoorCommandActionController extends ChangeNotifier {
     }
   }
 
-  void cancel() => _controller.cancelTracking();
+  void cancel() {
+    if (!_state.busy || _cancelled) return;
+    _cancelled = true;
+    _cooldownActive = false;
+    _cooldown?.cancel();
+    _cooldown = null;
+    _controller.cancelTracking();
+    _setState(
+      const DoorCommandUiState(
+        phase: DoorCommandPhase.cancelled,
+        message: 'Solicitação interrompida.',
+      ),
+    );
+  }
 
   void _setState(DoorCommandUiState value) {
     if (_disposed) return;
@@ -194,7 +280,7 @@ class DoorCommandActionController extends ChangeNotifier {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
-    _cooldownTimer?.cancel();
+    _cooldown?.cancel();
     unawaited(_controller.dispose());
     super.dispose();
   }
