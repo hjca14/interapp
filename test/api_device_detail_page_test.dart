@@ -448,7 +448,7 @@ void main() {
     );
   });
 
-  testWidgets('lifecycle during authentication prevents late POST', (
+  testWidgets('native authentication lifecycle preserves approved action', (
     tester,
   ) async {
     final authentication = Completer<BiometricAuthenticationResult>();
@@ -468,20 +468,56 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Abrir'));
     await tester.pump();
+    expect(commands.createCalls, 0);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pump();
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
+    expect(commands.createCalls, 0);
     authentication.complete(BiometricAuthenticationResult.success);
     await tester.pump();
-    expect(commands.createCalls, 0);
-    expect(
-      tester
-          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Abrir'))
-          .onPressed,
-      isNotNull,
-    );
+    expect(commands.createCalls, 1);
   });
+
+  for (final result in [
+    BiometricAuthenticationResult.canceled,
+    BiometricAuthenticationResult.failed,
+  ]) {
+    testWidgets('authentication $result after lifecycle does not POST', (
+      tester,
+    ) async {
+      final authentication = Completer<BiometricAuthenticationResult>();
+      final commands = _CommandRepository();
+      await tester.pumpWidget(
+        subject(
+          commands: commands,
+          authenticator: _Authenticator(pendingResult: authentication.future),
+          settings: Future.value(
+            const DeviceSettings(
+              confirmBeforeOpeningDoor: false,
+              requireDeviceAuthenticationToOpenDoor: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Abrir'));
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(commands.createCalls, 0);
+
+      authentication.complete(result);
+      await tester.pump();
+      expect(commands.createCalls, 0);
+    });
+  }
 
   testWidgets('loading and failed preferences keep door action disabled', (
     tester,

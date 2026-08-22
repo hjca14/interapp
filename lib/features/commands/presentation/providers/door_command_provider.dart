@@ -16,6 +16,7 @@ import '../../domain/idempotency.dart';
 enum DoorCommandPhase {
   idle,
   preparing,
+  authenticating,
   sending,
   waiting,
   completed,
@@ -68,6 +69,7 @@ class DoorCommandUiState {
 
   bool get busy =>
       phase == DoorCommandPhase.preparing ||
+      phase == DoorCommandPhase.authenticating ||
       phase == DoorCommandPhase.sending ||
       phase == DoorCommandPhase.waiting;
 }
@@ -118,8 +120,11 @@ final class _DoorCommandLifecycleObserver with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.inactive) {
+      if (!_action.isAuthenticating) {
+        _action.cancelForLifecycle();
+      }
+    } else if (state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
       _action.cancelForLifecycle();
     } else if (state == AppLifecycleState.resumed) {
@@ -160,6 +165,8 @@ class DoorCommandActionController extends ChangeNotifier {
 
   DoorCommandUiState get state => _state;
 
+  bool get isAuthenticating => _state.phase == DoorCommandPhase.authenticating;
+
   int? beginPreparation() {
     if (_state.busy || _cooldownActive || _cancelled) return null;
     final token = ++_preparationGeneration;
@@ -171,7 +178,14 @@ class DoorCommandActionController extends ChangeNotifier {
     return !_disposed &&
         !_cancelled &&
         token == _preparationGeneration &&
-        _state.phase == DoorCommandPhase.preparing;
+        (_state.phase == DoorCommandPhase.preparing ||
+            _state.phase == DoorCommandPhase.authenticating);
+  }
+
+  bool beginAuthentication(int token) {
+    if (!isPreparationCurrent(token)) return false;
+    _setState(const DoorCommandUiState(phase: DoorCommandPhase.authenticating));
+    return true;
   }
 
   void finishPreparation(int token) {

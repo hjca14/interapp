@@ -196,6 +196,7 @@ class _DoorCommandCardState extends ConsumerState<_DoorCommandCard>
         ? 'Não foi possível carregar as preferências de abertura.'
         : switch (command.phase) {
             DoorCommandPhase.preparing => 'Preparando solicitação…',
+            DoorCommandPhase.authenticating => 'Confirmando identidade…',
             DoorCommandPhase.sending => 'Enviando solicitação…',
             DoorCommandPhase.waiting => 'Aguardando resposta do dispositivo…',
             DoorCommandPhase.cancelled => 'Solicitação interrompida.',
@@ -280,6 +281,7 @@ class _DoorCommandCardState extends ConsumerState<_DoorCommandCard>
     }
 
     if (settings.requireDeviceAuthenticationToOpenDoor) {
+      if (!action.beginAuthentication(preparation)) return;
       final result = await _authenticateDevice();
       if (!action.isPreparationCurrent(preparation)) return;
       if (result != BiometricAuthenticationResult.success) {
