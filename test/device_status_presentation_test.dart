@@ -43,10 +43,7 @@ void main() {
       connectivity: DeviceConnectivity.recentlySeen,
       freshness: DeviceFreshness.fresh,
     );
-    expect(
-      DeviceStatusPresentation.from(unknown).label,
-      'Status indisponível',
-    );
+    expect(DeviceStatusPresentation.from(unknown).label, 'Status indisponível');
     expect(
       DeviceStatusPresentation.from(missingHealth).label,
       'Status indisponível',
