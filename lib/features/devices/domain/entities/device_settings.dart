@@ -238,10 +238,8 @@ class DeviceSettings {
   /// command.
   final bool confirmBeforeOpeningDoor;
 
-  /// Whether opening the door requires the phone's own lock screen/biometric
-  /// check first. The actual biometric prompt isn't implemented yet — this
-  /// only reserves the setting so the door-open flow has something to check
-  /// once it is.
+  /// Whether opening the door requires the phone's secure device
+  /// authentication (biometric or platform-supported device credential).
   final bool requireDeviceAuthenticationToOpenDoor;
 
   DeviceSettings copyWith({

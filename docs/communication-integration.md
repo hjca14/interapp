@@ -325,3 +325,10 @@ na mesma tela, usa controller, tracker e chave novos. Um
 continua sem relé, GPIO, DTMF ou qualquer ação física, e o primeiro teste manual
 em DEV deve terminar em `REJECTED/CAPABILITY_DISABLED`. A validação ponta a
 ponta permanece pendente para depois do merge.
+
+As preferências locais `confirmBeforeOpeningDoor` e
+`requireDeviceAuthenticationToOpenDoor` controlam, respectivamente, o diálogo
+e a autenticação segura do aparelho antes do POST. A política da porta é
+separada do bloqueio biométrico global e pode aceitar biometria ou credencial
+segura suportada pela plataforma. Falha, cancelamento, indisponibilidade ou
+preferências ainda não carregadas impedem o envio.

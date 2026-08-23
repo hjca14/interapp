@@ -388,8 +388,7 @@ class _QuietHoursCard extends StatelessWidget {
 
 /// "Confirmar abertura" and "exigir autenticação" — both plain booleans
 /// since, unlike the call policy, there's no meaningful combination to model
-/// here. Biometric/Face ID enforcement itself isn't implemented; this only
-/// reserves the flag for the door-open flow to check later.
+/// here. Device authentication is enforced by the door-open flow.
 class _DoorCard extends StatelessWidget {
   const _DoorCard({
     required this.settings,
@@ -418,7 +417,7 @@ class _DoorCard extends StatelessWidget {
         SwitchListTile(
           title: const Text('Exigir autenticação do aparelho'),
           subtitle: const Text(
-            'Vai pedir a senha ou biometria do celular para abrir (em breve).',
+            'Pede a credencial segura ou biometria do aparelho para abrir.',
           ),
           value: settings.requireDeviceAuthenticationToOpenDoor,
           onChanged: onAuthChanged,

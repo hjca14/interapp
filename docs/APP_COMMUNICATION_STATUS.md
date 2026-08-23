@@ -19,6 +19,14 @@ Timeout de criação
 oferece retry explícito com a mesma chave de idempotência após o `Retry-After`;
 uma nova ação confirmada gera uma nova chave.
 
+O botão respeita as preferências locais por dispositivo: a confirmação aparece
+somente quando `confirmBeforeOpeningDoor` está ativa e a autenticação segura do
+aparelho ocorre antes de cada novo POST quando
+`requireDeviceAuthenticationToOpenDoor` está ativa. Essa autenticação usa uma
+política `local_auth` separada que aceita biometria ou credencial segura da
+plataforma sem alterar o bloqueio biométrico global da sessão. Preferências
+carregando ou com erro mantêm a ação indisponível.
+
 O firmware continua propositalmente fail-closed (`DISABLED`). Portanto, o
 primeiro resultado real esperado é `PENDING → ACCEPTED →
 REJECTED/CAPABILITY_DISABLED`, exibido de forma amigável e sem alegar abertura.
