@@ -429,6 +429,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Configurações'));
     await tester.pumpAndSettle();
+    expect(find.text('Configurações de Portaria'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Firmware'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(find.text('Firmware'));
     await tester.pumpAndSettle();
     expect(find.text('2.0.1'), findsOneWidget);
