@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:interapp/features/devices/domain/entities/api_device.dart';
 import 'package:interapp/features/devices/domain/entities/intercom_state.dart';
+import 'package:interapp/features/devices/presentation/device_status_presentation.dart';
 import 'package:interapp/features/devices/presentation/pages/api_device_detail_page.dart';
 import 'package:interapp/features/devices/presentation/providers/api_devices_provider.dart';
 import 'package:interapp/features/devices/presentation/providers/device_refresh_provider.dart';
@@ -233,6 +234,13 @@ void main() {
     expect(find.text('Discar'), findsOneWidget);
     expect(find.text('Favoritos'), findsOneWidget);
     expect(find.text('Online'), findsOneWidget);
+    expect(
+      find.text(
+        formatLastCommunication(DateTime.utc(2026, 8, 20, 12), DateTime.now()),
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Online indica'), findsNothing);
     expect(find.textContaining('RECENTLYSEEN'), findsNothing);
     expect(find.textContaining('FRESH'), findsNothing);
     expect(find.textContaining('2.0.1'), findsNothing);
@@ -421,6 +429,10 @@ void main() {
     expect(find.text('Diagnóstico'), findsOneWidget);
     expect(find.text('Estado do interfone'), findsOneWidget);
     expect(find.text('Em espera'), findsOneWidget);
+    expect(
+      find.text(formatDiagnosticTimestamp(DateTime.utc(2026, 8, 20, 12))),
+      findsOneWidget,
+    );
     expect(find.textContaining('.000'), findsNothing);
     expect(find.textContaining('RECENTLYSEEN'), findsNothing);
     expect(find.text('Discar'), findsNothing);

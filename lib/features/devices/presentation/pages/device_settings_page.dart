@@ -596,10 +596,7 @@ class _DiagnosticsPageState extends ConsumerState<DiagnosticsPage> {
                   subtitle: Text(
                     health == null
                         ? 'Não informada'
-                        : formatLastCommunication(
-                            health.lastSeenAt,
-                            DateTime.now(),
-                          ),
+                        : formatDiagnosticTimestamp(health.lastSeenAt),
                   ),
                 ),
                 ListTile(
