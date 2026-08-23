@@ -339,7 +339,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.binding.handleAppLifecycleStateChanged(state);
+      tester.binding.handleAppLifecycleStateChanged(state);
+      await tester.pump();
       scheduler.elapse(const Duration(minutes: 5));
       await tester.pump();
       expect(statusCalls, 1);
@@ -366,12 +367,9 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.binding.handleAppLifecycleStateChanged(
-      AppLifecycleState.paused,
-    );
-    await tester.binding.handleAppLifecycleStateChanged(
-      AppLifecycleState.resumed,
-    );
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
     expect(statusCalls, 2);
     scheduler.elapse(const Duration(seconds: 59));
