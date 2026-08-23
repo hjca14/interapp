@@ -187,8 +187,10 @@ void main() {
     expect(find.text('Resumo'), findsOneWidget);
     expect(find.text('Discar'), findsOneWidget);
     expect(find.text('Favoritos'), findsOneWidget);
-    expect(find.textContaining('RECENTLYSEEN'), findsOneWidget);
-    expect(find.textContaining('2.0.1'), findsOneWidget);
+    expect(find.text('Online'), findsOneWidget);
+    expect(find.textContaining('RECENTLYSEEN'), findsNothing);
+    expect(find.textContaining('FRESH'), findsNothing);
+    expect(find.textContaining('2.0.1'), findsNothing);
     expect(
       tester
           .widget<FilledButton>(find.widgetWithText(FilledButton, 'Abrir'))

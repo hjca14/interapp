@@ -10,10 +10,12 @@ import '../../../auth/domain/services/biometric_lock.dart';
 import '../../../auth/presentation/providers/biometric_lock_providers.dart';
 import '../../domain/entities/api_device.dart';
 import '../../domain/entities/device_settings.dart';
+import '../device_status_presentation.dart';
 import 'device_settings_page.dart';
 import '../providers/api_devices_provider.dart';
 import '../providers/devices_providers.dart';
 import '../providers/device_settings_provider.dart';
+import '../providers/device_refresh_provider.dart';
 
 /// The single device experience: backend-authoritative summary/status plus
 /// local-only dialer, favorites and preferences scoped to the real device id.
@@ -26,9 +28,12 @@ class ApiDeviceDetailPage extends ConsumerStatefulWidget {
       _ApiDeviceDetailPageState();
 }
 
-class _ApiDeviceDetailPageState extends ConsumerState<ApiDeviceDetailPage> {
+class _ApiDeviceDetailPageState extends ConsumerState<ApiDeviceDetailPage>
+    with WidgetsBindingObserver {
   final _dialerController = DialerController();
   int _selectedIndex = 0;
+  StatusPollingHandle? _statusTimer;
+  bool _refreshing = false;
 
   void _dialFavorite(String number) {
     _dialerController.setNumber(number);
@@ -36,7 +41,52 @@ class _ApiDeviceDetailPageState extends ConsumerState<ApiDeviceDetailPage> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _startPolling();
+  }
+
+  void _startPolling() {
+    _statusTimer?.cancel();
+    _statusTimer = ref.read(statusPollingSchedulerProvider).periodic(
+      const Duration(seconds: 60),
+      () {
+        _refreshStatus();
+      },
+    );
+  }
+
+  Future<void> _refreshStatus() async {
+    if (_refreshing || !mounted) return;
+    _refreshing = true;
+    try {
+      await ref
+          .read(deviceRefreshCoordinatorProvider(widget.deviceId))
+          .refreshStatus();
+    } on Object {
+      // Automatic refresh is intentionally quiet. The existing status remains
+      // visible; explicit refresh actions provide friendly error feedback.
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startPolling();
+      _refreshStatus();
+    } else {
+      _statusTimer?.cancel();
+      _statusTimer = null;
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _statusTimer?.cancel();
     _dialerController.dispose();
     super.dispose();
   }
@@ -99,29 +149,57 @@ class _ApiDeviceDetailPageState extends ConsumerState<ApiDeviceDetailPage> {
   }
 }
 
-class _DeviceOverview extends ConsumerWidget {
+class _DeviceOverview extends ConsumerStatefulWidget {
   const _DeviceOverview({required this.deviceId});
   final String deviceId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final detail = ref.watch(apiDeviceDetailProvider(deviceId));
-    final status = ref.watch(apiDeviceStatusProvider(deviceId));
+  ConsumerState<_DeviceOverview> createState() => _DeviceOverviewState();
+}
+
+class _DeviceOverviewState extends ConsumerState<_DeviceOverview> {
+  ApiDeviceStatus? _lastStatus;
+  bool _refreshing = false;
+
+  Future<void> _refresh() async {
+    if (_refreshing) return;
+    _refreshing = true;
+    try {
+      await ref
+          .read(deviceRefreshCoordinatorProvider(widget.deviceId))
+          .refreshAll();
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Não foi possível atualizar agora. Tente novamente.'),
+          ),
+        );
+      }
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final detail = ref.watch(apiDeviceDetailProvider(widget.deviceId));
+    final status = ref.watch(apiDeviceStatusProvider(widget.deviceId));
+    if (status.value case final value?) _lastStatus = value;
     return RefreshIndicator(
-      onRefresh: () async {
-        await Future.wait([
-          ref.refresh(apiDeviceDetailProvider(deviceId).future),
-          ref.refresh(apiDeviceStatusProvider(deviceId).future),
-        ]);
-      },
+      onRefresh: _refresh,
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _DetailCard(deviceId: deviceId, detail: detail),
+          _DetailCard(deviceId: widget.deviceId, detail: detail),
           const SizedBox(height: 12),
-          _StatusCard(deviceId: deviceId, status: status),
+          _StatusCard(
+            deviceId: widget.deviceId,
+            status: status,
+            lastStatus: _lastStatus,
+          ),
           const SizedBox(height: 12),
-          _DoorCommandCard(deviceId: deviceId, detail: detail),
+          _DoorCommandCard(deviceId: widget.deviceId, detail: detail),
           const SizedBox(height: 24),
           Text(
             'Eventos recentes',
@@ -366,37 +444,37 @@ class _DetailCard extends ConsumerWidget {
 }
 
 class _StatusCard extends ConsumerWidget {
-  const _StatusCard({required this.deviceId, required this.status});
+  const _StatusCard({
+    required this.deviceId,
+    required this.status,
+    required this.lastStatus,
+  });
   final String deviceId;
   final AsyncValue<ApiDeviceStatus> status;
+  final ApiDeviceStatus? lastStatus;
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) => status.when(
-    loading: () =>
-        const Card(child: ListTile(title: Text('Carregando status...'))),
-    error: (_, _) => Card(
+  Widget build(BuildContext context, WidgetRef ref) {
+    final value = status.value ?? lastStatus;
+    final presentation = DeviceStatusPresentation.from(value);
+    return Card(
       child: ListTile(
-        title: const Text('Status indisponível'),
-        trailing: IconButton(
-          onPressed: () => ref.invalidate(apiDeviceStatusProvider(deviceId)),
-          icon: const Icon(Icons.refresh),
-          tooltip: 'Tentar novamente',
+        leading: Icon(presentation.icon, color: presentation.color(context)),
+        title: Text(presentation.label),
+        subtitle: const Text(
+          'Online indica uma comunicação recente dentro da janela definida pelo servidor.',
+        ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => DeviceSettingsPage(
+              deviceId: deviceId,
+              deviceName: 'InterBridge',
+              initialSection: DeviceSettingsSection.diagnostics,
+            ),
+          ),
         ),
       ),
-    ),
-    data: (value) {
-      final health = value.health;
-      final details = health == null
-          ? 'Freshness: ${value.freshness.name.toUpperCase()}\nTelemetria ainda não disponível.'
-          : 'Freshness: ${value.freshness.name.toUpperCase()}\nFirmware: ${health.firmwareVersion}\nInterfone: ${health.intercomState}\nÚltima comunicação: ${health.lastSeenAt.toLocal()}';
-      return Card(
-        child: ListTile(
-          leading: const Icon(Icons.monitor_heart_outlined),
-          title: Text(
-            'Conectividade: ${value.connectivity.name.toUpperCase()}',
-          ),
-          subtitle: Text(details),
-        ),
-      );
-    },
-  );
+    );
+  }
 }
