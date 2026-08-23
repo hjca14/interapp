@@ -17,6 +17,11 @@ import '../providers/devices_providers.dart';
 import '../providers/device_settings_provider.dart';
 import '../providers/device_refresh_provider.dart';
 
+/// Observes routes covering the detail page so polling only runs while the
+/// page is actually visible. Applications and widget tests must attach this
+/// observer to their Navigator.
+final deviceDetailRouteObserver = RouteObserver<ModalRoute<void>>();
+
 /// The single device experience: backend-authoritative summary/status plus
 /// local-only dialer, favorites and preferences scoped to the real device id.
 class ApiDeviceDetailPage extends ConsumerStatefulWidget {
@@ -29,11 +34,14 @@ class ApiDeviceDetailPage extends ConsumerStatefulWidget {
 }
 
 class _ApiDeviceDetailPageState extends ConsumerState<ApiDeviceDetailPage>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, RouteAware {
   final _dialerController = DialerController();
   int _selectedIndex = 0;
   StatusPollingHandle? _statusTimer;
   bool _refreshing = false;
+  bool _routeVisible = true;
+  bool _appResumed = true;
+  ModalRoute<void>? _route;
 
   void _dialFavorite(String number) {
     _dialerController.setNumber(number);
@@ -47,8 +55,20 @@ class _ApiDeviceDetailPageState extends ConsumerState<ApiDeviceDetailPage>
     _startPolling();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (_route == route) return;
+    if (_route != null) deviceDetailRouteObserver.unsubscribe(this);
+    _route = route;
+    if (route != null) deviceDetailRouteObserver.subscribe(this, route);
+  }
+
   void _startPolling() {
     _statusTimer?.cancel();
+    _statusTimer = null;
+    if (!_routeVisible || !_appResumed) return;
     _statusTimer = ref.read(statusPollingSchedulerProvider).periodic(
       const Duration(seconds: 60),
       () {
@@ -75,16 +95,34 @@ class _ApiDeviceDetailPageState extends ConsumerState<ApiDeviceDetailPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _appResumed = true;
       _startPolling();
-      _refreshStatus();
+      if (_routeVisible) _refreshStatus();
     } else {
+      _appResumed = false;
       _statusTimer?.cancel();
       _statusTimer = null;
     }
   }
 
   @override
+  void didPushNext() {
+    _routeVisible = false;
+    _statusTimer?.cancel();
+    _statusTimer = null;
+  }
+
+  @override
+  void didPopNext() {
+    _routeVisible = true;
+    if (!_appResumed) return;
+    _startPolling();
+    _refreshStatus();
+  }
+
+  @override
   void dispose() {
+    deviceDetailRouteObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     _statusTimer?.cancel();
     _dialerController.dispose();

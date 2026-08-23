@@ -4,8 +4,8 @@ import 'package:interapp/features/devices/domain/entities/device_settings.dart';
 import 'package:interapp/features/devices/domain/entities/intercom_state.dart';
 import 'package:interapp/features/devices/presentation/device_status_presentation.dart';
 import 'package:interapp/features/devices/presentation/providers/api_devices_provider.dart';
-import 'package:interapp/features/devices/presentation/providers/device_settings_provider.dart';
 import 'package:interapp/features/devices/presentation/providers/device_refresh_provider.dart';
+import 'package:interapp/features/devices/presentation/providers/device_settings_provider.dart';
 
 enum DeviceSettingsSection { main, firmware, diagnostics }
 
