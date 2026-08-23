@@ -499,8 +499,13 @@ class _StatusCard extends ConsumerWidget {
       child: ListTile(
         leading: Icon(presentation.icon, color: presentation.color(context)),
         title: Text(presentation.label),
-        subtitle: const Text(
-          'Online indica uma comunicação recente dentro da janela definida pelo servidor.',
+        subtitle: Text(
+          value?.health == null
+              ? 'Última comunicação não informada'
+              : formatLastCommunication(
+                  value!.health!.lastSeenAt,
+                  DateTime.now(),
+                ),
         ),
         trailing: const Icon(Icons.chevron_right),
         onTap: () => Navigator.of(context).push(
