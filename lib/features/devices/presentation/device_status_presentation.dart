@@ -73,7 +73,6 @@ String formatLastCommunication(DateTime value, DateTime now) {
 String formatDiagnosticTimestamp(DateTime value) {
   final localValue = value.toLocal();
   String twoDigits(int number) => number.toString().padLeft(2, '0');
-  return '${localValue.year}-${twoDigits(localValue.month)}-'
-      '${twoDigits(localValue.day)} ${twoDigits(localValue.hour)}:'
-      '${twoDigits(localValue.minute)}:${twoDigits(localValue.second)}';
+  return '${twoDigits(localValue.day)}/${twoDigits(localValue.month)}/${localValue.year} '
+      'às ${twoDigits(localValue.hour)}:${twoDigits(localValue.minute)}:${twoDigits(localValue.second)}';
 }

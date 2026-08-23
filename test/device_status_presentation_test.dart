@@ -71,6 +71,6 @@ void main() {
 
   test('formats diagnostic timestamp with date and seconds', () {
     final value = DateTime(2026, 8, 23, 12, 30, 7, 123);
-    expect(formatDiagnosticTimestamp(value), '2026-08-23 12:30:07');
+    expect(formatDiagnosticTimestamp(value), '23/08/2026 às 12:30:07');
   });
 }
