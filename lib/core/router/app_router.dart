@@ -23,6 +23,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   final session = ref.watch(authSessionProvider);
   return GoRouter(
     initialLocation: '/',
+    observers: [deviceDetailRouteObserver],
     redirect: (_, state) => _redirectForSession(session, state),
     routes: [
       GoRoute(path: '/splash', builder: (_, _) => const _BootstrapPage()),

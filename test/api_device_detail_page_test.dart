@@ -7,6 +7,7 @@ import 'package:interapp/features/devices/domain/entities/api_device.dart';
 import 'package:interapp/features/devices/domain/entities/intercom_state.dart';
 import 'package:interapp/features/devices/presentation/pages/api_device_detail_page.dart';
 import 'package:interapp/features/devices/presentation/providers/api_devices_provider.dart';
+import 'package:interapp/features/devices/presentation/providers/device_refresh_provider.dart';
 import 'package:interapp/features/favorites/data/repositories/local_favorites_repository.dart';
 import 'package:interapp/features/favorites/domain/entities/favorite.dart';
 import 'package:interapp/features/devices/presentation/providers/devices_providers.dart';
@@ -42,6 +43,40 @@ class _SettingsRepository implements DeviceSettingsRepository {
 
   @override
   Future<void> save(String deviceId, DeviceSettings settings) async {}
+}
+
+class _ManualPollingScheduler implements StatusPollingScheduler {
+  _ManualPollingHandle? handle;
+
+  bool get hasActiveTimer => handle?.active == true;
+
+  @override
+  StatusPollingHandle periodic(Duration interval, void Function() callback) {
+    handle?.cancel();
+    return handle = _ManualPollingHandle(interval, callback);
+  }
+
+  void elapse(Duration duration) => handle?.elapse(duration);
+}
+
+class _ManualPollingHandle implements StatusPollingHandle {
+  _ManualPollingHandle(this.interval, this.callback);
+  final Duration interval;
+  final void Function() callback;
+  Duration elapsed = Duration.zero;
+  bool active = true;
+
+  void elapse(Duration duration) {
+    if (!active) return;
+    elapsed += duration;
+    while (active && elapsed >= interval) {
+      elapsed -= interval;
+      callback();
+    }
+  }
+
+  @override
+  void cancel() => active = false;
 }
 
 class _Authenticator implements BiometricAuthenticator {
@@ -128,10 +163,14 @@ void main() {
     DoorCommandCooldownScheduler? cooldownScheduler,
     Future<DeviceSettings>? settings,
     BiometricAuthenticator? authenticator,
+    StatusPollingScheduler? pollingScheduler,
+    Future<ApiDeviceStatus> Function()? loadStatus,
+    Future<ApiDeviceDetail> Function()? loadDetail,
   }) {
     return ProviderScope(
       overrides: [
         apiDeviceDetailProvider.overrideWith((ref, id) async {
+          if (loadDetail != null) return loadDetail();
           return ApiDeviceDetail(
             deviceId: deviceId,
             displayName: 'Portaria',
@@ -142,6 +181,7 @@ void main() {
           );
         }),
         apiDeviceStatusProvider.overrideWith((ref, id) async {
+          if (loadStatus != null) return loadStatus();
           return ApiDeviceStatus(
             deviceId: deviceId,
             connectivity: DeviceConnectivity.recentlySeen,
@@ -173,8 +213,13 @@ void main() {
           doorCommandCooldownSchedulerProvider.overrideWithValue(
             cooldownScheduler,
           ),
+        if (pollingScheduler != null)
+          statusPollingSchedulerProvider.overrideWithValue(pollingScheduler),
       ],
-      child: const MaterialApp(home: ApiDeviceDetailPage(deviceId: deviceId)),
+      child: MaterialApp(
+        navigatorObservers: [deviceDetailRouteObserver],
+        home: const ApiDeviceDetailPage(deviceId: deviceId),
+      ),
     );
   }
 
@@ -187,13 +232,297 @@ void main() {
     expect(find.text('Resumo'), findsOneWidget);
     expect(find.text('Discar'), findsOneWidget);
     expect(find.text('Favoritos'), findsOneWidget);
-    expect(find.textContaining('RECENTLYSEEN'), findsOneWidget);
-    expect(find.textContaining('2.0.1'), findsOneWidget);
+    expect(find.text('Online'), findsOneWidget);
+    expect(find.textContaining('RECENTLYSEEN'), findsNothing);
+    expect(find.textContaining('FRESH'), findsNothing);
+    expect(find.textContaining('2.0.1'), findsNothing);
     expect(
       tester
           .widget<FilledButton>(find.widgetWithText(FilledButton, 'Abrir'))
           .onPressed,
       isNotNull,
+    );
+  });
+
+  testWidgets('loads initially and polls exactly at 60 seconds', (
+    tester,
+  ) async {
+    final scheduler = _ManualPollingScheduler();
+    var statusCalls = 0;
+    await tester.pumpWidget(
+      subject(
+        pollingScheduler: scheduler,
+        loadStatus: () async {
+          statusCalls++;
+          return ApiDeviceStatus(
+            deviceId: deviceId,
+            connectivity: DeviceConnectivity.recentlySeen,
+            freshness: DeviceFreshness.fresh,
+            health: ApiDeviceHealth(
+              intercomState: IntercomState.idle,
+              firmwareVersion: '2.0.1',
+              lastSeenAt: DateTime.utc(2026, 8, 23, 12),
+            ),
+          );
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(statusCalls, 1);
+
+    scheduler.elapse(const Duration(seconds: 59));
+    await tester.pump();
+    expect(statusCalls, 1);
+
+    scheduler.elapse(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    expect(statusCalls, 2);
+  });
+
+  testWidgets('coalesces concurrent polling refreshes', (tester) async {
+    final scheduler = _ManualPollingScheduler();
+    final pending = Completer<ApiDeviceStatus>();
+    var statusCalls = 0;
+    await tester.pumpWidget(
+      subject(
+        pollingScheduler: scheduler,
+        loadStatus: () {
+          statusCalls++;
+          if (statusCalls == 1) {
+            return Future.value(
+              ApiDeviceStatus(
+                deviceId: deviceId,
+                connectivity: DeviceConnectivity.recentlySeen,
+                freshness: DeviceFreshness.fresh,
+              ),
+            );
+          }
+          return pending.future;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    scheduler.elapse(const Duration(seconds: 120));
+    await tester.pump();
+    expect(statusCalls, 2);
+    pending.complete(
+      ApiDeviceStatus(
+        deviceId: deviceId,
+        connectivity: DeviceConnectivity.recentlySeen,
+        freshness: DeviceFreshness.fresh,
+      ),
+    );
+    await tester.pumpAndSettle();
+  });
+
+  for (final state in [
+    AppLifecycleState.inactive,
+    AppLifecycleState.paused,
+    AppLifecycleState.hidden,
+  ]) {
+    testWidgets('${state.name} suspends polling while in background', (
+      tester,
+    ) async {
+      final scheduler = _ManualPollingScheduler();
+      var statusCalls = 0;
+      await tester.pumpWidget(
+        subject(
+          pollingScheduler: scheduler,
+          loadStatus: () async {
+            statusCalls++;
+            return ApiDeviceStatus(
+              deviceId: deviceId,
+              connectivity: DeviceConnectivity.unknown,
+              freshness: DeviceFreshness.unknown,
+            );
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      tester.binding.handleAppLifecycleStateChanged(state);
+      await tester.pump();
+      scheduler.elapse(const Duration(minutes: 5));
+      await tester.pump();
+      expect(statusCalls, 1);
+      expect(scheduler.hasActiveTimer, isFalse);
+    });
+  }
+
+  testWidgets('resume refreshes once immediately and restarts cadence', (
+    tester,
+  ) async {
+    final scheduler = _ManualPollingScheduler();
+    var statusCalls = 0;
+    await tester.pumpWidget(
+      subject(
+        pollingScheduler: scheduler,
+        loadStatus: () async {
+          statusCalls++;
+          return ApiDeviceStatus(
+            deviceId: deviceId,
+            connectivity: DeviceConnectivity.unknown,
+            freshness: DeviceFreshness.unknown,
+          );
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(statusCalls, 2);
+    scheduler.elapse(const Duration(seconds: 59));
+    await tester.pump();
+    expect(statusCalls, 2);
+    scheduler.elapse(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    expect(statusCalls, 3);
+  });
+
+  testWidgets('dispose and route coverage cancel polling', (tester) async {
+    final scheduler = _ManualPollingScheduler();
+    var statusCalls = 0;
+    await tester.pumpWidget(
+      subject(
+        pollingScheduler: scheduler,
+        loadStatus: () async {
+          statusCalls++;
+          return ApiDeviceStatus(
+            deviceId: deviceId,
+            connectivity: DeviceConnectivity.unknown,
+            freshness: DeviceFreshness.unknown,
+          );
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Configurações'));
+    await tester.pumpAndSettle();
+    expect(scheduler.hasActiveTimer, isFalse);
+    scheduler.elapse(const Duration(minutes: 5));
+    expect(statusCalls, 1);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(statusCalls, 2);
+    expect(scheduler.hasActiveTimer, isTrue);
+    await tester.pumpWidget(const SizedBox());
+    expect(scheduler.hasActiveTimer, isFalse);
+  });
+
+  testWidgets('status card opens friendly diagnostics and firmware is honest', (
+    tester,
+  ) async {
+    await tester.pumpWidget(subject());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Online'));
+    await tester.pumpAndSettle();
+    expect(find.text('Diagnóstico'), findsOneWidget);
+    expect(find.text('Estado do interfone'), findsOneWidget);
+    expect(find.text('Em espera'), findsOneWidget);
+    expect(find.textContaining('.000'), findsNothing);
+    expect(find.textContaining('RECENTLYSEEN'), findsNothing);
+    expect(find.text('Discar'), findsNothing);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Configurações'));
+    await tester.pumpAndSettle();
+    expect(find.text('Configurações de Portaria'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Firmware'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('Firmware'));
+    await tester.pumpAndSettle();
+    expect(find.text('2.0.1'), findsOneWidget);
+    expect(find.text('Atualização OTA ainda não disponível'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Atualizar'), findsNothing);
+  });
+
+  testWidgets('pull-to-refresh waits for detail and status', (tester) async {
+    final detailRefresh = Completer<ApiDeviceDetail>();
+    final statusRefresh = Completer<ApiDeviceStatus>();
+    var detailCalls = 0;
+    var statusCalls = 0;
+    ApiDeviceDetail detail() => ApiDeviceDetail(
+      deviceId: deviceId,
+      displayName: 'Portaria',
+      ownershipStatus: 'claimed',
+      provisioningStatus: 'active',
+      role: DeviceRole.owner,
+    );
+    ApiDeviceStatus status() => ApiDeviceStatus(
+      deviceId: deviceId,
+      connectivity: DeviceConnectivity.recentlySeen,
+      freshness: DeviceFreshness.fresh,
+      health: ApiDeviceHealth(
+        intercomState: IntercomState.idle,
+        firmwareVersion: '2.0.1',
+        lastSeenAt: DateTime.utc(2026, 8, 23, 12),
+      ),
+    );
+    await tester.pumpWidget(
+      subject(
+        loadDetail: () {
+          detailCalls++;
+          return detailCalls == 1
+              ? Future.value(detail())
+              : detailRefresh.future;
+        },
+        loadStatus: () {
+          statusCalls++;
+          return statusCalls == 1
+              ? Future.value(status())
+              : statusRefresh.future;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).first, const Offset(0, 400));
+    await tester.pump();
+    expect(find.byType(RefreshProgressIndicator), findsOneWidget);
+    detailRefresh.complete(detail());
+    await tester.pump();
+    expect(find.byType(RefreshProgressIndicator), findsOneWidget);
+    statusRefresh.complete(status());
+    await tester.pumpAndSettle();
+    expect(find.byType(RefreshProgressIndicator), findsNothing);
+    expect(detailCalls, 2);
+    expect(statusCalls, 2);
+  });
+
+  testWidgets('refresh error preserves status and shows friendly feedback', (
+    tester,
+  ) async {
+    var statusCalls = 0;
+    await tester.pumpWidget(
+      subject(
+        loadStatus: () async {
+          statusCalls++;
+          if (statusCalls > 1) throw StateError('offline');
+          return ApiDeviceStatus(
+            deviceId: deviceId,
+            connectivity: DeviceConnectivity.recentlySeen,
+            freshness: DeviceFreshness.fresh,
+            health: ApiDeviceHealth(
+              intercomState: IntercomState.idle,
+              firmwareVersion: '2.0.1',
+              lastSeenAt: DateTime.utc(2026, 8, 23, 12),
+            ),
+          );
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).first, const Offset(0, 400));
+    await tester.pumpAndSettle();
+    expect(find.text('Online'), findsOneWidget);
+    expect(
+      find.text('Não foi possível atualizar agora. Tente novamente.'),
+      findsOneWidget,
     );
   });
 

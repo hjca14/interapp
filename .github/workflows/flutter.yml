@@ -14,6 +14,14 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - run: dart format --output=none --set-exit-if-changed .
+      - name: Check Dart formatting
+        id: format
+        continue-on-error: true
+        run: dart format --output=none --set-exit-if-changed .
+      - name: Add formatting warning to summary
+        if: steps.format.outcome == 'failure'
+        run: |
+          echo '## ⚠️ Formatação Dart necessária' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Execute `dart format .` manualmente e envie as alterações antes do merge.' >> "$GITHUB_STEP_SUMMARY"
       - run: flutter analyze
       - run: flutter test

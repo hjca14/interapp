@@ -1,7 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:interapp/features/devices/domain/entities/api_device.dart';
 import 'package:interapp/features/devices/domain/entities/device_settings.dart';
+import 'package:interapp/features/devices/domain/entities/intercom_state.dart';
+import 'package:interapp/features/devices/presentation/device_status_presentation.dart';
+import 'package:interapp/features/devices/presentation/providers/api_devices_provider.dart';
+import 'package:interapp/features/devices/presentation/providers/device_refresh_provider.dart';
 import 'package:interapp/features/devices/presentation/providers/device_settings_provider.dart';
+
+enum DeviceSettingsSection { main, firmware, diagnostics }
 
 /// Per-device behavior preferences, reached from `DeviceDetailPage`'s app
 /// bar. Everything here is a local preference the app itself will act on
@@ -12,13 +19,21 @@ class DeviceSettingsPage extends ConsumerWidget {
     super.key,
     required this.deviceId,
     required this.deviceName,
+    this.initialSection = DeviceSettingsSection.main,
   });
 
   final String deviceId;
   final String deviceName;
+  final DeviceSettingsSection initialSection;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (initialSection == DeviceSettingsSection.firmware) {
+      return FirmwarePage(deviceId: deviceId);
+    }
+    if (initialSection == DeviceSettingsSection.diagnostics) {
+      return DiagnosticsPage(deviceId: deviceId);
+    }
     final settingsAsync = ref.watch(deviceSettingsProvider(deviceId));
     return Scaffold(
       appBar: AppBar(title: Text('Configurações de $deviceName')),
@@ -110,7 +125,7 @@ class _DeviceSettingsBody extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 16),
-        const _DeviceCard(),
+        _DeviceCard(deviceId: deviceId),
         const SizedBox(height: 16),
         _AdvancedCard(deviceId: deviceId, deviceName: deviceName),
       ],
@@ -427,37 +442,209 @@ class _DoorCard extends StatelessWidget {
   }
 }
 
-/// Placeholders for Wi-Fi/firmware/diagnóstico/reiniciar — real hardware
-/// features that don't exist yet. Reuses the same "not implemented yet"
-/// snackbar pattern as the dialer's call button instead of disabling the
-/// rows outright, so the user gets feedback instead of a dead tap.
+/// Device information and actions. Firmware and diagnostics are honest,
+/// read-only views; unsupported hardware actions retain explicit feedback.
 class _DeviceCard extends StatelessWidget {
-  const _DeviceCard();
+  const _DeviceCard({required this.deviceId});
 
-  static const _items = ['Wi-Fi', 'Firmware', 'Diagnóstico', 'Reiniciar'];
+  final String deviceId;
 
   @override
   Widget build(BuildContext context) {
     return _SettingsSection(
       icon: Icons.router_outlined,
       title: 'Dispositivo',
-      children: _items
-          .map(
-            (label) => ListTile(
-              title: Text(label),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    'Disponível quando o InterBridge estiver conectado.',
-                  ),
-                ),
-              ),
+      children: [
+        _UnavailableDeviceItem(label: 'Wi-Fi'),
+        ListTile(
+          title: const Text('Firmware'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => FirmwarePage(deviceId: deviceId)),
+          ),
+        ),
+        ListTile(
+          title: const Text('Diagnóstico'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => DiagnosticsPage(deviceId: deviceId),
             ),
-          )
-          .toList(),
+          ),
+        ),
+        _UnavailableDeviceItem(label: 'Reiniciar'),
+      ],
     );
   }
+}
+
+class _UnavailableDeviceItem extends StatelessWidget {
+  const _UnavailableDeviceItem({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+    title: Text(label),
+    trailing: const Icon(Icons.chevron_right),
+    onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Disponível quando o InterBridge estiver conectado.'),
+      ),
+    ),
+  );
+}
+
+class FirmwarePage extends ConsumerWidget {
+  const FirmwarePage({super.key, required this.deviceId});
+  final String deviceId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final status = ref.watch(apiDeviceStatusProvider(deviceId));
+    final version = status.value?.health?.firmwareVersion ?? 'Não informada';
+    return Scaffold(
+      appBar: AppBar(title: const Text('Firmware')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.memory_outlined),
+                  title: const Text('Versão atual'),
+                  subtitle: Text(version),
+                ),
+                const ListTile(
+                  leading: Icon(Icons.info_outline),
+                  title: Text('Atualização OTA ainda não disponível'),
+                  subtitle: Text(
+                    'Quando esse recurso estiver disponível, ele aparecerá aqui.',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class DiagnosticsPage extends ConsumerStatefulWidget {
+  const DiagnosticsPage({super.key, required this.deviceId});
+  final String deviceId;
+
+  @override
+  ConsumerState<DiagnosticsPage> createState() => _DiagnosticsPageState();
+}
+
+class _DiagnosticsPageState extends ConsumerState<DiagnosticsPage> {
+  ApiDeviceStatus? _lastStatus;
+  bool _refreshing = false;
+
+  Future<void> _refresh() async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+    try {
+      await ref
+          .read(deviceRefreshCoordinatorProvider(widget.deviceId))
+          .refreshStatus();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Diagnóstico atualizado.')),
+        );
+      }
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Não foi possível atualizar o diagnóstico agora.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final statusAsync = ref.watch(apiDeviceStatusProvider(widget.deviceId));
+    if (statusAsync.value case final value?) _lastStatus = value;
+    final status = statusAsync.value ?? _lastStatus;
+    final health = status?.health;
+    final presentation = DeviceStatusPresentation.from(status);
+    return Scaffold(
+      appBar: AppBar(title: const Text('Diagnóstico')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: Icon(
+                    presentation.icon,
+                    color: presentation.color(context),
+                  ),
+                  title: const Text('Status'),
+                  subtitle: Text(presentation.label),
+                ),
+                ListTile(
+                  title: const Text('Última comunicação'),
+                  subtitle: Text(
+                    health == null
+                        ? 'Não informada'
+                        : formatLastCommunication(
+                            health.lastSeenAt,
+                            DateTime.now(),
+                          ),
+                  ),
+                ),
+                ListTile(
+                  title: const Text('Estado do interfone'),
+                  subtitle: Text(
+                    friendlyIntercomState(
+                      health?.intercomState ?? IntercomState.unreported,
+                    ),
+                  ),
+                ),
+                ListTile(
+                  title: const Text('Atualidade dos dados'),
+                  subtitle: Text(
+                    friendlyFreshness(
+                      status?.freshness ?? DeviceFreshness.unknown,
+                    ),
+                  ),
+                ),
+                ListTile(
+                  title: const Text('Identificador do dispositivo'),
+                  subtitle: Text(_maskedDeviceId(widget.deviceId)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: _refreshing ? null : _refresh,
+            icon: _refreshing
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh),
+            label: const Text('Atualizar diagnóstico'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _maskedDeviceId(String id) {
+  final suffix = id.length > 4 ? id.substring(id.length - 4) : id;
+  return '••••$suffix';
 }
 
 /// The one action here that's actually implemented: resetting this device's
