@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:interapp/features/devices/domain/entities/api_device.dart';
 import 'package:interapp/features/devices/domain/entities/device_settings.dart';
 import 'package:interapp/features/devices/domain/entities/intercom_state.dart';
 import 'package:interapp/features/devices/presentation/device_status_presentation.dart';

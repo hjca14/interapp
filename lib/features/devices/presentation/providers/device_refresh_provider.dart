@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:interapp/features/devices/domain/entities/api_device.dart';
 
 import 'api_devices_provider.dart';
 
@@ -9,15 +10,18 @@ class DeviceRefreshCoordinator {
 
   final Ref ref;
   final String deviceId;
-  Future<void>? _statusRequest;
+  Future<ApiDeviceStatus>? _statusRequest;
 
-  Future<void> refreshStatus() {
+  Future<ApiDeviceStatus> refreshStatus() {
     return _statusRequest ??= _performStatusRefresh();
   }
 
-  Future<void> _performStatusRefresh() async {
+  Future<ApiDeviceStatus> _performStatusRefresh() async {
     try {
-      await ref.refresh(apiDeviceStatusProvider(deviceId).future);
+      final status = await ref.refresh(
+        apiDeviceStatusProvider(deviceId).future,
+      );
+      return status;
     } finally {
       _statusRequest = null;
     }
