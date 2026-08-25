@@ -712,9 +712,13 @@ class _DiagnosticsPageState extends ConsumerState<DiagnosticsPage> {
                       ),
                       ListTile(
                         leading:
-                            isProvisioningFailure(device.provisioningStatus)
+                            provisioningStatusNeedsAttention(
+                              device.provisioningStatus,
+                            )
                             ? Icon(
-                                Icons.error_outline,
+                                isProvisioningFailure(device.provisioningStatus)
+                                    ? Icons.error_outline
+                                    : Icons.warning_amber_outlined,
                                 color: Theme.of(context).colorScheme.error,
                               )
                             : null,

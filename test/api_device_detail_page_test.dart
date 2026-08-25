@@ -1228,6 +1228,30 @@ void main() {
     expect(find.text('Identificador copiado.'), findsOneWidget);
   });
 
+  testWidgets('diagnostics presents REVOKED as access attention, not failure', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      subject(
+        loadDetail: () async => const ApiDeviceDetail(
+          deviceId: deviceId,
+          displayName: 'Portaria',
+          ownershipStatus: 'claimed',
+          provisioningStatus: 'REVOKED',
+          role: DeviceRole.owner,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Online'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Acesso revogado'), findsOneWidget);
+    expect(find.textContaining('REVOKED'), findsNothing);
+    expect(find.textContaining('Falha na configuração'), findsNothing);
+    expect(find.byIcon(Icons.warning_amber_outlined), findsOneWidget);
+  });
+
   for (final role in DeviceRole.values) {
     testWidgets(
       'settings translates ${role.name} sharing permission without an action',

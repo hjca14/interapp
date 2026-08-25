@@ -14,19 +14,63 @@ void main() {
     }
   });
 
-  test('friendlyProvisioningStatus never exposes known technical enums', () {
-    expect(friendlyProvisioningStatus('PROVISIONED'), 'Configurado');
-    expect(
-      friendlyProvisioningStatus('PENDING_PROVISIONING'),
-      'Configuração pendente',
-    );
-    expect(
-      friendlyProvisioningStatus('PROVISIONING_FAILED'),
-      'Falha na configuração',
-    );
-    expect(isProvisioningFailure('PROVISIONING_FAILED'), isTrue);
-    expect(friendlyProvisioningStatus('NEW_BACKEND_VALUE'), 'Não informado');
-  });
+  test(
+    'friendlyProvisioningStatus translates every official backend state',
+    () {
+      const translations = {
+        'MANUFACTURED': 'Preparado para cadastro',
+        'REGISTERED': 'Registrado',
+        'CLAIM_AUTHORIZED': 'Vinculação autorizada',
+        'PROVISIONING': 'Configurando',
+        'PROVISIONED': 'Configurado',
+        'FAILED': 'Falha na configuração',
+        'REVOKED': 'Acesso revogado',
+        'DECOMMISSIONED': 'Dispositivo desativado',
+      };
+
+      for (final entry in translations.entries) {
+        expect(friendlyProvisioningStatus(entry.key), entry.value);
+        expect(friendlyProvisioningStatus(entry.key), isNot(entry.key));
+      }
+    },
+  );
+
+  test(
+    'only failed, revoked and decommissioned official states need attention',
+    () {
+      for (final status in ['FAILED', 'REVOKED', 'DECOMMISSIONED']) {
+        expect(provisioningStatusNeedsAttention(status), isTrue);
+      }
+      for (final status in [
+        'MANUFACTURED',
+        'REGISTERED',
+        'CLAIM_AUTHORIZED',
+        'PROVISIONING',
+        'PROVISIONED',
+      ]) {
+        expect(provisioningStatusNeedsAttention(status), isFalse);
+      }
+      expect(isProvisioningFailure('FAILED'), isTrue);
+      expect(isProvisioningFailure('REVOKED'), isFalse);
+      expect(isProvisioningFailure('DECOMMISSIONED'), isFalse);
+    },
+  );
+
+  test(
+    'legacy values stay explicit and unknown values use the safe fallback',
+    () {
+      expect(friendlyProvisioningStatus('ACTIVE'), 'Configurado');
+      expect(
+        friendlyProvisioningStatus('PENDING_PROVISIONING'),
+        'Configuração pendente',
+      );
+      expect(
+        friendlyProvisioningStatus('PROVISIONING_FAILED'),
+        'Falha na configuração',
+      );
+      expect(friendlyProvisioningStatus('NEW_BACKEND_VALUE'), 'Não informado');
+    },
+  );
 
   const id = 'ib-device';
   final health = ApiDeviceHealth(
