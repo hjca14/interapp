@@ -4,14 +4,11 @@ import '../../domain/repositories/device_repository.dart';
 
 /// Deterministic in-memory [DeviceRepository] for development and tests.
 ///
-/// Connection point: this exists because interBackend has not confirmed or
-/// deployed the `PATCH /v1/devices/{device_id}` route `updateDeviceName`
-/// needs (see `HttpDeviceRepository`'s dartdoc and
-/// `docs/APP_COMMUNICATION_STATUS.md`). It is not wired into
-/// `deviceRepositoryProvider` today — `HttpDeviceRepository` is, because
-/// `listDevices`/`getDeviceDetails` are already real and deployed. Once the
-/// rename route is confirmed, this class stays as a test double; no
-/// production provider needs to change to start using it, and none should.
+/// This fake represents the device directory as seen by one authenticated
+/// user. Its `displayName` values belong to that user's memberships; create
+/// separate fake instances when a test needs independent views for different
+/// users. It deliberately does not model authentication or a multi-user
+/// backend. Production remains wired to [HttpDeviceRepository].
 class FakeDeviceRepository implements DeviceRepository {
   FakeDeviceRepository({List<ApiDeviceDetail> devices = const []})
     : _devices = {for (final device in devices) device.deviceId: device};

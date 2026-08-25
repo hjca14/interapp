@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/entities/api_device.dart';
 import '../providers/api_devices_provider.dart';
 
-/// Edits (or clears) one device's friendly name.
+/// Edits (or clears) the authenticated user's personal name for one device.
 ///
 /// Pushed from the detail screen with the device's current [initialName].
 /// Pops with no return value on success: unlike `RegistrationPage`, the
@@ -57,8 +57,8 @@ class _EditDeviceNamePageState extends ConsumerState<EditDeviceNamePage> {
   Future<void> _useDefaultName() => _submit(null);
 
   /// [displayName] is either a trimmed, non-empty name or `null` — this
-  /// method never sends an empty string, since the assumed backend contract
-  /// only treats `null` as "clear the custom name".
+  /// method never sends an empty string, since the backend contract only
+  /// treats `null` as "clear the personal name".
   Future<void> _submit(String? displayName) async {
     if (_saving) {
       return;
@@ -92,10 +92,7 @@ class _EditDeviceNamePageState extends ConsumerState<EditDeviceNamePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Dê um nome para reconhecer este InterBridge, como "Minha casa" '
-              'ou "Interfone". Isso é opcional.',
-            ),
+            const Text('Esse nome aparece somente na sua conta.'),
             const SizedBox(height: 24),
             TextField(
               controller: _nameController,
@@ -105,7 +102,7 @@ class _EditDeviceNamePageState extends ConsumerState<EditDeviceNamePage> {
               maxLength: kDeviceDisplayNameMaxLength,
               onSubmitted: (_) => _save(),
               decoration: const InputDecoration(
-                labelText: 'Nome do InterBridge',
+                labelText: 'Nome para você',
                 hintText: 'Ex.: Minha casa',
               ),
             ),

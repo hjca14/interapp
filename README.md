@@ -16,21 +16,24 @@ O Amplify executa `USER_SRP_AUTH`, renova a sessão e guarda credenciais no arma
 
 Valide em aparelho/emulador: login do usuário DEV confirmado, restauração após reiniciar, lista do Device registrado, detalhe/status, pull-to-refresh, expiração/logout e estados offline. Cadastro, confirmação/reenvio e redefinição de senha também estão disponíveis. BLE, claim, QR, Fleet Provisioning, commands, MQTT, eventos, voz e realtime permanecem adiados.
 
-## Gerenciamento de dispositivos: lista, detalhes e nome amigável
+## Gerenciamento de dispositivos: lista, detalhes e nome pessoal
 
-A lista de dispositivos, a tela de detalhes e a edição do nome amigável
+A lista de dispositivos, a tela de detalhes e a edição do nome pessoal
 (`display_name`) usam `DeviceRepository` (`listDevices`/`getDeviceDetails`/
 `updateDeviceName`), implementado por `HttpDeviceRepository`. Listar e ver
-detalhes continuam reais (as mesmas três rotas GET da Fase 2C). Renomear
-mira uma rota `PATCH /v1/devices/{device_id}` **ainda não confirmada nem
-implantada** pelo interBackend — ver `docs/APP_COMMUNICATION_STATUS.md`
-("Device rename") para o status Provisional e o ponto de conexão exato.
-Para testes/desenvolvimento sem depender dessa rota, use
+detalhes continuam reais (as mesmas três rotas GET da Fase 2C). O contrato de
+`PATCH /v1/devices/{device_id}` foi confirmado pelo interBackend PR #18 e o
+`HttpDeviceRepository` já está alinhado a ele. A implementação existe
+localmente no backend, mas ainda não foi implantada na AWS nem validada por
+uma chamada remota real. Para testes/desenvolvimento sem depender da rota, use
 `FakeDeviceRepository` (determinístico, em memória) no lugar de
-`HttpDeviceRepository` ao sobrescrever `deviceRepositoryProvider`.
+`HttpDeviceRepository` ao sobrescrever `deviceRepositoryProvider`; cada
+instância do fake representa a visão de um único usuário autenticado.
 
-Não há campo de cômodo/ambiente/localização: o fluxo assume normalmente um
-InterBridge por residência, identificado por um nome amigável opcional. Toda
+`display_name` pertence à `DeviceMembership` do usuário autenticado, não ao
+Device físico/global. OWNER, ADMIN e MEMBER com membership ACTIVE podem mudar
+o próprio apelido sem alterar o nome visto por outros usuários. Não há campo
+de cômodo/ambiente/localização. Toda
 a UI usa "InterBridge" como único fallback (`deviceDisplayName`,
 `api_device.dart`) quando não há nome customizado — nunca `device_id`, que só
 aparece em uma área técnica discreta e copiável na tela de detalhes.

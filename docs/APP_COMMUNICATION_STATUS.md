@@ -1,6 +1,6 @@
 # InterApp — Communication Implementation Status
 
-## Device management — list, details, friendly-name rename
+## Device management — list, details, personal-name rename
 
 The device list (`HomePage`'s Dispositivos tab) and details
 (`ApiDeviceDetailPage`) already existed and are unchanged in their reading of
@@ -8,13 +8,14 @@ The device list (`HomePage`'s Dispositivos tab) and details
 What's new: both now sit behind the `DeviceRepository` interface instead of
 depending on `HttpDeviceRepository` directly, the detail screen shows
 provisioning status, a friendly role label and a discreet, copyable
-`device_id` area, and a friendly-name edit screen (`EditDeviceNamePage`) lets
-owner/admin rename or clear a device's `display_name`. No room/location field
-was added — the product decision is one InterBridge per residence, identified
-by an optional friendly name ("Minha casa", "Interfone"), with the literal
+`device_id` area, and a personal-name edit screen (`EditDeviceNamePage`) lets
+OWNER, ADMIN and MEMBER with an ACTIVE membership rename or clear their own
+`DeviceMembership.display_name`. This is not a physical/global Device
+property, and one user's update does not affect what another user sees. No
+room/location field was added. The literal
 "InterBridge" as the single fallback used everywhere (`deviceDisplayName`) —
 `device_id` is never shown as a title. See the "Device rename" row below for
-why the write path is Provisional while the read path is fully real.
+the confirmed contract and deployment status.
 
 ## Fase 2D — integração visual controlada
 
@@ -84,7 +85,7 @@ production — that distinction is the entire point of this table.
 | Area | Status | Notes |
 |---|---|---|
 | Device directory (list/details) | Implemented | `DeviceRepository.listDevices`/`getDeviceDetails`, backed by `HttpDeviceRepository` — same three deployed GET routes as before, now behind an abstract interface (`devices_providers.dart`'s `deviceRepositoryProvider`) |
-| Device rename (`display_name`) | Provisional | `DeviceRepository.updateDeviceName` — `HttpDeviceRepository` implements it against an **assumed, unconfirmed** `PATCH /v1/devices/{device_id}` route (no OpenAPI spec, PR, or backend doc defines this route at the time of writing); it follows the same convention as the three deployed GET routes and is ready to use as soon as interBackend confirms/deploys it — no provider wiring change needed either way. `FakeDeviceRepository` (deterministic in-memory) is the connection point for tests and any future fake-backed dev flow. The 60-character name limit (`kDeviceDisplayNameMaxLength`) is also an assumed placeholder, not a confirmed backend limit |
+| Device personal name (`display_name`) | Implemented (app-side) | Contract confirmed by interBackend PR #18: GET list/detail return the authenticated user's `DeviceMembership.display_name`; `PATCH /v1/devices/{device_id}` accepts a string of at most 60 characters or `null`, derives the user from the JWT, and lets ACTIVE OWNER/ADMIN/MEMBER memberships update only their own value. `HttpDeviceRepository` is aligned with that contract. The backend implementation is complete locally but is not deployed to AWS, and no real remote call to this PATCH route has been validated. `FakeDeviceRepository` models one authenticated user's view; separate instances represent independent users. |
 | Backend API abstraction | Implemented | `DeviceBackendRepository` + `LocalDeviceBackendRepository` (honestly reports `CLOUD_UNAVAILABLE`) |
 | Human auth abstraction | Implemented | `AuthRepository` + `LocalAuthRepository` (always signed-out; `signIn()` throws rather than faking a session) |
 | AWS real backend | Not implemented | No AWS project/account/API exists yet; see `docs/communication-protocol.md` §37.1 |

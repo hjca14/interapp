@@ -1,11 +1,7 @@
 import '../../../sharing/domain/entities/device_access.dart';
 import 'intercom_state.dart';
 
-/// Assumed maximum length for a device's friendly name. interBackend has not
-/// published a confirmed limit for `display_name` yet (see
-/// `docs/APP_COMMUNICATION_STATUS.md`, "Device rename"), so this is a
-/// conservative placeholder enforced client-side only — the backend remains
-/// the authority and may reject a name the client accepted.
+/// Confirmed maximum length for the authenticated user's personal device name.
 const int kDeviceDisplayNameMaxLength = 60;
 
 /// The single fallback used everywhere a device's name is shown, so no
@@ -37,6 +33,11 @@ class ApiDeviceSummary {
   });
 
   final String deviceId;
+
+  /// Personal name from the authenticated user's `DeviceMembership`.
+  ///
+  /// This is not a physical/global property of the device. Updating it does
+  /// not change the name returned to other users.
   final String? displayName;
   final DeviceRole role;
   final MembershipStatus status;
@@ -65,6 +66,11 @@ class ApiDeviceDetail {
   });
 
   final String deviceId;
+
+  /// Personal name from the authenticated user's `DeviceMembership`.
+  ///
+  /// This is not a physical/global property of the device. Updating it does
+  /// not change the name returned to other users.
   final String? displayName;
   final String? hardwareVersion;
   final String ownershipStatus;

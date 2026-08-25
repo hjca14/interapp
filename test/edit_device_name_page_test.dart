@@ -46,6 +46,20 @@ void main() {
     );
   });
 
+  testWidgets('explains that the name is personal and has no room field', (
+    tester,
+  ) async {
+    await tester.pumpWidget(subject());
+
+    expect(
+      find.text('Esse nome aparece somente na sua conta.'),
+      findsOneWidget,
+    );
+    expect(find.text('Nome para você'), findsOneWidget);
+    expect(find.textContaining('Cômodo'), findsNothing);
+    expect(find.textContaining('Ambiente'), findsNothing);
+  });
+
   testWidgets('Salvar is disabled while the field is blank', (tester) async {
     await tester.pumpWidget(subject());
     expect(

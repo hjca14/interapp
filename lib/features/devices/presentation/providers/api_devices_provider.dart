@@ -93,7 +93,7 @@ class ApiDevicesController extends Notifier<DeviceListState> {
     }
   }
 
-  /// Reflects a successful rename (or name clear) from
+  /// Reflects a successful personal-name update (or clear) from
   /// [ApiDeviceDetailController.updateName] in the already-loaded list,
   /// without a network round trip. A no-op if the device isn't loaded yet.
   void applyRenamedDevice(String deviceId, String? displayName) {
@@ -134,7 +134,7 @@ final apiDevicesProvider =
     );
 
 /// Loads one device's details and, unlike a plain read-only provider, also
-/// carries [updateName] — the friendly-name edit needs to write through the
+/// carries [updateName] — the personal-name edit needs to write through the
 /// repository and reflect the confirmed result immediately. See
 /// `DeviceSettingsController` for the same read+write `AsyncNotifier` shape
 /// used elsewhere in this feature.
@@ -148,8 +148,9 @@ class ApiDeviceDetailController extends AsyncNotifier<ApiDeviceDetail> {
     return ref.watch(deviceRepositoryProvider).getDeviceDetails(deviceId);
   }
 
-  /// Renames the device, or clears its custom name when [displayName] is
-  /// `null`. Waits for the repository to confirm the write before touching
+  /// Updates the authenticated user's personal device name, or clears it when
+  /// [displayName] is `null`. Other users' membership views are unaffected.
+  /// Waits for the repository to confirm the write before touching
   /// `state` — no optimistic update, so a failure never shows a name the
   /// backend didn't actually save. If the repository call throws, `state`
   /// simply never changes, so the previous value (and whatever the edit

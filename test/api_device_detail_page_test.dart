@@ -1176,20 +1176,36 @@ void main() {
     expect(find.widgetWithText(AppBar, deviceId), findsNothing);
   });
 
-  for (final entry in {
-    DeviceRole.owner: true,
-    DeviceRole.admin: true,
-    DeviceRole.member: false,
-  }.entries) {
+  for (final role in DeviceRole.values) {
     testWidgets(
-      '${entry.key.name.toUpperCase()} edit-name visibility is ${entry.value}',
+      '${role.name.toUpperCase()} can edit the personal name with the same payload',
       (tester) async {
-        await tester.pumpWidget(subject(role: entry.key));
-        await tester.pumpAndSettle();
-        expect(
-          find.byTooltip('Editar nome'),
-          entry.value ? findsOneWidget : findsNothing,
+        String? sentName;
+        await tester.pumpWidget(
+          subject(
+            role: role,
+            onUpdateName: (id, displayName) async {
+              sentName = displayName;
+              return ApiDeviceDetail(
+                deviceId: id,
+                displayName: displayName,
+                ownershipStatus: 'claimed',
+                provisioningStatus: 'active',
+                role: role,
+              );
+            },
+          ),
         );
+        await tester.pumpAndSettle();
+        expect(find.byTooltip('Editar nome'), findsOneWidget);
+
+        await tester.tap(find.byTooltip('Editar nome'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), '  Nome pessoal  ');
+        await tester.tap(find.widgetWithText(FilledButton, 'Salvar'));
+        await tester.pumpAndSettle();
+
+        expect(sentName, 'Nome pessoal');
       },
     );
   }

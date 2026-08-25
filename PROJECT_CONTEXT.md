@@ -400,12 +400,12 @@ lib/
 1. A aba **Dispositivos** exibe os InterBridges acessíveis ao usuário, vindos do backend (`apiDevicesProvider`/`HttpDeviceRepository`), não de um cadastro local.
 2. O dispositivo é adicionado pelo fluxo de pareamento/claim (seção 13), não por um formulário de nome — um formulário de nome só faz sentido para o legado local (`DeviceFormPage`/`InterBridgeDevice`), que este fluxo não usa mais.
 3. O dispositivo tem um `device_id` próprio, gerado pelo backend.
-4. O usuário pode editar o **nome amigável** (`display_name`) quando seu `role` permite (owner/admin; member não vê a ação — ver seção 14). Tela dedicada: `EditDeviceNamePage`, acessível a partir do ícone de edição em `ApiDeviceDetailPage`. Regras:
+4. O usuário pode editar seu **nome pessoal** (`display_name`) quando possui uma membership ACTIVE, seja seu papel OWNER, ADMIN ou MEMBER. O valor vem da `DeviceMembership` do usuário autenticado; não é propriedade física/global do Device e não altera o nome visto por outros usuários. Tela dedicada: `EditDeviceNamePage`, acessível a partir do ícone de edição em `ApiDeviceDetailPage`. Regras:
    * campo pré-preenchido com o `display_name` atual (vazio quando não há nome customizado, nunca com o texto de fallback);
-   * limite de `kDeviceDisplayNameMaxLength` caracteres (60 — placeholder assumido, ver `docs/APP_COMMUNICATION_STATUS.md`, "Device rename");
+   * limite confirmado de `kDeviceDisplayNameMaxLength` caracteres (60);
    * "Usar nome padrão" envia `display_name: null` para limpar o nome customizado — nunca uma string vazia;
    * sem atualização otimista: a tela espera a confirmação do repository antes de atualizar a UI, e falha recuperável preserva o texto digitado.
-   * **Deliberadamente não há campo de cômodo/ambiente/localização interna** — o fluxo assume normalmente um InterBridge por residência; o nome amigável (ex.: "Minha casa", "Interfone") já cobre a necessidade de identificação.
+   * **Deliberadamente não há campo de cômodo/ambiente/localização interna**; `display_name` é somente o apelido pessoal do usuário para identificar o InterBridge.
 5. Quando `display_name` está ausente, vazio ou ainda não carregado, toda a UI usa o fallback literal **"InterBridge"** (função `deviceDisplayName`, `api_device.dart`) — nunca `device_id`. O `device_id` só aparece em uma área técnica discreta e copiável no detalhe (`_TechnicalInfoRow`), nunca como título.
 6. Remover o dispositivo (transferência/exclusão de propriedade) **não está implementado** — adiado para uma PR própria de compartilhamento (seção 14).
 7. Tocar em um dispositivo abre `ApiDeviceDetailPage`.
@@ -555,6 +555,10 @@ Pode administrar o dispositivo e favoritos conforme as permissões definidas.
 ### member
 
 Pode utilizar o dispositivo conforme as permissões concedidas.
+
+OWNER, ADMIN e MEMBER com membership ACTIVE podem editar o próprio
+`display_name`; essa operação não é administração do Device e não afeta a
+visão das outras memberships.
 
 O compartilhamento ainda não está implementado.
 

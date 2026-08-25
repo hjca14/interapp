@@ -474,12 +474,6 @@ class _DetailCard extends ConsumerWidget {
       ),
     ),
     data: (device) {
-      // Naming/administration is allowed for owner and admin, per
-      // PROJECT_CONTEXT.md §14 ("owner"/"admin" podem administrar o
-      // dispositivo; "member" só utiliza conforme permissões concedidas).
-      // This only hides the action locally for a better experience — the
-      // backend remains the authority if it rejects the request anyway.
-      final canEditName = device.role != DeviceRole.member;
       return Card(
         child: ListTile(
           leading: const Icon(Icons.speaker_phone),
@@ -490,20 +484,18 @@ class _DetailCard extends ConsumerWidget {
             'Papel: ${friendlyDeviceRole(device.role)}',
           ),
           isThreeLine: true,
-          trailing: canEditName
-              ? IconButton(
-                  tooltip: 'Editar nome',
-                  icon: const Icon(Icons.edit_outlined),
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => EditDeviceNamePage(
-                        deviceId: deviceId,
-                        initialName: device.displayName,
-                      ),
-                    ),
-                  ),
-                )
-              : null,
+          trailing: IconButton(
+            tooltip: 'Editar nome',
+            icon: const Icon(Icons.edit_outlined),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => EditDeviceNamePage(
+                  deviceId: deviceId,
+                  initialName: device.displayName,
+                ),
+              ),
+            ),
+          ),
         ),
       );
     },

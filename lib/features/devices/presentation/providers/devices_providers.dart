@@ -43,8 +43,8 @@ final httpDeviceRepositoryProvider = Provider<HttpDeviceRepository>((ref) {
 /// Typed as the abstract [DeviceRepository] so the device list, details and
 /// rename screens depend on the contract, not on [HttpDeviceRepository]
 /// directly. It reads the same instance as [httpDeviceRepositoryProvider]
-/// (list/detail are already real and deployed); see that class's dartdoc for
-/// why `updateDeviceName` specifically is still provisional.
+/// (list/detail are already real and deployed). The rename contract is
+/// confirmed, while its backend implementation is not yet deployed to AWS.
 final deviceRepositoryProvider = Provider<DeviceRepository>((ref) {
   return ref.watch(httpDeviceRepositoryProvider);
 });
