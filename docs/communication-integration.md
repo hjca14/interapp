@@ -300,20 +300,22 @@ This pass corrected the app's **models and parsers** to match the v1
 contract precisely. It did not, and was explicitly scoped not to:
 
 - add the Cognito SDK, AWS SDK, or an MQTT client to the app;
-- implement `RemoteDeviceBackendRepository` (there is still no real HTTPS
-  API to call — `LocalDeviceBackendRepository` remains the active
-  implementation, honestly reporting `CLOUD_UNAVAILABLE`);
+- implement `RemoteDeviceBackendRepository` for commands/events
+  (`LocalDeviceBackendRepository` remains the active implementation for that
+  abstraction, honestly reporting `CLOUD_UNAVAILABLE`; this does not refer to
+  the real directory/name HTTPS APIs already used by `HttpDeviceRepository`);
 - activate `CloudDeviceConnectionRepository` as the default
   `deviceConnectionRepositoryProvider` (still exists, still not wired in —
   see `devices_providers.dart`);
 - implement real BLE provisioning, a QR scanner, or a camera reader.
 
-The app still only ever talks to a **future authenticated HTTPS
-application API** — never to AWS IoT Core/MQTT directly, and it is the
+For commands/events, the app still depends on a **future authenticated HTTPS
+application API** — never on AWS IoT Core/MQTT directly — and it is the
 backend, not the app, that will create and publish the final command
-envelope. All of the above remains Fase 1 AWS work; see
+envelope. This statement does not include the real device directory and
+personal-name HTTPS routes already deployed in DEV. All of the above remains Fase 1 AWS work; see
 `docs/APP_COMMUNICATION_STATUS.md` for the up-to-date status of every area.
-# Atualização da Fase 2D
+# Registro histórico da Fase 2D — concluída e encerrada
 
 A interface de detalhes compõe a camada HTTPS assíncrona de `OPEN_DOOR` e a
 expõe exclusivamente para membership `OWNER`, com confirmação explícita,
@@ -323,8 +325,10 @@ retoma nem reenvia o comando; uma confirmação explícita posterior, inclusive
 na mesma tela, usa controller, tracker e chave novos. Um
 202/`PENDING` nunca é sucesso; somente `COMPLETED` confirma abertura. O hardware
 continua sem relé, GPIO, DTMF ou qualquer ação física, e o primeiro teste manual
-em DEV deve terminar em `REJECTED/CAPABILITY_DISABLED`. A validação ponta a
-ponta permanece pendente para depois do merge.
+em DEV deveria terminar em `REJECTED/CAPABILITY_DISABLED`. No momento em que
+este registro foi escrito, a validação ponta a ponta ainda estava pendente para
+depois do merge. Isso preserva o histórico daquela integração e não reabre a
+Fase 2D nem classifica o trabalho posterior de `display_name` como parte dela.
 
 As preferências locais `confirmBeforeOpeningDoor` e
 `requireDeviceAuthenticationToOpenDoor` controlam, respectivamente, o diálogo
@@ -332,3 +336,18 @@ e a autenticação segura do aparelho antes do POST. A política da porta é
 separada do bloqueio biométrico global e pode aceitar biometria ou credencial
 segura suportada pela plataforma. Falha, cancelamento, indisponibilidade ou
 preferências ainda não carregadas impedem o envio.
+
+# Fase 3 — experiência do dispositivo e do usuário
+
+A Fase 3 atual começa depois do encerramento da Fase 2D. Sua primeira entrega
+funcional foi o nome pessoal por `DeviceMembership`: edição/limpeza via
+`PATCH /v1/devices/{device_id}`, já implantado em DEV e validado no Android com
+o valor `Casa` persistindo após sair e retornar à tela. O hotfix do backend foi
+reimplantado com CloudFormation em `UPDATE_COMPLETE`; a primeira tentativa no
+cold start da Lambda não gravou dados, e o reteste posterior validou
+`app → API → DynamoDB → nova leitura`.
+
+A reorganização entre Resumo, Diagnóstico e Configurações também pertence a
+esta fase. Alteração de senha, preferências reais de notificação, FCM e BLE real
+seguem, nessa ordem. Os modelos e mocks existentes de onboarding preservam
+decisões anteriores, mas não significam que a implementação BLE real começou.

@@ -14,7 +14,11 @@ Também se pode fornecer `APP_ENVIRONMENT=dev`, `API_BASE_URL`, `AWS_REGION=sa-e
 
 O Amplify executa `USER_SRP_AUTH`, renova a sessão e guarda credenciais no armazenamento seguro nativo (Keychain no iOS e armazenamento criptografado suportado pelo plugin no Android). Não há app client secret, Hosted UI, MFA ou Identity Pool. A arquitetura é `Cognito → access token → API HTTP`; o app não chama AWS IoT Core.
 
-Valide em aparelho/emulador: login do usuário DEV confirmado, restauração após reiniciar, lista do Device registrado, detalhe/status, pull-to-refresh, expiração/logout e estados offline. Cadastro, confirmação/reenvio e redefinição de senha também estão disponíveis. BLE, claim, QR, Fleet Provisioning, commands, MQTT, eventos, voz e realtime permanecem adiados.
+Valide em aparelho/emulador: login do usuário DEV confirmado, restauração após reiniciar, lista do Device registrado, detalhe/status, pull-to-refresh, expiração/logout e estados offline. Cadastro, confirmação/reenvio e redefinição de senha para quem perdeu o acesso também estão disponíveis. A alteração de senha de uma conta autenticada ainda não existe no app.
+
+## Fase 3: experiência do dispositivo e do usuário
+
+A Fase 2D, dedicada à integração visual controlada dos comandos assíncronos, está concluída e encerrada. O nome pessoal e a reorganização da experiência do dispositivo iniciam uma nova Fase 3; não são continuação da Fase 2D.
 
 ## Gerenciamento de dispositivos: lista, detalhes e nome pessoal
 
@@ -23,9 +27,12 @@ A lista de dispositivos, a tela de detalhes e a edição do nome pessoal
 `updateDeviceName`), implementado por `HttpDeviceRepository`. Listar e ver
 detalhes continuam reais (as mesmas três rotas GET da Fase 2C). O contrato de
 `PATCH /v1/devices/{device_id}` foi confirmado pelo interBackend PR #18 e o
-`HttpDeviceRepository` já está alinhado a ele. A implementação existe
-localmente no backend, mas ainda não foi implantada na AWS nem validada por
-uma chamada remota real. Para testes/desenvolvimento sem depender da rota, use
+`HttpDeviceRepository` já está alinhado a ele. O PATCH e o hotfix do backend
+foram implantados em DEV, com a stack CloudFormation em `UPDATE_COMPLETE`.
+No teste real em Android, o app salvou o nome `Casa`; após sair e retornar à
+tela, o valor continuou salvo. O caminho
+`app → API → DynamoDB → nova leitura` está validado ponta a ponta. Para
+testes/desenvolvimento sem depender da rota, use
 `FakeDeviceRepository` (determinístico, em memória) no lugar de
 `HttpDeviceRepository` ao sobrescrever `deviceRepositoryProvider`; cada
 instância do fake representa a visão de um único usuário autenticado.
@@ -35,10 +42,18 @@ Device físico/global. OWNER, ADMIN e MEMBER com membership ACTIVE podem mudar
 o próprio apelido sem alterar o nome visto por outros usuários. Não há campo
 de cômodo/ambiente/localização. Toda
 a UI usa "InterBridge" como único fallback (`deviceDisplayName`,
-`api_device.dart`) quando não há nome customizado — nunca `device_id`, que só
-aparece em uma área técnica discreta e copiável na tela de detalhes.
-Histórico, compartilhamento, notificações e BLE continuam adiados para PRs
-próprias.
+`api_device.dart`) quando não há nome customizado. O Resumo não exibe
+metadados técnicos; hardware, estado de configuração traduzido e identificador
+mascarado ficam em Diagnóstico, e o ID completo exige uma ação explícita. Papel
+e permissão ficam na seção "Acesso e compartilhamento", sem ação funcional de
+compartilhamento.
+
+A ordem de trabalho decidida para a sequência da Fase 3 é: correção documental,
+alteração de senha nas configurações gerais da conta, preferências reais de
+notificação, integração FCM e, depois, onboarding BLE. As preferências visuais
+atuais ainda são locais/incompletas; não há persistência delas no backend. FCM
+não foi configurado e o projeto Firebase ainda não foi criado. O BLE real não
+foi iniciado; há um Android físico antigo disponível para esse teste futuro.
 
 ## Bloqueio biométrico local
 

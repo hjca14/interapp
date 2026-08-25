@@ -1,6 +1,6 @@
 # InterApp — Communication Implementation Status
 
-## Device management — list, details, personal-name rename
+## Fase 3 — experiência do dispositivo e do usuário
 
 The device list (`HomePage`'s Dispositivos tab) and details
 (`ApiDeviceDetailPage`) already existed and are unchanged in their reading of
@@ -8,7 +8,7 @@ The device list (`HomePage`'s Dispositivos tab) and details
 What's new: both now sit behind the `DeviceRepository` interface instead of
 depending on `HttpDeviceRepository` directly. The everyday summary keeps only
 the personal name and daily-use status/actions; hardware, friendly
-configuration state and the initially masked support identifier live in
+configuration state (all official backend values translated) and the initially masked support identifier live in
 Diagnostics. The full identifier is revealed on request and copied only by a
 separate explicit action. Settings shows the friendly membership role and
 whether sharing management is permitted, without offering a fake sharing
@@ -22,7 +22,18 @@ room/location field was added. The literal
 `device_id` is never shown as a title. See the "Device rename" row below for
 the confirmed contract and deployment status.
 
-## Fase 2D — integração visual controlada
+O `PATCH /v1/devices/{device_id}` e o hotfix do backend estão implantados em
+DEV, com CloudFormation em `UPDATE_COMPLETE`. O teste real no Android salvou
+`Casa` e confirmou o mesmo valor depois de sair e retornar à tela, validando
+`app → API → DynamoDB → nova leitura`. A primeira tentativa havia falhado no
+cold start da Lambda sem gravar dados; o backend foi corrigido, reimplantado e
+o reteste funcionou. O incidente não é um bloqueio atual.
+
+Esta experiência inaugura a Fase 3. A sequência decidida é: documentação,
+alteração de senha da conta, preferências reais de notificação, FCM e onboarding
+BLE real. Compartilhamento funcional não foi implementado.
+
+## Fase 2D — concluída e encerrada
 
 O backend da Fase 2D está implantado em DEV e o ESP32 real está conectado ao
 AWS IoT Core por mTLS e inscrito no tópico real de comandos com QoS 1. A UI
@@ -49,13 +60,12 @@ política `local_auth` separada que aceita biometria ou credencial segura da
 plataforma sem alterar o bloqueio biométrico global da sessão. Preferências
 carregando ou com erro mantêm a ação indisponível.
 
-O firmware continua propositalmente fail-closed (`DISABLED`). Portanto, o
-primeiro resultado real esperado é `PENDING → ACCEPTED →
+O firmware continua propositalmente fail-closed (`DISABLED`). O resultado
+esperado dessa etapa era `PENDING → ACCEPTED →
 REJECTED/CAPABILITY_DISABLED`, exibido de forma amigável e sem alegar abertura.
 Nenhuma ação física está implementada: relé, GPIO, DTMF e configuração de
 abertura continuam adiados. Nenhuma chamada AWS, MQTT ou comando real foi feita
-durante esta integração. A validação ponta a ponta ainda deve ser executada
-manualmente após o merge, seguindo:
+durante aquela integração. O roteiro manual registrado na época era:
 
 `App → API → IoT → ESP32 → ACCEPTED → REJECTED/CAPABILITY_DISABLED → Basic Ingest → GET → App`.
 
@@ -90,10 +100,13 @@ production — that distinction is the entire point of this table.
 | Area | Status | Notes |
 |---|---|---|
 | Device directory (list/details) | Implemented | `DeviceRepository.listDevices`/`getDeviceDetails`, backed by `HttpDeviceRepository` — same three deployed GET routes as before, now behind an abstract interface (`devices_providers.dart`'s `deviceRepositoryProvider`) |
-| Device personal name (`display_name`) | Implemented (app-side) | Contract confirmed by interBackend PR #18: GET list/detail return the authenticated user's `DeviceMembership.display_name`; `PATCH /v1/devices/{device_id}` accepts a string of at most 60 characters or `null`, derives the user from the JWT, and lets ACTIVE OWNER/ADMIN/MEMBER memberships update only their own value. `HttpDeviceRepository` is aligned with that contract. The backend implementation is complete locally but is not deployed to AWS, and no real remote call to this PATCH route has been validated. `FakeDeviceRepository` models one authenticated user's view; separate instances represent independent users. |
-| Backend API abstraction | Implemented | `DeviceBackendRepository` + `LocalDeviceBackendRepository` (honestly reports `CLOUD_UNAVAILABLE`) |
+| Device personal name (`display_name`) | Validated in DEV | Fase 3. Contract confirmed by interBackend PR #18: GET list/detail return the authenticated user's `DeviceMembership.display_name`; `PATCH /v1/devices/{device_id}` accepts a string of at most 60 characters or `null`, derives the user from the JWT, and lets ACTIVE OWNER/ADMIN/MEMBER memberships update only their own value. PATCH + backend hotfix are deployed in DEV (`UPDATE_COMPLETE`); Android saved `Casa` and loaded it again after leaving/returning, validating app → API → DynamoDB → read. |
+| Authenticated password change | Not implemented | Planned for general account settings, outside per-device settings. Password recovery is a separate existing flow. |
+| Notification preferences | Local/incomplete | Existing device controls preserve call/notification, quiet-hours, days/times, silent-notification/block-all and local/remote-network concepts, but have no real backend persistence or complete delivery behavior. |
+| FCM / Firebase | Not implemented | FCM is not configured and no Firebase project exists. No setup is required in this documentation PR. |
+| Command/event backend abstraction | Implemented | `DeviceBackendRepository` + `LocalDeviceBackendRepository` (honestly reports `CLOUD_UNAVAILABLE`). This row does not describe the real Cognito/device-directory/personal-name APIs already deployed in DEV. |
 | Human auth abstraction | Implemented | `AuthRepository` + `LocalAuthRepository` (always signed-out; `signIn()` throws rather than faking a session) |
-| AWS real backend | Not implemented | No AWS project/account/API exists yet; see `docs/communication-protocol.md` §37.1 |
+| Command/event AWS integration | Not implemented | The app has real Cognito and device directory/name APIs in DEV; what remains absent here is the remote implementation of `DeviceBackendRepository` for commands/events. |
 | Command timestamp encoding | Implemented | `issued_at`/`expires_at` are Unix epoch seconds on the wire (§14/§18) — `dateTimeToEpochSeconds`/`epochSecondsToDateTime`, `DeviceCommand.toJson`/`fromJson`. Backend-authoritative: the app never stamps these itself, only `command_id` |
 | Error code taxonomy | Implemented | `DeviceProtocolError` covers all 18 v1 codes (aligned from an earlier, incomplete 13-code copy) + `unknown` fallback; app-side `origin` (device/backend/connectivity) for handling, without altering the wire codes |
 | Device status model | Implemented | `DeviceStatus`, `IntercomState`, `DeviceStatus.fromReportedShadow` — tested against the protocol's shadow example |
@@ -105,7 +118,7 @@ production — that distinction is the entire point of this table.
 | QR scanner | Not implemented | No scanner/camera package added (per protocol §37, don't add dependencies before they're needed); `AddInterBridgePage`'s QR fallback step accepts the scanned payload as manual text entry; `parseSetupCodeQrPayload`/`parseDeviceClaimQrPayload` both take a plain `String` so a scanner can be wired in later without changing either parser |
 | Onboarding coordinator | Implemented (app-side) | `OnboardingCoordinator` — single state machine (`OnboardingState`/`OnboardingPhase`, 17 phases) driving `AddInterBridgePage`; converges BLE-primary (`scanningBle → deviceFound → confirmingDevice → connectingBle → selectingWifi → sendingWifi → startingClaim → claimActive → awsProvisioning → verifyingDevice → success`) and QR/manual fallback (`scanningQr`/`enteringSetupCode → resolvingSetupCode`) onto the same claim/provisioning tail; no provisioning logic lives in the screens. Real BLE/claim execution is Stub — see the two rows below |
 | BLE provisioning abstraction | Stub | `BleOnboardingTransport` + `NotImplementedBleOnboardingTransport` (production) — `checkAvailability()` honestly reports `unsupported` and every action throws `UnimplementedError` instead of hanging or faking success; `MockBleOnboardingTransport` (debug-only, `kDebugMode`-gated) provides a working fake device for local dev/testing |
-| BLE real provisioning | Needs validation | No real `BleOnboardingTransport` implementation exists; per `docs/communication-protocol.md` §7, verify a Flutter BLE/ESP-provisioning package's compatibility with ESP-IDF Unified Provisioning / Protocomm (Security 1, encrypted), pinned to the exact firmware ESP-IDF version, before adding one. Plaintext Wi-Fi credential transmission must never be implemented |
+| BLE real provisioning | Not started | No real `BleOnboardingTransport` implementation exists. It follows FCM in the current work order; an older physical Android device is available for future testing. Before choosing a package, verify compatibility with ESP-IDF Unified Provisioning / Protocomm Security 1, pinned to the firmware version. |
 | Claim session API | Stub | `OnboardingClaimRepository` + `LocalOnboardingClaimRepository` (production) — every method throws `OnboardingClaimException(backendUnavailable)` instead of faking a session; `MockOnboardingClaimRepository` (debug-only) fakes a working `/devices/claim/{start,resolve-code,complete,cancel}` session for local dev/testing. The app never receives permanent AWS IoT X.509 credentials or AWS admin credentials through this path — only temporary onboarding material, never persisted longer than the flow needs |
 | Wi-Fi provisioning | Not implemented | `OnboardingCoordinator.submitWifi(ssid, password)` accepts credentials and would pass them through `BleOnboardingTransport.sendWifiCredentials(...)` (local BLE session only, never sent to the backend, never logged/persisted), but there is no real transport yet to actually transmit them |
 | Fleet provisioning backend | Not implemented | Depends on AWS real backend + BLE real provisioning |
