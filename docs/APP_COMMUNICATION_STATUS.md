@@ -6,9 +6,14 @@ The device list (`HomePage`'s Dispositivos tab) and details
 (`ApiDeviceDetailPage`) already existed and are unchanged in their reading of
 `listDevices`/`getDeviceDetails` (still the three GET routes from Fase 2C).
 What's new: both now sit behind the `DeviceRepository` interface instead of
-depending on `HttpDeviceRepository` directly, the detail screen shows
-provisioning status, a friendly role label and a discreet, copyable
-`device_id` area, and a personal-name edit screen (`EditDeviceNamePage`) lets
+depending on `HttpDeviceRepository` directly. The everyday summary keeps only
+the personal name and daily-use status/actions; hardware, friendly
+configuration state and the initially masked support identifier live in
+Diagnostics. The full identifier is revealed on request and copied only by a
+separate explicit action. Settings shows the friendly membership role and
+whether sharing management is permitted, without offering a fake sharing
+action while that feature remains unimplemented. A personal-name edit screen
+(`EditDeviceNamePage`) lets
 OWNER, ADMIN and MEMBER with an ACTIVE membership rename or clear their own
 `DeviceMembership.display_name`. This is not a physical/global Device
 property, and one user's update does not affect what another user sees. No

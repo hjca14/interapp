@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:interapp/features/devices/domain/entities/api_device.dart';
 import 'package:interapp/features/devices/domain/entities/device_settings.dart';
@@ -7,6 +8,7 @@ import 'package:interapp/features/devices/presentation/device_status_presentatio
 import 'package:interapp/features/devices/presentation/providers/api_devices_provider.dart';
 import 'package:interapp/features/devices/presentation/providers/device_refresh_provider.dart';
 import 'package:interapp/features/devices/presentation/providers/device_settings_provider.dart';
+import 'package:interapp/features/sharing/domain/entities/device_access.dart';
 
 enum DeviceSettingsSection { main, firmware, diagnostics }
 
@@ -125,6 +127,8 @@ class _DeviceSettingsBody extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 16),
+        _AccessCard(detail: ref.watch(apiDeviceDetailProvider(deviceId))),
+        const SizedBox(height: 16),
         _DeviceCard(deviceId: deviceId),
         const SizedBox(height: 16),
         _AdvancedCard(deviceId: deviceId, deviceName: deviceName),
@@ -132,6 +136,51 @@ class _DeviceSettingsBody extends ConsumerWidget {
     );
   }
 }
+
+class _AccessCard extends StatelessWidget {
+  const _AccessCard({required this.detail});
+
+  final AsyncValue<ApiDeviceDetail> detail;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SettingsSection(
+      icon: Icons.group_outlined,
+      title: 'Acesso e compartilhamento',
+      children: [
+        detail.when(
+          data: (device) => ListTile(
+            title: const Text('Seu papel'),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(friendlyDeviceRole(device.role)),
+                const SizedBox(height: 4),
+                Text(_sharingPermissionDescription(device.role)),
+              ],
+            ),
+            isThreeLine: true,
+          ),
+          loading: () => const ListTile(
+            title: Text('Seu papel'),
+            subtitle: Text('Carregando informações de acesso...'),
+          ),
+          error: (_, _) => const ListTile(
+            title: Text('Seu papel'),
+            subtitle: Text('Informações de acesso indisponíveis.'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+String _sharingPermissionDescription(DeviceRole role) => switch (role) {
+  DeviceRole.owner || DeviceRole.admin =>
+    'Você tem permissão para gerenciar o compartilhamento. Esse recurso ainda não está disponível.',
+  DeviceRole.member =>
+    'Você não tem permissão para compartilhar este dispositivo.',
+};
 
 /// A titled card wrapping one settings group, matching the section headers
 /// from the feature spec (Chamadas, Silencioso, Presença, Porta, Dispositivo,
@@ -568,9 +617,46 @@ class _DiagnosticsPageState extends ConsumerState<DiagnosticsPage> {
     }
   }
 
+  Future<void> _showDeviceIdentifier() async {
+    final shouldCopy = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Identificador do dispositivo'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Use este identificador quando o suporte solicitar.'),
+            const SizedBox(height: 12),
+            SelectableText(widget.deviceId),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Fechar'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.copy_outlined),
+            label: const Text('Copiar identificador'),
+          ),
+        ],
+      ),
+    );
+    if (shouldCopy != true) return;
+    await Clipboard.setData(ClipboardData(text: widget.deviceId));
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Identificador copiado.')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final statusAsync = ref.watch(apiDeviceStatusProvider(widget.deviceId));
+    final detailAsync = ref.watch(apiDeviceDetailProvider(widget.deviceId));
     if (statusAsync.value case final value?) _lastStatus = value;
     final status = statusAsync.value ?? _lastStatus;
     final health = status?.health;
@@ -615,9 +701,56 @@ class _DiagnosticsPageState extends ConsumerState<DiagnosticsPage> {
                     ),
                   ),
                 ),
-                ListTile(
-                  title: const Text('Identificador do dispositivo'),
-                  subtitle: Text(_maskedDeviceId(widget.deviceId)),
+                detailAsync.when(
+                  data: (device) => Column(
+                    children: [
+                      ListTile(
+                        title: const Text('Versão do hardware'),
+                        subtitle: Text(
+                          device.hardwareVersion ?? 'Não informada',
+                        ),
+                      ),
+                      ListTile(
+                        leading:
+                            isProvisioningFailure(device.provisioningStatus)
+                            ? Icon(
+                                Icons.error_outline,
+                                color: Theme.of(context).colorScheme.error,
+                              )
+                            : null,
+                        title: const Text('Estado de configuração'),
+                        subtitle: Text(
+                          isProvisioningFailure(device.provisioningStatus)
+                              ? '${friendlyProvisioningStatus(device.provisioningStatus)}. O suporte poderá orientar os próximos passos.'
+                              : friendlyProvisioningStatus(
+                                  device.provisioningStatus,
+                                ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  loading: () => const ListTile(
+                    title: Text('Informações do dispositivo'),
+                    subtitle: Text('Carregando...'),
+                  ),
+                  error: (_, _) => const ListTile(
+                    title: Text('Informações do dispositivo'),
+                    subtitle: Text('Não disponíveis.'),
+                  ),
+                ),
+                Semantics(
+                  button: true,
+                  excludeSemantics: true,
+                  label:
+                      'Identificador do dispositivo, ${_maskedDeviceId(widget.deviceId)}',
+                  hint: 'Toque para exibir o identificador completo',
+                  child: ListTile(
+                    minVerticalPadding: 12,
+                    title: const Text('Identificador do dispositivo'),
+                    subtitle: Text(_maskedDeviceId(widget.deviceId)),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: _showDeviceIdentifier,
+                  ),
                 ),
               ],
             ),

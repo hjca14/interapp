@@ -411,7 +411,7 @@ lib/
 7. Tocar em um dispositivo abre `ApiDeviceDetailPage`.
 8. O detalhe possui as abas:
 
-   * **Resumo** (nome, hardware, provisionamento, papel, status online/offline, `device_id` técnico)
+   * **Resumo** (nome pessoal editável, status online/offline, abertura de porta e eventos recentes; sem metadados técnicos ou de acesso)
    * **Discar**
    * **Favoritos**
 9. O cadastro do dispositivo não depende de uma conexão física.
@@ -945,7 +945,8 @@ Seções (cada uma um `Card`):
 * **Silencioso** — liga/desliga, horário (`showTimePicker`, convertido de/para `ClockTime`), dias da semana (`FilterChip`s), comportamento (`SegmentedButton` com as duas opções de `QuietHoursBehavior`). Os controles de horário/dias/comportamento só aparecem quando o modo silencioso está ligado.
 * **Presença** — mostra o modo local (somente leitura, editado na seção Chamadas) e um `DropdownButton` para escolher o `CallAlertMode` da rede remota.
 * **Porta** — dois `SwitchListTile` independentes (confirmar abertura / exigir autenticação do aparelho). A autenticação biométrica em si **não está implementada** — o campo só reserva o comportamento.
-* **Dispositivo** — Wi-Fi / Firmware / Diagnóstico / Reiniciar: itens de lista que mostram um snackbar "disponível quando o InterBridge estiver conectado" ao toque (mesmo padrão do botão verde do discador). Não fazem nada de verdade ainda.
+* **Acesso e compartilhamento** — mostra o papel atual com texto amigável. OWNER e ADMIN são informados de que têm permissão para gerenciar compartilhamento; MEMBER é informado de que não pode compartilhar. Compartilhamento continua não implementado e a seção não oferece botão ou navegação falsa.
+* **Dispositivo** — Wi-Fi / Firmware / Diagnóstico / Reiniciar. Diagnóstico concentra versão do hardware, estado de configuração traduzido e o identificador inicialmente mascarado; o ID completo só aparece sob ação explícita, com cópia separada para suporte. Wi-Fi e Reiniciar mostram um snackbar "disponível quando o InterBridge estiver conectado" ao toque. Não fazem nada de verdade ainda.
 * **Avançado** — "Redefinir configurações": única ação realmente funcional dessa seção; volta as configurações locais desse dispositivo para o padrão (com confirmação). Não reseta nenhum hardware, porque não existe hardware conectado ainda.
 
 ## O que ainda não está implementado

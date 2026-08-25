@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../dialer/presentation/controllers/dialer_controller.dart';
@@ -254,8 +253,6 @@ class _DeviceOverviewState extends ConsumerState<_DeviceOverview> {
               ),
             ),
           ),
-          const SizedBox(height: 16),
-          _TechnicalInfoRow(deviceId: widget.deviceId),
         ],
       ),
     );
@@ -478,12 +475,6 @@ class _DetailCard extends ConsumerWidget {
         child: ListTile(
           leading: const Icon(Icons.speaker_phone),
           title: Text(deviceDisplayName(device.displayName)),
-          subtitle: Text(
-            'Hardware: ${device.hardwareVersion ?? 'não informado'}\n'
-            'Provisionamento: ${device.provisioningStatus}\n'
-            'Papel: ${friendlyDeviceRole(device.role)}',
-          ),
-          isThreeLine: true,
           trailing: IconButton(
             tooltip: 'Editar nome',
             icon: const Icon(Icons.edit_outlined),
@@ -500,49 +491,6 @@ class _DetailCard extends ConsumerWidget {
       );
     },
   );
-}
-
-/// Discreet, low-emphasis technical area — not a `Card`, so it doesn't
-/// compete visually with the primary device/status information above. Shows
-/// `device_id` only to let support/troubleshooting copy it; never used as a
-/// title anywhere in this feature.
-class _TechnicalInfoRow extends StatelessWidget {
-  const _TechnicalInfoRow({required this.deviceId});
-  final String deviceId;
-
-  @override
-  Widget build(BuildContext context) {
-    final mutedStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
-      color: Theme.of(context).colorScheme.outline,
-    );
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              'ID do dispositivo: $deviceId',
-              style: mutedStyle,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          IconButton(
-            iconSize: 18,
-            tooltip: 'Copiar ID do dispositivo',
-            icon: const Icon(Icons.copy_outlined),
-            onPressed: () async {
-              await Clipboard.setData(ClipboardData(text: deviceId));
-              if (context.mounted) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(const SnackBar(content: Text('ID copiado.')));
-              }
-            },
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _StatusCard extends ConsumerWidget {

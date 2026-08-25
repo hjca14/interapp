@@ -14,6 +14,20 @@ void main() {
     }
   });
 
+  test('friendlyProvisioningStatus never exposes known technical enums', () {
+    expect(friendlyProvisioningStatus('PROVISIONED'), 'Configurado');
+    expect(
+      friendlyProvisioningStatus('PENDING_PROVISIONING'),
+      'Configuração pendente',
+    );
+    expect(
+      friendlyProvisioningStatus('PROVISIONING_FAILED'),
+      'Falha na configuração',
+    );
+    expect(isProvisioningFailure('PROVISIONING_FAILED'), isTrue);
+    expect(friendlyProvisioningStatus('NEW_BACKEND_VALUE'), 'Não informado');
+  });
+
   const id = 'ib-device';
   final health = ApiDeviceHealth(
     intercomState: IntercomState.idle,
