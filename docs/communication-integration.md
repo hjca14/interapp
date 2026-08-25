@@ -39,13 +39,13 @@ Riverpod provider/controller
         ↓
 DeviceConnectionRepository        (features/devices/domain/repositories)
         ↓
-LocalDeviceConnectionRepository   — active today, no hardware/backend
+LocalDeviceConnectionRepository   — active for this generic provider; no hardware transport
 CloudDeviceConnectionRepository   — delegates to DeviceBackendRepository, not wired as active yet
         ↓
 DeviceBackendRepository           (features/devices/domain/repositories)
         ↓
-LocalDeviceBackendRepository      — active today, honestly reports CLOUD_UNAVAILABLE
-(future) RemoteDeviceBackendRepository — real HTTPS client, not implemented
+LocalDeviceBackendRepository      — active only for generic command/event providers; reports CLOUD_UNAVAILABLE
+(future) RemoteDeviceBackendRepository — HTTPS adapter for those providers, not implemented
 ```
 
 `DeviceConnectionRepository` and `DeviceBackendRepository` are deliberately
@@ -56,14 +56,17 @@ two different contracts:
   on. Its local implementation also carries a debug-only
   `simulateIncomingCall` hook used during development (see
   `IncomingCallListener` in `PROJECT_CONTEXT.md`).
-- `DeviceBackendRepository` answers "what does the AWS application backend's
-  API expose" — claim, device list, status, commands, events. A future
+- `DeviceBackendRepository` is the older generic abstraction for claim,
+  connection, commands and events. It is distinct from `HttpDeviceRepository`,
+  which already consumes the deployed Cognito-authenticated device directory,
+  status and personal-name routes. A future
   `CloudDeviceConnectionRepository` (already implemented, not yet wired as
   the active provider) is the adapter between the two.
 
-Swapping from local to cloud, once a real backend exists, is a one-line
-change in `features/devices/presentation/providers/devices_providers.dart`
-— no presentation code changes, by design.
+Wiring the remaining generic providers from their local implementations to
+their remote adapters is separate from the real backend capabilities already
+used by the app. The provider boundary keeps that migration out of presentation
+code.
 
 ## 2. Onboarding / provisioning (the one direct app ↔ device path)
 
@@ -88,7 +91,7 @@ sequence (they never skip physically talking to the device):
 ```text
 AddInterBridgePage → OnboardingCoordinator → BleOnboardingTransport → (future) real BLE
                             │
-                            └──────────────→ OnboardingClaimRepository → (future) real backend
+                            └──────────────→ OnboardingClaimRepository → (future) real claim API
 ```
 
 `BleOnboardingTransport` has no production implementation yet — only a
@@ -156,8 +159,10 @@ command/response/event *would* look like once the backend relays it — see
 `features/devices/domain/entities/device_command.dart`,
 `device_command_result.dart`, `device_event.dart`, `device_protocol_error.dart`.
 These mirror the wire shapes from `docs/communication-protocol.md` §14/§16/
-§18/§19/§21 so parsing/mapping logic can be written and tested today, but
-none of it is wired to a real transport.
+§18/§19/§21 so parsing/mapping logic can be written and tested. The generic
+MQTT-shaped model/provider path described here is not itself wired to a remote
+transport; separately, the Fase 2D UI uses the deployed authenticated HTTPS
+command API. The app still never connects to MQTT directly.
 
 ## 5. Commands (`OPEN_DOOR`, `RESTART`)
 
@@ -168,13 +173,18 @@ DeviceCommandController (features/devices/presentation/providers/device_command_
         ↓
 DeviceConnectionRepository.openDoor(deviceId)
         ↓
-(future) CloudDeviceConnectionRepository → DeviceBackendRepository → backend
+generic provider path still to wire remotely → command API
         ↓
 backend creates and publishes the final OPEN_DOOR envelope (stamps
 issued_at/expires_at, assigns/validates command_id), correlates the response
         ↓
 DeviceCommandResult { status: ACCEPTED → COMPLETED / FAILED / REJECTED }
 ```
+
+This diagram describes the generic `DeviceConnectionRepository` path that
+still needs a remote adapter. The implemented Fase 2D path already calls the
+deployed asynchronous HTTPS command API directly; HTTP acceptance alone does
+not establish device execution or physical opening.
 
 The app is not the source of the command envelope. `DeviceCommand`
 (`features/devices/domain/entities/device_command.dart`) models that

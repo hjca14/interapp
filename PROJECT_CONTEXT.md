@@ -111,10 +111,10 @@ A arquitetura deve permitir trocar a implementação de comunicação sem precis
 * O botão verde do discador é um ponto de integração futuro.
 * O botão de discagem **não deve abrir o aplicativo de telefone do sistema nem usar `tel:`**.
 * A comunicação real com o hardware ainda será implementada.
-* Backend/cloud ainda não está implementado, mas a abstração já existe: `DeviceBackendRepository` (contrato) + `LocalDeviceBackendRepository` (stub honesto, reporta `CLOUD_UNAVAILABLE` em vez de fingir sucesso). Ver seção 26.
-* **A seção 15 (Backend futuro) apontava Supabase como candidato — isso conflita com o protocolo v1.1, que define AWS (Cognito/API/Lambda + AWS IoT Core). Esse conflito está documentado, não resolvido silenciosamente — ver seção 26, "Conflito descoberto: Supabase vs. AWS".**
+* O backend não é mais uma pendência geral: Cognito, diretório e leitura de dispositivos, status, `PATCH` de `display_name` e a API assíncrona de comandos estão implantados em DEV. `DeviceBackendRepository` + `LocalDeviceBackendRepository` continuam ativos somente em providers genéricos de comandos/eventos ainda não migrados para transporte remoto; esse stub reporta `CLOUD_UNAVAILABLE` sem representar `HttpDeviceRepository` nem as APIs reais já usadas pelo app. Ver seção 26.
+* **A seção 15 preserva uma decisão histórica que apontava Supabase como candidato. A arquitetura implantada usa AWS (Cognito/API/Lambda + AWS IoT Core); o registro antigo não deve ser interpretado como estado atual. Ver seção 26, "Conflito descoberto: Supabase vs. AWS".**
 * O app já reage localmente a uma chamada recebida (`DeviceStatus.hasIncomingCall`): notificação do sistema + tela de chamada em tela cheia. Ver seção 19. Isso só funciona com o processo do app vivo; com o app fechado, ainda depende da futura integração push/backend, sem numeração definitiva no roadmap.
-* Fluxo real de `OPEN_DOOR` (máquina de estados idle/sending/accepted/completed/failed/rejected/timedOut) já existe na tela de detalhe do dispositivo, mas hoje sempre termina em "rejeitado: dispositivo não provisionado" porque não há backend/hardware real. Ver seção 26.
+* O fluxo assíncrono de API para `OPEN_DOOR` e sua máquina de estados (`idle`/`sending`/`accepted`/`completed`/`failed`/`rejected`/`timedOut`) estão implementados. Um aceite HTTP confirma somente o recebimento pelo backend, não execução ou ação física. Como o firmware/hardware ainda mantém a capacidade física de abertura desabilitada, a tentativa aplicável termina de forma segura em rejeição, como `CAPABILITY_DISABLED` ou estado equivalente previsto pelo contrato; abertura física não foi validada. Ver seção 26.
 
 O projeto deve permanecer funcional mesmo sem um InterBridge físico conectado.
 
@@ -223,7 +223,7 @@ Provider / Controller
  ▼
 DeviceConnectionRepository
  │
- ├── LocalDeviceConnectionRepository (hoje, ativa) — sem hardware/backend
+ ├── LocalDeviceConnectionRepository (ativa neste provider) — sem transporte para hardware
  │
  └── CloudDeviceConnectionRepository (já existe, não é a ativa ainda)
       │
@@ -504,7 +504,7 @@ Arquitetura em `features/pairing/`:
 ```text
 AddInterBridgePage → OnboardingCoordinator → BleOnboardingTransport → BLE real (futuro)
                             │
-                            └──────────────→ OnboardingClaimRepository → backend real (futuro)
+                            └──────────────→ OnboardingClaimRepository → API real de claim futura
 ```
 
 * `OnboardingState`/`OnboardingPhase` (`domain/entities/onboarding_state.dart`) — as 14 fases primárias (idle, checkingSetupMode, scanningBle, deviceFound, confirmingDevice, connectingBle, selectingWifi, sendingWifi, startingClaim, claimActive, awsProvisioning, verifyingDevice, success, error) + 3 de fallback (scanningQr, enteringSetupCode, resolvingSetupCode). `OnboardingFailureKind` classifica o motivo de `error` (bleUnavailable/scanTimeout/connectionFailed/wifiFailed/claimFailed/alreadyOwned/invalidOrExpiredCode/rateLimited/unknown) para a UI escolher a ação de recuperação certa, sem precisar de uma fase por motivo.
@@ -574,7 +574,7 @@ O compartilhamento ainda não está implementado.
 
 ---
 
-# 15. Backend futuro
+# 15. Decisão histórica de backend
 
 **⚠️ Esta seção contém uma decisão desatualizada — ver o aviso abaixo antes de agir sobre ela.**
 
@@ -695,7 +695,7 @@ ERROR
 
 `DeviceEvent.fromJson` faz o parsing tolerando campos extras desconhecidos e validando `protocol_version` (lança `UnsupportedProtocolVersionException` para uma versão que o app não entende). `dedupeDeviceEvents` remove duplicatas por `event_id` (o protocolo entrega eventos pelo menos uma vez — duplicatas são esperadas).
 
-A aba **Resumo** de `DeviceDetailPage` já consome `deviceEventsProvider(deviceId)` (`features/devices/presentation/providers/device_events_provider.dart`), que carrega o histórico recente e escuta eventos ao vivo via `DeviceBackendRepository`. Hoje o backend é o stub `LocalDeviceBackendRepository`, que sempre devolve uma lista vazia — então a tela continua mostrando:
+A aba **Resumo** de `DeviceDetailPage` já consome `deviceEventsProvider(deviceId)` (`features/devices/presentation/providers/device_events_provider.dart`), que carrega o histórico recente e escuta eventos ao vivo via `DeviceBackendRepository`. Para esse provider específico de histórico/eventos, a implementação ativa ainda é o stub `LocalDeviceBackendRepository`, que sempre devolve uma lista vazia — isso não descreve `HttpDeviceRepository`, as leituras/status reais nem a API assíncrona de comandos. Por isso a tela continua mostrando:
 
 ```text
 Nenhum evento recebido
@@ -856,7 +856,7 @@ Antes de alterar a arquitetura:
 * [x] Definir protocolo de comunicação — `docs/communication-protocol.md` v1.1 (arquitetura AWS IoT Core); falta confirmar a decisão Supabase vs. AWS do backend de aplicação (ver seção 15)
 * [ ] Definir hardware final/protótipo
 * [ ] Definir interface elétrica com o interfone
-* [ ] Implementar o backend de aplicação AWS real (Cognito/API/Lambda) + `RemoteDeviceBackendRepository`
+* [ ] Integrar os providers genéricos ainda locais de comandos/eventos por meio de uma implementação remota de `DeviceBackendRepository`; Cognito, diretório/status, nome pessoal e API assíncrona de comandos já existem em AWS
 * [ ] Validar/implementar BLE real (`BleOnboardingTransport`) — confirmar compatibilidade com ESP-IDF Unified Provisioning/Protocomm Security 1 (versão pinada ao firmware) antes de escolher pacote
 * [ ] Scanner de QR real (hoje o fallback de QR em `AddInterBridgePage` usa entrada manual do payload) — confirmar antes o formato de serialização do QR de `setup_code`
 * [ ] Ativar `CloudDeviceConnectionRepository` como implementação padrão de `deviceConnectionRepositoryProvider`
@@ -1015,15 +1015,15 @@ A única comunicação direta definida no protocolo v1 é **BLE, exclusivamente 
 ## Separação de autenticação
 
 ```text
-humano  → Cognito/backend de aplicação (abstraído por AuthRepository — ainda não implementado de verdade)
+humano  → Cognito/backend de aplicação (integração real usada pelo app; separada do AuthRepository legado)
 device  → X.509/mTLS contra AWS IoT Core (o app nunca vê essas credenciais)
 ```
 
-`AuthRepository`/`LocalAuthRepository` (`features/auth/`) são novos nesta tarefa. Não têm relação com o "perfil" local já existente (`features/profile/`, só um nome digitado) — são conceitos diferentes que continuam separados.
+`AuthRepository`/`LocalAuthRepository` (`features/auth/`) foram introduzidos como abstração local nesta etapa histórica. A autenticação real do app usa Cognito e não deve ser confundida com esse stub nem com o "perfil" local (`features/profile/`, só um nome digitado); são conceitos diferentes que continuam separados.
 
 ## Claim (associação de propriedade)
 
-QR = `device_id` (não é segredo) + `claim_code` (segredo de posse, single-use), no formato `interbridge://claim?v=1&device_id=ib-<32 hex minúsculos>&claim_code=<segredo>` (`docs/communication-protocol.md` §4). Modelado em `features/pairing/domain/entities/device_claim.dart`: `parseDeviceClaimQrPayload` valida scheme/host/versão/formato do `device_id`/presença do `claim_code`/parâmetros obrigatórios duplicados, sem nunca lançar exceção (entrada inválida vira `null`). `claim_code` nunca aparece em `toString()` e não deve ser persistido depois de um claim bem-sucedido. `DeviceBackendRepository.claimDevice` é a operação de backend correspondente — hoje sempre retorna "backend indisponível".
+QR = `device_id` (não é segredo) + `claim_code` (segredo de posse, single-use), no formato `interbridge://claim?v=1&device_id=ib-<32 hex minúsculos>&claim_code=<segredo>` (`docs/communication-protocol.md` §4). Modelado em `features/pairing/domain/entities/device_claim.dart`: `parseDeviceClaimQrPayload` valida scheme/host/versão/formato do `device_id`/presença do `claim_code`/parâmetros obrigatórios duplicados, sem nunca lançar exceção (entrada inválida vira `null`). `claim_code` nunca aparece em `toString()` e não deve ser persistido depois de um claim bem-sucedido. `DeviceBackendRepository.claimDevice` é a operação correspondente na abstração de onboarding; a implementação local desse fluxo específico hoje retorna "backend indisponível". Isso não descreve as APIs reais de autenticação, diretório, status, nome pessoal ou comandos.
 
 ## Provisioning (pareamento)
 
@@ -1039,7 +1039,7 @@ O botão "Abrir porta" (`_OpenDoorCard` em `device_detail_page.dart`) já usa a 
 idle → sending → accepted → completed / failed / rejected / timedOut
 ```
 
-via `DeviceCommandController` (`features/devices/presentation/providers/device_command_provider.dart`). Uma resposta HTTP `200` nunca é tratada como sucesso — só `status == completed` é. `timedOut` nunca é reenviado automaticamente. Um segundo toque enquanto uma solicitação está em andamento é ignorado (guard por `isBusy`). Hoje toda tentativa termina em `rejected`/`NOT_PROVISIONED` (via `LocalDeviceConnectionRepository`) porque não há dispositivo/backend real.
+via `DeviceCommandController` (`features/devices/presentation/providers/device_command_provider.dart`). Uma resposta HTTP de aceite nunca é tratada como comprovação de abertura — só `status == completed` permitiria confirmar execução. `timedOut` nunca é reenviado automaticamente e um segundo toque durante a solicitação é ignorado (`isBusy`). O fluxo assíncrono de API existe; a capacidade física de abertura permanece desabilitada no firmware/hardware, portanto a tentativa aplicável termina de forma segura em rejeição como `CAPABILITY_DISABLED` ou estado equivalente do contrato. Nenhuma abertura física foi validada. Providers genéricos que ainda usam `LocalDeviceConnectionRepository` constituem um caminho local separado, não evidência de ausência do backend.
 
 `RESTART` está modelado no contrato mas sem UI dedicada — o protocolo nota que `ACCEPTED` pode chegar antes do reboot de verdade, e só a reconexão é o sinal autoritativo de conclusão, o que exige um backend real para ter sentido. Continua atrás do placeholder "Reiniciar" em `DeviceSettingsPage`.
 
@@ -1092,11 +1092,11 @@ A integração inicial do protocolo (o que virou a seção 26 original) tinha tr
 * **Lista de códigos de erro** — antes 13 códigos; agora os 18 do contrato oficial (faltavam `PAYLOAD_TOO_LARGE`, `COMMAND_EXPIRED`, `CLOCK_NOT_TRUSTWORTHY`, `INVALID_TIMESTAMP`, `PROVISIONING_FAILED`).
 * **Timestamps do comando** — antes o exemplo em `docs/communication-protocol.md` mostrava ISO-8601 para `issued_at`/`expires_at`; o wire protocol real usa epoch Unix em segundos (`timestamp` dos *eventos* continua ISO-8601 UTC, isso não mudou).
 
-Essa correção **não** ativou nenhuma integração real nova — só alinhou modelos/parsers/testes ao contrato. `CloudDeviceConnectionRepository` continua fora de uso (`LocalDeviceConnectionRepository` é a implementação ativa); nenhum SDK AWS/Cognito/cliente MQTT foi adicionado; nenhum scanner de QR/câmera foi adicionado.
+Naquele momento, essa correção **não** ativou integração nova; apenas alinhou modelos/parsers/testes ao contrato. `CloudDeviceConnectionRepository` continuou fora de uso naquele caminho genérico e não foram adicionados cliente MQTT nem scanner de QR/câmera. Desde então, Cognito, diretório/status, nome pessoal e a API HTTPS assíncrona de comandos foram implantados por integrações próprias; este registro histórico não substitui o estado atual.
 
 ## Estado de implementação
 
-Ver `docs/APP_COMMUNICATION_STATUS.md` para a matriz completa por área. Nenhuma dependência AWS/BLE/QR real foi adicionada ao `pubspec.yaml` — tudo que existe hoje é contrato + stub honesto + modelo de domínio + testes.
+Ver `docs/APP_COMMUNICATION_STATUS.md` para a matriz completa por área. As integrações reais de Cognito e APIs HTTPS coexistem com contratos e stubs locais restritos a features ainda pendentes. BLE real, scanner QR, áudio, push, compartilhamento e capacidade física de abertura continuam não implementados.
 
 ## Testes
 
