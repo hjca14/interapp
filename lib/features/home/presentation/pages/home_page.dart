@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../auth/presentation/providers/auth_providers.dart';
 import '../../../auth/presentation/widgets/biometric_lock_gate.dart';
 import '../../../devices/domain/entities/api_device.dart';
+import '../../../devices/presentation/device_status_presentation.dart';
 import '../../../devices/presentation/providers/api_devices_provider.dart';
 import '../../../devices/presentation/providers/devices_providers.dart';
 import '../../../profile/presentation/pages/registration_page.dart';
@@ -165,7 +166,7 @@ class _DeviceTile extends StatelessWidget {
     child: ListTile(
       leading: const CircleAvatar(child: Icon(Icons.speaker_phone)),
       title: Text(device.safeName),
-      subtitle: Text(device.role.name.toUpperCase()),
+      subtitle: Text(friendlyDeviceRole(device.role)),
       trailing: const Icon(Icons.chevron_right),
       onTap: () =>
           context.push('/devices/${Uri.encodeComponent(device.deviceId)}'),

@@ -40,7 +40,7 @@ class ApiDevicesController extends Notifier<DeviceListState> {
     _requestInFlight = true;
     state = const DeviceListState();
     try {
-      final page = await ref.read(httpDeviceRepositoryProvider).list();
+      final page = await ref.read(deviceRepositoryProvider).listDevices();
       state = DeviceListState(
         items: _deduplicateByDeviceId(page.items),
         nextCursor: page.nextCursor,
@@ -69,8 +69,8 @@ class ApiDevicesController extends Notifier<DeviceListState> {
     );
     try {
       final page = await ref
-          .read(httpDeviceRepositoryProvider)
-          .list(cursor: requestedCursor);
+          .read(deviceRepositoryProvider)
+          .listDevices(cursor: requestedCursor);
       // A repeated opaque cursor indicates no forward progress. Clearing it
       // prevents a pagination loop without attempting to interpret its value.
       final nextCursor = page.nextCursor == requestedCursor
@@ -93,6 +93,31 @@ class ApiDevicesController extends Notifier<DeviceListState> {
     }
   }
 
+  /// Reflects a successful personal-name update (or clear) from
+  /// [ApiDeviceDetailController.updateName] in the already-loaded list,
+  /// without a network round trip. A no-op if the device isn't loaded yet.
+  void applyRenamedDevice(String deviceId, String? displayName) {
+    state = DeviceListState(
+      items: [
+        for (final item in state.items)
+          if (item.deviceId == deviceId)
+            ApiDeviceSummary(
+              deviceId: item.deviceId,
+              displayName: displayName,
+              role: item.role,
+              status: item.status,
+            )
+          else
+            item,
+      ],
+      nextCursor: state.nextCursor,
+      loading: state.loading,
+      loadingMore: state.loadingMore,
+      error: state.error,
+      loadMoreError: state.loadMoreError,
+    );
+  }
+
   static List<ApiDeviceSummary> _deduplicateByDeviceId(
     Iterable<ApiDeviceSummary> devices,
   ) {
@@ -108,12 +133,45 @@ final apiDevicesProvider =
       ApiDevicesController.new,
     );
 
-final apiDeviceDetailProvider = FutureProvider.family<ApiDeviceDetail, String>((
-  ref,
-  deviceId,
-) {
-  return ref.watch(httpDeviceRepositoryProvider).detail(deviceId);
-});
+/// Loads one device's details and, unlike a plain read-only provider, also
+/// carries [updateName] — the personal-name edit needs to write through the
+/// repository and reflect the confirmed result immediately. See
+/// `DeviceSettingsController` for the same read+write `AsyncNotifier` shape
+/// used elsewhere in this feature.
+class ApiDeviceDetailController extends AsyncNotifier<ApiDeviceDetail> {
+  ApiDeviceDetailController(this.deviceId);
+
+  final String deviceId;
+
+  @override
+  Future<ApiDeviceDetail> build() {
+    return ref.watch(deviceRepositoryProvider).getDeviceDetails(deviceId);
+  }
+
+  /// Updates the authenticated user's personal device name, or clears it when
+  /// [displayName] is `null`. Other users' membership views are unaffected.
+  /// Waits for the repository to confirm the write before touching
+  /// `state` — no optimistic update, so a failure never shows a name the
+  /// backend didn't actually save. If the repository call throws, `state`
+  /// simply never changes, so the previous value (and whatever the edit
+  /// screen's own text field still holds) is untouched.
+  Future<void> updateName(String? displayName) async {
+    final updated = await ref
+        .read(deviceRepositoryProvider)
+        .updateDeviceName(deviceId, displayName);
+    state = AsyncData(updated);
+    ref
+        .read(apiDevicesProvider.notifier)
+        .applyRenamedDevice(deviceId, updated.displayName);
+  }
+}
+
+final apiDeviceDetailProvider =
+    AsyncNotifierProvider.family<
+      ApiDeviceDetailController,
+      ApiDeviceDetail,
+      String
+    >(ApiDeviceDetailController.new);
 
 final apiDeviceStatusProvider = FutureProvider.family<ApiDeviceStatus, String>((
   ref,

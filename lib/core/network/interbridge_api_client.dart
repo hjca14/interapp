@@ -82,6 +82,28 @@ class InterBridgeApiClient {
     return _decodeResponse(retry, expectedStatus: expectedStatus);
   }
 
+  /// Performs an authenticated JSON PATCH using the same auth and refresh
+  /// path as every other API request.
+  Future<Map<String, dynamic>> patch(
+    String path, {
+    required Map<String, dynamic> body,
+    int expectedStatus = HttpStatus.ok,
+  }) async {
+    final first = await _sendPatch(path, body: body);
+    if (first.statusCode != HttpStatus.unauthorized) {
+      return _decodeResponse(first, expectedStatus: expectedStatus);
+    }
+    final retry = await _sendPatch(path, body: body, forceRefresh: true);
+    if (retry.statusCode == HttpStatus.unauthorized) {
+      await _auth.invalidateSession();
+      throw const ApiFailure(
+        ApiFailureKind.unauthorized,
+        'Sua sessão expirou. Entre novamente.',
+      );
+    }
+    return _decodeResponse(retry, expectedStatus: expectedStatus);
+  }
+
   Future<http.Response> _sendGet(
     String path, {
     Map<String, String>? query,
@@ -137,6 +159,44 @@ class InterBridgeApiClient {
               'Accept': 'application/json',
               'Content-Type': 'application/json',
               ...headers,
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(timeout);
+    } on TimeoutException {
+      throw const ApiFailure(
+        ApiFailureKind.timeout,
+        'O serviço demorou para responder.',
+      );
+    } on SocketException {
+      throw const ApiFailure(
+        ApiFailureKind.offline,
+        'Sem conexão com o serviço.',
+      );
+    } on http.ClientException {
+      throw const ApiFailure(
+        ApiFailureKind.offline,
+        'Sem conexão com o serviço.',
+      );
+    }
+  }
+
+  Future<http.Response> _sendPatch(
+    String path, {
+    required Map<String, dynamic> body,
+    bool forceRefresh = false,
+  }) async {
+    final accessToken = await _auth.getValidAccessToken(
+      forceRefresh: forceRefresh,
+    );
+    try {
+      return await _client
+          .patch(
+            Uri.parse('$baseUrl$path'),
+            headers: {
+              'Authorization': 'Bearer $accessToken',
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
             },
             body: jsonEncode(body),
           )

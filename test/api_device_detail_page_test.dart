@@ -7,6 +7,7 @@ import 'package:interapp/features/devices/domain/entities/api_device.dart';
 import 'package:interapp/features/devices/domain/entities/intercom_state.dart';
 import 'package:interapp/features/devices/presentation/device_status_presentation.dart';
 import 'package:interapp/features/devices/presentation/pages/api_device_detail_page.dart';
+import 'package:interapp/features/devices/presentation/pages/edit_device_name_page.dart';
 import 'package:interapp/features/devices/presentation/providers/api_devices_provider.dart';
 import 'package:interapp/features/devices/presentation/providers/device_refresh_provider.dart';
 import 'package:interapp/features/favorites/data/repositories/local_favorites_repository.dart';
@@ -22,6 +23,7 @@ import 'package:interapp/core/network/api_failure.dart';
 import 'package:interapp/features/auth/domain/services/biometric_lock.dart';
 import 'package:interapp/features/auth/presentation/providers/biometric_lock_providers.dart';
 import 'package:interapp/features/devices/domain/entities/device_settings.dart';
+import 'package:interapp/features/devices/domain/repositories/device_repository.dart';
 import 'package:interapp/features/devices/domain/repositories/device_settings_repository.dart';
 
 class _MemoryFavoritesRepository extends LocalFavoritesRepository {
@@ -106,6 +108,60 @@ class _Authenticator implements BiometricAuthenticator {
   }
 }
 
+/// Test double for [DeviceRepository]. Detail-page tests only exercise
+/// `getDeviceDetails` (via [loadDetail]) and `updateDeviceName` (via
+/// [onUpdateName]) — `listDevices` just backs the unrelated
+/// `apiDevicesProvider` that also lives in the widget tree, so it returns an
+/// empty page rather than modeling the list feature here too.
+class _DeviceDirectory implements DeviceRepository {
+  _DeviceDirectory({required this.role, this.loadDetail, this.onUpdateName});
+
+  final DeviceRole role;
+  final Future<ApiDeviceDetail> Function()? loadDetail;
+  final Future<ApiDeviceDetail> Function(String deviceId, String? displayName)?
+  onUpdateName;
+  int updateNameCalls = 0;
+
+  @override
+  Future<ApiDevicePage> listDevices({int limit = 25, String? cursor}) async {
+    return const ApiDevicePage(items: []);
+  }
+
+  @override
+  Future<ApiDeviceDetail> getDeviceDetails(String deviceId) {
+    if (loadDetail != null) return loadDetail!();
+    return Future.value(
+      ApiDeviceDetail(
+        deviceId: deviceId,
+        displayName: 'Portaria',
+        hardwareVersion: 'HW-2',
+        ownershipStatus: 'claimed',
+        provisioningStatus: 'active',
+        role: role,
+      ),
+    );
+  }
+
+  @override
+  Future<ApiDeviceDetail> updateDeviceName(
+    String deviceId,
+    String? displayName,
+  ) {
+    updateNameCalls++;
+    if (onUpdateName != null) return onUpdateName!(deviceId, displayName);
+    return Future.value(
+      ApiDeviceDetail(
+        deviceId: deviceId,
+        displayName: displayName,
+        hardwareVersion: 'HW-2',
+        ownershipStatus: 'claimed',
+        provisioningStatus: 'active',
+        role: role,
+      ),
+    );
+  }
+}
+
 class _CommandRepository implements CommandRepository {
   _CommandRepository({
     this.commandStatus,
@@ -167,20 +223,18 @@ void main() {
     StatusPollingScheduler? pollingScheduler,
     Future<ApiDeviceStatus> Function()? loadStatus,
     Future<ApiDeviceDetail> Function()? loadDetail,
+    Future<ApiDeviceDetail> Function(String deviceId, String? displayName)?
+    onUpdateName,
   }) {
     return ProviderScope(
       overrides: [
-        apiDeviceDetailProvider.overrideWith((ref, id) async {
-          if (loadDetail != null) return loadDetail();
-          return ApiDeviceDetail(
-            deviceId: deviceId,
-            displayName: 'Portaria',
-            hardwareVersion: 'HW-2',
-            ownershipStatus: 'claimed',
-            provisioningStatus: 'active',
+        deviceRepositoryProvider.overrideWithValue(
+          _DeviceDirectory(
             role: role,
-          );
-        }),
+            loadDetail: loadDetail,
+            onUpdateName: onUpdateName,
+          ),
+        ),
         apiDeviceStatusProvider.overrideWith((ref, id) async {
           if (loadStatus != null) return loadStatus();
           return ApiDeviceStatus(
@@ -1088,6 +1142,204 @@ void main() {
       );
     },
   );
+
+  testWidgets('falls back to InterBridge and shows provisioning/role/id', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      subject(
+        loadDetail: () async {
+          return const ApiDeviceDetail(
+            deviceId: deviceId,
+            displayName: null,
+            ownershipStatus: 'claimed',
+            provisioningStatus: 'active',
+            role: DeviceRole.owner,
+          );
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('InterBridge'), findsWidgets);
+    expect(find.textContaining('Provisionamento: active'), findsOneWidget);
+    expect(find.textContaining('Papel: Proprietário'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.textContaining('ID do dispositivo: $deviceId'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.textContaining('ID do dispositivo: $deviceId'), findsOneWidget);
+    expect(find.byTooltip('Copiar ID do dispositivo'), findsOneWidget);
+    // The technical row is the only place device_id may appear; nothing
+    // shows the raw id as a title.
+    expect(find.widgetWithText(AppBar, deviceId), findsNothing);
+  });
+
+  for (final role in DeviceRole.values) {
+    testWidgets(
+      '${role.name.toUpperCase()} can edit the personal name with the same payload',
+      (tester) async {
+        String? sentName;
+        await tester.pumpWidget(
+          subject(
+            role: role,
+            onUpdateName: (id, displayName) async {
+              sentName = displayName;
+              return ApiDeviceDetail(
+                deviceId: id,
+                displayName: displayName,
+                ownershipStatus: 'claimed',
+                provisioningStatus: 'active',
+                role: role,
+              );
+            },
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byTooltip('Editar nome'), findsOneWidget);
+
+        await tester.tap(find.byTooltip('Editar nome'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), '  Nome pessoal  ');
+        await tester.tap(find.widgetWithText(FilledButton, 'Salvar'));
+        await tester.pumpAndSettle();
+
+        expect(sentName, 'Nome pessoal');
+      },
+    );
+  }
+
+  testWidgets('tapping edit opens the editor pre-filled with the name', (
+    tester,
+  ) async {
+    await tester.pumpWidget(subject());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Editar nome'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(EditDeviceNamePage), findsOneWidget);
+    expect(find.text('Portaria'), findsOneWidget);
+  });
+
+  testWidgets('renaming updates the AppBar title and card immediately', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      subject(
+        onUpdateName: (id, displayName) async => ApiDeviceDetail(
+          deviceId: id,
+          displayName: displayName,
+          hardwareVersion: 'HW-2',
+          ownershipStatus: 'claimed',
+          provisioningStatus: 'active',
+          role: DeviceRole.owner,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Editar nome'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'Minha casa');
+    await tester.tap(find.widgetWithText(FilledButton, 'Salvar'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(EditDeviceNamePage), findsNothing);
+    expect(find.widgetWithText(AppBar, 'Minha casa'), findsOneWidget);
+    expect(find.text('Portaria'), findsNothing);
+  });
+
+  testWidgets('save is disabled for blank input and trims before sending', (
+    tester,
+  ) async {
+    String? sentName;
+    await tester.pumpWidget(
+      subject(
+        onUpdateName: (id, displayName) async {
+          sentName = displayName;
+          return ApiDeviceDetail(
+            deviceId: id,
+            displayName: displayName,
+            ownershipStatus: 'claimed',
+            provisioningStatus: 'active',
+            role: DeviceRole.owner,
+          );
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Editar nome'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '   ');
+    await tester.pump();
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Salvar'))
+          .onPressed,
+      isNull,
+    );
+
+    await tester.enterText(find.byType(TextField), '  Minha casa  ');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Salvar'));
+    await tester.pumpAndSettle();
+    expect(sentName, 'Minha casa');
+  });
+
+  testWidgets('Usar nome padrão clears the custom name', (tester) async {
+    String? sentName = 'unset';
+    await tester.pumpWidget(
+      subject(
+        onUpdateName: (id, displayName) async {
+          sentName = displayName;
+          return ApiDeviceDetail(
+            deviceId: id,
+            displayName: displayName,
+            ownershipStatus: 'claimed',
+            provisioningStatus: 'active',
+            role: DeviceRole.owner,
+          );
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Editar nome'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Usar nome padrão'));
+    await tester.pumpAndSettle();
+    expect(sentName, isNull);
+    expect(find.byType(EditDeviceNamePage), findsNothing);
+    expect(find.widgetWithText(AppBar, 'InterBridge'), findsOneWidget);
+  });
+
+  testWidgets('save error keeps the typed name and shows a friendly message', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      subject(
+        onUpdateName: (id, displayName) async {
+          throw StateError('safe fake failure');
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Editar nome'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'Minha casa');
+    await tester.tap(find.widgetWithText(FilledButton, 'Salvar'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(EditDeviceNamePage), findsOneWidget);
+    expect(find.text('Minha casa'), findsOneWidget);
+    expect(
+      find.text('Não foi possível salvar o nome. Tente novamente.'),
+      findsOneWidget,
+    );
+  });
 }
 
 Future<void> _confirmDoorCommand(WidgetTester tester) async {

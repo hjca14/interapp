@@ -1,5 +1,22 @@
 # InterApp — Communication Implementation Status
 
+## Device management — list, details, personal-name rename
+
+The device list (`HomePage`'s Dispositivos tab) and details
+(`ApiDeviceDetailPage`) already existed and are unchanged in their reading of
+`listDevices`/`getDeviceDetails` (still the three GET routes from Fase 2C).
+What's new: both now sit behind the `DeviceRepository` interface instead of
+depending on `HttpDeviceRepository` directly, the detail screen shows
+provisioning status, a friendly role label and a discreet, copyable
+`device_id` area, and a personal-name edit screen (`EditDeviceNamePage`) lets
+OWNER, ADMIN and MEMBER with an ACTIVE membership rename or clear their own
+`DeviceMembership.display_name`. This is not a physical/global Device
+property, and one user's update does not affect what another user sees. No
+room/location field was added. The literal
+"InterBridge" as the single fallback used everywhere (`deviceDisplayName`) —
+`device_id` is never shown as a title. See the "Device rename" row below for
+the confirmed contract and deployment status.
+
 ## Fase 2D — integração visual controlada
 
 O backend da Fase 2D está implantado em DEV e o ESP32 real está conectado ao
@@ -67,6 +84,8 @@ production — that distinction is the entire point of this table.
 
 | Area | Status | Notes |
 |---|---|---|
+| Device directory (list/details) | Implemented | `DeviceRepository.listDevices`/`getDeviceDetails`, backed by `HttpDeviceRepository` — same three deployed GET routes as before, now behind an abstract interface (`devices_providers.dart`'s `deviceRepositoryProvider`) |
+| Device personal name (`display_name`) | Implemented (app-side) | Contract confirmed by interBackend PR #18: GET list/detail return the authenticated user's `DeviceMembership.display_name`; `PATCH /v1/devices/{device_id}` accepts a string of at most 60 characters or `null`, derives the user from the JWT, and lets ACTIVE OWNER/ADMIN/MEMBER memberships update only their own value. `HttpDeviceRepository` is aligned with that contract. The backend implementation is complete locally but is not deployed to AWS, and no real remote call to this PATCH route has been validated. `FakeDeviceRepository` models one authenticated user's view; separate instances represent independent users. |
 | Backend API abstraction | Implemented | `DeviceBackendRepository` + `LocalDeviceBackendRepository` (honestly reports `CLOUD_UNAVAILABLE`) |
 | Human auth abstraction | Implemented | `AuthRepository` + `LocalAuthRepository` (always signed-out; `signIn()` throws rather than faking a session) |
 | AWS real backend | Not implemented | No AWS project/account/API exists yet; see `docs/communication-protocol.md` §37.1 |
