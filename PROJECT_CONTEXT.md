@@ -397,20 +397,26 @@ lib/
 
 ## Dispositivos
 
-1. A aba **Dispositivos** exibe os InterBridges cadastrados.
-2. O usuário adiciona um dispositivo por nome.
-3. O dispositivo recebe um identificador próprio.
-4. O usuário pode editar o nome.
-5. O usuário pode remover o dispositivo.
-6. Tocar em um dispositivo abre `DeviceDetailPage`.
-7. O detalhe possui as abas:
+1. A aba **Dispositivos** exibe os InterBridges acessíveis ao usuário, vindos do backend (`apiDevicesProvider`/`HttpDeviceRepository`), não de um cadastro local.
+2. O dispositivo é adicionado pelo fluxo de pareamento/claim (seção 13), não por um formulário de nome — um formulário de nome só faz sentido para o legado local (`DeviceFormPage`/`InterBridgeDevice`), que este fluxo não usa mais.
+3. O dispositivo tem um `device_id` próprio, gerado pelo backend.
+4. O usuário pode editar o **nome amigável** (`display_name`) quando seu `role` permite (owner/admin; member não vê a ação — ver seção 14). Tela dedicada: `EditDeviceNamePage`, acessível a partir do ícone de edição em `ApiDeviceDetailPage`. Regras:
+   * campo pré-preenchido com o `display_name` atual (vazio quando não há nome customizado, nunca com o texto de fallback);
+   * limite de `kDeviceDisplayNameMaxLength` caracteres (60 — placeholder assumido, ver `docs/APP_COMMUNICATION_STATUS.md`, "Device rename");
+   * "Usar nome padrão" envia `display_name: null` para limpar o nome customizado — nunca uma string vazia;
+   * sem atualização otimista: a tela espera a confirmação do repository antes de atualizar a UI, e falha recuperável preserva o texto digitado.
+   * **Deliberadamente não há campo de cômodo/ambiente/localização interna** — o fluxo assume normalmente um InterBridge por residência; o nome amigável (ex.: "Minha casa", "Interfone") já cobre a necessidade de identificação.
+5. Quando `display_name` está ausente, vazio ou ainda não carregado, toda a UI usa o fallback literal **"InterBridge"** (função `deviceDisplayName`, `api_device.dart`) — nunca `device_id`. O `device_id` só aparece em uma área técnica discreta e copiável no detalhe (`_TechnicalInfoRow`), nunca como título.
+6. Remover o dispositivo (transferência/exclusão de propriedade) **não está implementado** — adiado para uma PR própria de compartilhamento (seção 14).
+7. Tocar em um dispositivo abre `ApiDeviceDetailPage`.
+8. O detalhe possui as abas:
 
-   * **Resumo**
+   * **Resumo** (nome, hardware, provisionamento, papel, status online/offline, `device_id` técnico)
    * **Discar**
    * **Favoritos**
-8. O cadastro do dispositivo não depende de uma conexão física.
-9. Eventos, status e firmware não são simulados.
-10. Enquanto não houver conexão, a UI informa que está aguardando conexão/dados.
+9. O cadastro do dispositivo não depende de uma conexão física.
+10. Eventos, status e firmware não são simulados.
+11. Enquanto não houver conexão, a UI informa que está aguardando conexão/dados.
 
 ---
 

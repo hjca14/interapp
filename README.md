@@ -16,6 +16,27 @@ O Amplify executa `USER_SRP_AUTH`, renova a sessão e guarda credenciais no arma
 
 Valide em aparelho/emulador: login do usuário DEV confirmado, restauração após reiniciar, lista do Device registrado, detalhe/status, pull-to-refresh, expiração/logout e estados offline. Cadastro, confirmação/reenvio e redefinição de senha também estão disponíveis. BLE, claim, QR, Fleet Provisioning, commands, MQTT, eventos, voz e realtime permanecem adiados.
 
+## Gerenciamento de dispositivos: lista, detalhes e nome amigável
+
+A lista de dispositivos, a tela de detalhes e a edição do nome amigável
+(`display_name`) usam `DeviceRepository` (`listDevices`/`getDeviceDetails`/
+`updateDeviceName`), implementado por `HttpDeviceRepository`. Listar e ver
+detalhes continuam reais (as mesmas três rotas GET da Fase 2C). Renomear
+mira uma rota `PATCH /v1/devices/{device_id}` **ainda não confirmada nem
+implantada** pelo interBackend — ver `docs/APP_COMMUNICATION_STATUS.md`
+("Device rename") para o status Provisional e o ponto de conexão exato.
+Para testes/desenvolvimento sem depender dessa rota, use
+`FakeDeviceRepository` (determinístico, em memória) no lugar de
+`HttpDeviceRepository` ao sobrescrever `deviceRepositoryProvider`.
+
+Não há campo de cômodo/ambiente/localização: o fluxo assume normalmente um
+InterBridge por residência, identificado por um nome amigável opcional. Toda
+a UI usa "InterBridge" como único fallback (`deviceDisplayName`,
+`api_device.dart`) quando não há nome customizado — nunca `device_id`, que só
+aparece em uma área técnica discreta e copiável na tela de detalhes.
+Histórico, compartilhamento, notificações e BLE continuam adiados para PRs
+próprias.
+
 ## Bloqueio biométrico local
 
 Em **Segurança**, o usuário pode habilitar opcionalmente Face ID/Touch ID no iOS ou a biometria equivalente no Android e escolher depois de quanto tempo em background o app será bloqueado. A opção começa desativada. A preferência armazena somente a ativação e o período; nenhuma senha ou token é armazenado pelo recurso.

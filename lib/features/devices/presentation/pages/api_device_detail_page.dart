@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../dialer/presentation/controllers/dialer_controller.dart';
@@ -12,6 +13,7 @@ import '../../domain/entities/api_device.dart';
 import '../../domain/entities/device_settings.dart';
 import '../device_status_presentation.dart';
 import 'device_settings_page.dart';
+import 'edit_device_name_page.dart';
 import '../providers/api_devices_provider.dart';
 import '../providers/devices_providers.dart';
 import '../providers/device_settings_provider.dart';
@@ -132,7 +134,7 @@ class _ApiDeviceDetailPageState extends ConsumerState<ApiDeviceDetailPage>
   @override
   Widget build(BuildContext context) {
     final detail = ref.watch(apiDeviceDetailProvider(widget.deviceId));
-    final title = detail.value?.displayName ?? 'InterBridge';
+    final title = deviceDisplayName(detail.value?.displayName);
     final pages = [
       _DeviceOverview(deviceId: widget.deviceId),
       DialerPage(controller: _dialerController),
@@ -252,6 +254,8 @@ class _DeviceOverviewState extends ConsumerState<_DeviceOverview> {
               ),
             ),
           ),
+          const SizedBox(height: 16),
+          _TechnicalInfoRow(deviceId: widget.deviceId),
         ],
       ),
     );
@@ -469,16 +473,84 @@ class _DetailCard extends ConsumerWidget {
         ),
       ),
     ),
-    data: (device) => Card(
-      child: ListTile(
-        leading: const Icon(Icons.speaker_phone),
-        title: Text(device.displayName ?? 'Meu InterBridge'),
-        subtitle: Text(
-          'Hardware: ${device.hardwareVersion ?? 'não informado'}\nAcesso: ${device.role.name.toUpperCase()}',
+    data: (device) {
+      // Naming/administration is allowed for owner and admin, per
+      // PROJECT_CONTEXT.md §14 ("owner"/"admin" podem administrar o
+      // dispositivo; "member" só utiliza conforme permissões concedidas).
+      // This only hides the action locally for a better experience — the
+      // backend remains the authority if it rejects the request anyway.
+      final canEditName = device.role != DeviceRole.member;
+      return Card(
+        child: ListTile(
+          leading: const Icon(Icons.speaker_phone),
+          title: Text(deviceDisplayName(device.displayName)),
+          subtitle: Text(
+            'Hardware: ${device.hardwareVersion ?? 'não informado'}\n'
+            'Provisionamento: ${device.provisioningStatus}\n'
+            'Papel: ${friendlyDeviceRole(device.role)}',
+          ),
+          isThreeLine: true,
+          trailing: canEditName
+              ? IconButton(
+                  tooltip: 'Editar nome',
+                  icon: const Icon(Icons.edit_outlined),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => EditDeviceNamePage(
+                        deviceId: deviceId,
+                        initialName: device.displayName,
+                      ),
+                    ),
+                  ),
+                )
+              : null,
         ),
-      ),
-    ),
+      );
+    },
   );
+}
+
+/// Discreet, low-emphasis technical area — not a `Card`, so it doesn't
+/// compete visually with the primary device/status information above. Shows
+/// `device_id` only to let support/troubleshooting copy it; never used as a
+/// title anywhere in this feature.
+class _TechnicalInfoRow extends StatelessWidget {
+  const _TechnicalInfoRow({required this.deviceId});
+  final String deviceId;
+
+  @override
+  Widget build(BuildContext context) {
+    final mutedStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
+      color: Theme.of(context).colorScheme.outline,
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'ID do dispositivo: $deviceId',
+              style: mutedStyle,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          IconButton(
+            iconSize: 18,
+            tooltip: 'Copiar ID do dispositivo',
+            icon: const Icon(Icons.copy_outlined),
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: deviceId));
+              if (context.mounted) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('ID copiado.')));
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _StatusCard extends ConsumerWidget {

@@ -35,10 +35,75 @@ void main() {
     });
     final repository = _createRepository(auth, httpClient);
 
-    final page = await repository.list();
+    final page = await repository.listDevices();
 
     expect(page.nextCursor, 'opaque+/=');
     expect(page.items.single.displayName, isNull);
+  });
+
+  test('updateDeviceName sends a PATCH with the trimmed name', () async {
+    final auth = LocalAuthRepository(
+      initial: const AuthSession(isSignedIn: true, userId: 'opaque'),
+    );
+    http.Request? capturedRequest;
+    final httpClient = MockClient((request) async {
+      capturedRequest = request;
+      return http.Response(
+        jsonEncode({
+          'device_id': 'device-placeholder',
+          'display_name': 'Minha casa',
+          'hardware_version': null,
+          'ownership_status': 'claimed',
+          'provisioning_status': 'active',
+          'role': 'OWNER',
+        }),
+        200,
+      );
+    });
+    final repository = _createRepository(auth, httpClient);
+
+    final updated = await repository.updateDeviceName(
+      'device-placeholder',
+      'Minha casa',
+    );
+
+    expect(capturedRequest?.method, 'PATCH');
+    expect(capturedRequest?.url.path, '/v1/devices/device-placeholder');
+    expect(
+      jsonDecode(capturedRequest!.body),
+      equals({'display_name': 'Minha casa'}),
+    );
+    expect(updated.displayName, 'Minha casa');
+  });
+
+  test('updateDeviceName sends an explicit null to clear the name', () async {
+    final auth = LocalAuthRepository(
+      initial: const AuthSession(isSignedIn: true, userId: 'opaque'),
+    );
+    http.Request? capturedRequest;
+    final httpClient = MockClient((request) async {
+      capturedRequest = request;
+      return http.Response(
+        jsonEncode({
+          'device_id': 'device-placeholder',
+          'display_name': null,
+          'hardware_version': null,
+          'ownership_status': 'claimed',
+          'provisioning_status': 'active',
+          'role': 'OWNER',
+        }),
+        200,
+      );
+    });
+    final repository = _createRepository(auth, httpClient);
+
+    final updated = await repository.updateDeviceName(
+      'device-placeholder',
+      null,
+    );
+
+    expect(jsonDecode(capturedRequest!.body), equals({'display_name': null}));
+    expect(updated.displayName, isNull);
   });
 
   test('parser keeps null health without fabricating telemetry', () {
@@ -99,7 +164,7 @@ void main() {
     final httpClient = MockClient((_) async => http.Response('not-json', 200));
     final repository = _createRepository(auth, httpClient);
 
-    expect(repository.list, throwsA(isA<ApiFailure>()));
+    expect(repository.listDevices, throwsA(isA<ApiFailure>()));
   });
 }
 

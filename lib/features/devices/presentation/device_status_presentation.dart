@@ -1,7 +1,18 @@
 import 'package:flutter/material.dart';
 
+import '../../sharing/domain/entities/device_access.dart';
 import '../domain/entities/api_device.dart';
 import '../domain/entities/intercom_state.dart';
+
+/// Friendly label for the membership role shown in the list and details —
+/// never the raw enum name. Whether a role may edit the device's name is a
+/// separate, UI-only convenience check (see `api_device_detail_page.dart`),
+/// not part of this presentation helper.
+String friendlyDeviceRole(DeviceRole role) => switch (role) {
+  DeviceRole.owner => 'Proprietário',
+  DeviceRole.admin => 'Administrador',
+  DeviceRole.member => 'Membro',
+};
 
 enum UserDeviceStatus { online, offline, unavailable }
 

@@ -2,8 +2,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:interapp/features/devices/domain/entities/api_device.dart';
 import 'package:interapp/features/devices/domain/entities/intercom_state.dart';
 import 'package:interapp/features/devices/presentation/device_status_presentation.dart';
+import 'package:interapp/features/sharing/domain/entities/device_access.dart';
 
 void main() {
+  test('friendlyDeviceRole never shows the raw enum name', () {
+    expect(friendlyDeviceRole(DeviceRole.owner), 'Proprietário');
+    expect(friendlyDeviceRole(DeviceRole.admin), 'Administrador');
+    expect(friendlyDeviceRole(DeviceRole.member), 'Membro');
+    for (final role in DeviceRole.values) {
+      expect(friendlyDeviceRole(role), isNot(role.name.toUpperCase()));
+    }
+  });
+
   const id = 'ib-device';
   final health = ApiDeviceHealth(
     intercomState: IntercomState.idle,

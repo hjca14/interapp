@@ -11,6 +11,7 @@ import 'package:interapp/features/devices/data/repositories/local_devices_reposi
 import 'package:interapp/features/devices/data/services/incoming_call_notification_service.dart';
 import 'package:interapp/features/devices/domain/repositories/device_backend_repository.dart';
 import 'package:interapp/features/devices/domain/repositories/device_connection_repository.dart';
+import 'package:interapp/features/devices/domain/repositories/device_repository.dart';
 import 'package:interapp/features/devices/domain/repositories/device_settings_repository.dart';
 import 'package:interapp/features/favorites/data/repositories/local_favorites_repository.dart';
 import 'package:interapp/features/profile/data/repositories/local_profile_repository.dart';
@@ -37,6 +38,15 @@ final apiClientProvider = Provider<InterBridgeApiClient>((ref) {
 
 final httpDeviceRepositoryProvider = Provider<HttpDeviceRepository>((ref) {
   return HttpDeviceRepository(ref.watch(apiClientProvider));
+});
+
+/// Typed as the abstract [DeviceRepository] so the device list, details and
+/// rename screens depend on the contract, not on [HttpDeviceRepository]
+/// directly. It reads the same instance as [httpDeviceRepositoryProvider]
+/// (list/detail are already real and deployed); see that class's dartdoc for
+/// why `updateDeviceName` specifically is still provisional.
+final deviceRepositoryProvider = Provider<DeviceRepository>((ref) {
+  return ref.watch(httpDeviceRepositoryProvider);
 });
 
 /// Typed as the abstract [DeviceConnectionRepository], not the local class —
