@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/auth/presentation/pages/auth_pages.dart';
+import '../../features/auth/presentation/pages/change_password_page.dart';
 import '../../features/auth/presentation/pages/security_settings_page.dart';
 import '../../features/auth/presentation/providers/auth_providers.dart';
 import '../../features/auth/domain/entities/auth_session.dart';
@@ -50,6 +51,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/security',
         builder: (_, _) => const SecuritySettingsPage(),
+      ),
+      GoRoute(
+        path: '/change-password',
+        builder: (_, _) => const ChangePasswordPage(),
       ),
       GoRoute(
         path: '/devices/:deviceId',

@@ -11,6 +11,10 @@ import '../../domain/repositories/auth_repository.dart';
 /// The repository is the only auth layer that handles provider tokens. Widgets
 /// receive only [domain.AuthSession] and sanitized [AuthFailure] values.
 class CognitoAuthRepository implements AuthRepository {
+  CognitoAuthRepository({CognitoAuthGateway? authGateway})
+    : _authGateway = authGateway ?? const AmplifyCognitoAuthGateway();
+
+  final CognitoAuthGateway _authGateway;
   final _sessionChanges = StreamController<domain.AuthSession>.broadcast();
 
   @override
@@ -87,7 +91,7 @@ class CognitoAuthRepository implements AuthRepository {
   @override
   Future<void> signOut() {
     return _runGuarded(() async {
-      await Amplify.Auth.signOut();
+      await _authGateway.signOut();
       _sessionChanges.add(const domain.AuthSession.signedOut());
     });
   }
@@ -113,6 +117,48 @@ class CognitoAuthRepository implements AuthRepository {
       );
     });
   }
+
+  @override
+  Future<void> changePassword(String currentPassword, String newPassword) {
+    return _runGuarded(() async {
+      try {
+        await _authGateway.updatePassword(
+          oldPassword: currentPassword,
+          newPassword: newPassword,
+        );
+      } on SignedOutException {
+        await invalidateSession();
+        throw const AuthFailure(
+          AuthFailureKind.notAuthenticated,
+          'Você precisa entrar novamente para continuar.',
+        );
+      } on NotAuthorizedServiceException catch (exception) {
+        if (_looksLikeWrongCurrentPassword(exception.message)) {
+          throw const AuthFailure(
+            AuthFailureKind.incorrectCurrentPassword,
+            'Senha atual incorreta.',
+          );
+        }
+        // Cognito's ChangePassword API reuses NotAuthorizedException both for
+        // a wrong current password and for an expired/invalid access token;
+        // this message is never shown to the user, only used to route to the
+        // right sanitized failure.
+        await invalidateSession();
+        throw const AuthFailure(
+          AuthFailureKind.sessionExpired,
+          'Sua sessão expirou. Entre novamente.',
+        );
+      } on PasswordHistoryPolicyViolationException {
+        throw const AuthFailure(
+          AuthFailureKind.invalidPassword,
+          'A nova senha não pode repetir uma senha usada recentemente.',
+        );
+      }
+    });
+  }
+
+  static bool _looksLikeWrongCurrentPassword(String message) =>
+      message.toLowerCase().contains('incorrect');
 
   /// Obtains the Cognito **access token**, never the ID token.
   ///
@@ -179,7 +225,8 @@ class CognitoAuthRepository implements AuthRepository {
         'Código inválido ou expirado.',
       );
     }
-    if (exception is LimitExceededException) {
+    if (exception is LimitExceededException ||
+        exception is TooManyRequestsException) {
       return const AuthFailure(
         AuthFailureKind.rateLimited,
         'Muitas tentativas. Aguarde e tente novamente.',
@@ -203,4 +250,34 @@ class CognitoAuthRepository implements AuthRepository {
       'Não foi possível concluir a operação. Tente novamente.',
     );
   }
+}
+
+/// Narrow seam over the global `Amplify.Auth` facade covering only the calls
+/// [CognitoAuthRepository] needs to fake in tests without a configured
+/// Amplify plugin. Every other operation still calls `Amplify.Auth` directly.
+abstract class CognitoAuthGateway {
+  Future<void> updatePassword({
+    required String oldPassword,
+    required String newPassword,
+  });
+
+  Future<void> signOut();
+}
+
+/// Production [CognitoAuthGateway] delegating to the real Amplify Auth
+/// category.
+class AmplifyCognitoAuthGateway implements CognitoAuthGateway {
+  const AmplifyCognitoAuthGateway();
+
+  @override
+  Future<void> updatePassword({
+    required String oldPassword,
+    required String newPassword,
+  }) => Amplify.Auth.updatePassword(
+    oldPassword: oldPassword,
+    newPassword: newPassword,
+  );
+
+  @override
+  Future<void> signOut() => Amplify.Auth.signOut();
 }

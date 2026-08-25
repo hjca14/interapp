@@ -24,6 +24,14 @@ abstract class AuthRepository {
     String newPassword,
   );
 
+  /// Changes the password of the currently authenticated user, verifying
+  /// [currentPassword] before applying [newPassword] via Cognito.
+  ///
+  /// Unlike [beginPasswordReset]/[confirmPasswordReset], this never signs the
+  /// user out on success and requires no code — it is for a signed-in user
+  /// who already knows their current password.
+  Future<void> changePassword(String currentPassword, String newPassword);
+
   /// Returns a valid access token for internal HTTP transport only.
   ///
   /// UI code must never call or display this method's result. A forced refresh
@@ -45,10 +53,13 @@ class AuthSignUpResult {
 enum AuthFailureKind {
   invalidPassword,
   invalidCredentials,
+  incorrectCurrentPassword,
   userNotConfirmed,
   invalidOrExpiredCode,
   userAlreadyExists,
   rateLimited,
+  notAuthenticated,
+  sessionExpired,
   unavailable,
   unknown,
 }

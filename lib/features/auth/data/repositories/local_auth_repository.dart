@@ -8,11 +8,19 @@ class LocalAuthRepository implements AuthRepository {
   LocalAuthRepository({
     AuthSession initial = const AuthSession.signedOut(),
     this.accessToken = 'test-access-token',
+    this.changePasswordFailure,
   }) : _session = initial;
 
   final _sessionChanges = StreamController<AuthSession>.broadcast();
   final String accessToken;
   AuthSession _session;
+
+  /// Set by a test to make the next [changePassword] call fail with this
+  /// failure instead of succeeding. Left in place across calls so a test can
+  /// clear it to simulate a corrected retry.
+  AuthFailure? changePasswordFailure;
+  String? lastChangePasswordCurrent;
+  String? lastChangePasswordNew;
 
   @override
   Future<AuthSession> get currentSession async => _session;
@@ -56,6 +64,24 @@ class LocalAuthRepository implements AuthRepository {
     String code,
     String newPassword,
   ) async {}
+
+  @override
+  Future<void> changePassword(
+    String currentPassword,
+    String newPassword,
+  ) async {
+    lastChangePasswordCurrent = currentPassword;
+    lastChangePasswordNew = newPassword;
+    final failure = changePasswordFailure;
+    if (failure == null) {
+      return;
+    }
+    if (failure.kind == AuthFailureKind.sessionExpired ||
+        failure.kind == AuthFailureKind.notAuthenticated) {
+      await invalidateSession();
+    }
+    throw failure;
+  }
 
   @override
   Future<String> getValidAccessToken({bool forceRefresh = false}) async {
