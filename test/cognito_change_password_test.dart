@@ -8,12 +8,21 @@ class _FakeGateway implements CognitoAuthGateway {
   bool signOutCalled = false;
   String? capturedOldPassword;
   String? capturedNewPassword;
+  int updatePasswordCallCount = 0;
+  int sessionCheckCallCount = 0;
+
+  /// What [hasValidSessionAfterForceRefresh] resolves to when no
+  /// [sessionCheckError] is set. Defaults to the fail-closed value so a test
+  /// that forgets to configure it never accidentally looks "valid".
+  bool sessionCheckResult = false;
+  Object? sessionCheckError;
 
   @override
   Future<void> updatePassword({
     required String oldPassword,
     required String newPassword,
   }) async {
+    updatePasswordCallCount++;
     capturedOldPassword = oldPassword;
     capturedNewPassword = newPassword;
     final error = updatePasswordError;
@@ -26,6 +35,17 @@ class _FakeGateway implements CognitoAuthGateway {
   @override
   Future<void> signOut() async {
     signOutCalled = true;
+  }
+
+  @override
+  Future<bool> hasValidSessionAfterForceRefresh() async {
+    sessionCheckCallCount++;
+    final error = sessionCheckError;
+    if (error != null) {
+      // ignore: only_throw_errors
+      throw error;
+    }
+    return sessionCheckResult;
   }
 }
 
@@ -55,13 +75,87 @@ void main() {
     );
   });
 
-  test(
-    'maps a wrong-current-password NotAuthorizedException to incorrectCurrentPassword '
-    'without invalidating the session',
-    () async {
+  group('NotAuthorizedException disambiguation (never by message text)', () {
+    test(
+      'an arbitrary message with no "incorrect" wording and a session that '
+      'is still valid after forced refresh resolves to incorrectCurrentPassword',
+      () async {
+        gateway.updatePasswordError = const NotAuthorizedServiceException(
+          'zzz some unrelated wording the SDK could ever return zzz',
+        );
+        gateway.sessionCheckResult = true;
+
+        await expectLater(
+          repository.changePassword(currentPassword, newPassword),
+          throwsA(
+            isA<AuthFailure>().having(
+              (failure) => failure.kind,
+              'kind',
+              AuthFailureKind.incorrectCurrentPassword,
+            ),
+          ),
+        );
+        expect(gateway.signOutCalled, isFalse);
+      },
+    );
+
+    test(
+      'a message containing "incorrect" but an invalid session after forced '
+      'refresh still resolves to sessionExpired — message text is ignored',
+      () async {
+        gateway.updatePasswordError = const NotAuthorizedServiceException(
+          'Incorrect username or password.',
+        );
+        gateway.sessionCheckResult = false;
+
+        await expectLater(
+          repository.changePassword(currentPassword, newPassword),
+          throwsA(
+            isA<AuthFailure>().having(
+              (failure) => failure.kind,
+              'kind',
+              AuthFailureKind.sessionExpired,
+            ),
+          ),
+        );
+        expect(gateway.signOutCalled, isTrue);
+      },
+    );
+
+    test('a valid session is never invalidated', () async {
       gateway.updatePasswordError = const NotAuthorizedServiceException(
-        'Incorrect username or password.',
+        'irrelevant',
       );
+      gateway.sessionCheckResult = true;
+
+      await expectLater(
+        repository.changePassword(currentPassword, newPassword),
+        throwsA(isA<AuthFailure>()),
+      );
+
+      expect(gateway.signOutCalled, isFalse);
+    });
+
+    test('an invalid session is invalidated centrally', () async {
+      gateway.updatePasswordError = const NotAuthorizedServiceException(
+        'irrelevant',
+      );
+      gateway.sessionCheckResult = false;
+
+      await expectLater(
+        repository.changePassword(currentPassword, newPassword),
+        throwsA(isA<AuthFailure>()),
+      );
+
+      expect(gateway.signOutCalled, isTrue);
+    });
+
+    test('a failure while checking the session itself fails closed as '
+        'sessionExpired instead of leaking the check failure', () async {
+      gateway.updatePasswordError = const NotAuthorizedServiceException(
+        'irrelevant',
+      );
+      gateway.sessionCheckError = const NetworkException('refresh unreachable');
 
       await expectLater(
         repository.changePassword(currentPassword, newPassword),
@@ -69,31 +163,59 @@ void main() {
           isA<AuthFailure>().having(
             (failure) => failure.kind,
             'kind',
-            AuthFailureKind.incorrectCurrentPassword,
+            AuthFailureKind.sessionExpired,
           ),
         ),
       );
-      expect(gateway.signOutCalled, isFalse);
-    },
-  );
+      expect(gateway.signOutCalled, isTrue);
+    });
 
-  test('maps an ambiguous NotAuthorizedException to sessionExpired and '
-      'invalidates the session centrally', () async {
-    gateway.updatePasswordError = const NotAuthorizedServiceException(
-      'Access Token has expired',
+    test('updatePassword is called exactly once, never retried', () async {
+      gateway.updatePasswordError = const NotAuthorizedServiceException(
+        'irrelevant',
+      );
+      gateway.sessionCheckResult = true;
+
+      await expectLater(
+        repository.changePassword(currentPassword, newPassword),
+        throwsA(isA<AuthFailure>()),
+      );
+
+      expect(gateway.updatePasswordCallCount, 1);
+    });
+
+    test(
+      'the diagnostic session refresh is attempted at most once, never looped',
+      () async {
+        gateway.updatePasswordError = const NotAuthorizedServiceException(
+          'irrelevant',
+        );
+        gateway.sessionCheckResult = true;
+
+        await expectLater(
+          repository.changePassword(currentPassword, newPassword),
+          throwsA(isA<AuthFailure>()),
+        );
+
+        expect(gateway.sessionCheckCallCount, 1);
+      },
     );
 
-    await expectLater(
-      repository.changePassword(currentPassword, newPassword),
-      throwsA(
-        isA<AuthFailure>().having(
-          (failure) => failure.kind,
-          'kind',
-          AuthFailureKind.sessionExpired,
-        ),
-      ),
+    test(
+      'the session check is never triggered by other exception types',
+      () async {
+        gateway.updatePasswordError = const InvalidPasswordException(
+          'bad policy',
+        );
+
+        await expectLater(
+          repository.changePassword(currentPassword, newPassword),
+          throwsA(isA<AuthFailure>()),
+        );
+
+        expect(gateway.sessionCheckCallCount, 0);
+      },
     );
-    expect(gateway.signOutCalled, isTrue);
   });
 
   test(
@@ -114,6 +236,7 @@ void main() {
         ),
       );
       expect(gateway.signOutCalled, isTrue);
+      expect(gateway.sessionCheckCallCount, 0);
     },
   );
 
@@ -212,41 +335,42 @@ void main() {
     );
   });
 
-  test(
-    'no resulting AuthFailure ever contains the current or new password text',
-    () async {
-      final scenarios = <Object>[
-        const NotAuthorizedServiceException('Incorrect username or password.'),
-        const NotAuthorizedServiceException('Access Token has expired'),
-        const SignedOutException('No user signed in'),
-        const InvalidPasswordException('bad policy'),
-        const PasswordHistoryPolicyViolationException('reused'),
-        const LimitExceededException('slow down'),
-        const NetworkException('offline'),
-        const UnknownException('boom'),
-      ];
+  test('no resulting AuthFailure ever contains the current or new password, '
+      'nor the raw Cognito exception message', () async {
+    const oddMessage = 'zzz-arbitrary-cognito-wording-zzz';
+    final scenarios = <Object>[
+      const NotAuthorizedServiceException(oddMessage),
+      const SignedOutException(oddMessage),
+      const InvalidPasswordException(oddMessage),
+      const PasswordHistoryPolicyViolationException(oddMessage),
+      const LimitExceededException(oddMessage),
+      const NetworkException(oddMessage),
+      const UnknownException(oddMessage),
+    ];
 
-      for (final scenario in scenarios) {
-        gateway.updatePasswordError = scenario;
-        try {
-          await repository.changePassword(currentPassword, newPassword);
-          fail('expected changePassword to throw for $scenario');
-        } on AuthFailure catch (failure) {
-          expect(failure.toString(), isNot(contains(currentPassword)));
-          expect(failure.toString(), isNot(contains(newPassword)));
-          expect(failure.safeMessage, isNot(contains(currentPassword)));
-          expect(failure.safeMessage, isNot(contains(newPassword)));
-        }
+    for (final scenario in scenarios) {
+      gateway.updatePasswordError = scenario;
+      gateway.sessionCheckResult = false;
+      try {
+        await repository.changePassword(currentPassword, newPassword);
+        fail('expected changePassword to throw for $scenario');
+      } on AuthFailure catch (failure) {
+        expect(failure.toString(), isNot(contains(currentPassword)));
+        expect(failure.toString(), isNot(contains(newPassword)));
+        expect(failure.toString(), isNot(contains(oddMessage)));
+        expect(failure.safeMessage, isNot(contains(currentPassword)));
+        expect(failure.safeMessage, isNot(contains(newPassword)));
+        expect(failure.safeMessage, isNot(contains(oddMessage)));
       }
-    },
-  );
+    }
+  });
 
   test('session-expired and not-authenticated failures both route through the '
       'same central invalidateSession() the app already uses for a 401 from '
       'the API client, while a wrong-password failure never does', () async {
-    gateway.updatePasswordError = const NotAuthorizedServiceException(
-      'Access Token has expired',
-    );
+    gateway
+      ..updatePasswordError = const NotAuthorizedServiceException('irrelevant')
+      ..sessionCheckResult = false;
     await expectLater(
       repository.changePassword(currentPassword, newPassword),
       throwsA(isA<AuthFailure>()),
@@ -264,9 +388,8 @@ void main() {
 
     gateway
       ..signOutCalled = false
-      ..updatePasswordError = const NotAuthorizedServiceException(
-        'Incorrect username or password.',
-      );
+      ..updatePasswordError = const NotAuthorizedServiceException('irrelevant')
+      ..sessionCheckResult = true;
     await expectLater(
       repository.changePassword(currentPassword, newPassword),
       throwsA(isA<AuthFailure>()),

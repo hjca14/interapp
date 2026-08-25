@@ -127,23 +127,26 @@ class CognitoAuthRepository implements AuthRepository {
           newPassword: newPassword,
         );
       } on SignedOutException {
-        await invalidateSession();
+        await _invalidateSessionSafely();
         throw const AuthFailure(
           AuthFailureKind.notAuthenticated,
           'Você precisa entrar novamente para continuar.',
         );
-      } on NotAuthorizedServiceException catch (exception) {
-        if (_looksLikeWrongCurrentPassword(exception.message)) {
+      } on NotAuthorizedServiceException {
+        // Cognito's ChangePassword API reuses NotAuthorizedException both for
+        // a wrong current password and for an expired/invalid access token.
+        // These are never disambiguated by exception text/message/language —
+        // that wording is not a stable contract. Instead, ask Amplify to
+        // actually verify the session with one bounded forced refresh: if it
+        // is still valid, the password itself was wrong; if not (or the
+        // check itself fails), fail closed as an expired session.
+        if (await _hasValidSessionSafely()) {
           throw const AuthFailure(
             AuthFailureKind.incorrectCurrentPassword,
             'Senha atual incorreta.',
           );
         }
-        // Cognito's ChangePassword API reuses NotAuthorizedException both for
-        // a wrong current password and for an expired/invalid access token;
-        // this message is never shown to the user, only used to route to the
-        // right sanitized failure.
-        await invalidateSession();
+        await _invalidateSessionSafely();
         throw const AuthFailure(
           AuthFailureKind.sessionExpired,
           'Sua sessão expirou. Entre novamente.',
@@ -157,8 +160,27 @@ class CognitoAuthRepository implements AuthRepository {
     });
   }
 
-  static bool _looksLikeWrongCurrentPassword(String message) =>
-      message.toLowerCase().contains('incorrect');
+  /// Fail-closed: any failure while checking the session — including the
+  /// forced refresh itself throwing — is treated as "no valid session",
+  /// never as "valid". A single bounded attempt; never retried or looped.
+  Future<bool> _hasValidSessionSafely() async {
+    try {
+      return await _authGateway.hasValidSessionAfterForceRefresh();
+    } on Object {
+      return false;
+    }
+  }
+
+  /// Invalidates the session and always converges local state to signed-out,
+  /// even if the underlying sign-out call itself fails — no raw exception or
+  /// provider message from that failure is ever allowed to escape here.
+  Future<void> _invalidateSessionSafely() async {
+    try {
+      await invalidateSession();
+    } on Object {
+      _sessionChanges.add(const domain.AuthSession.signedOut());
+    }
+  }
 
   /// Obtains the Cognito **access token**, never the ID token.
   ///
@@ -262,6 +284,14 @@ abstract class CognitoAuthGateway {
   });
 
   Future<void> signOut();
+
+  /// Whether the current user still has a valid, authenticated session after
+  /// one forced token refresh. Used only to tell a wrong current password
+  /// apart from an expired/invalid session when `updatePassword` throws the
+  /// same exception type for both — never by reading exception text.
+  ///
+  /// Returns a plain [bool]; the access token itself is never exposed here.
+  Future<bool> hasValidSessionAfterForceRefresh();
 }
 
 /// Production [CognitoAuthGateway] delegating to the real Amplify Auth
@@ -280,4 +310,12 @@ class AmplifyCognitoAuthGateway implements CognitoAuthGateway {
 
   @override
   Future<void> signOut() => Amplify.Auth.signOut();
+
+  @override
+  Future<bool> hasValidSessionAfterForceRefresh() async {
+    final session = await Amplify.Auth.fetchAuthSession(
+      options: FetchAuthSessionOptions(forceRefresh: true),
+    );
+    return session.isSignedIn;
+  }
 }
