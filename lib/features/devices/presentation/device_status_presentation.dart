@@ -14,6 +14,43 @@ String friendlyDeviceRole(DeviceRole role) => switch (role) {
   DeviceRole.member => 'Membro',
 };
 
+String friendlyProvisioningStatus(String status) {
+  return switch (status.trim().toLowerCase()) {
+    'manufactured' => 'Preparado para cadastro',
+    'registered' => 'Registrado',
+    'claim_authorized' => 'Vinculação autorizada',
+    'provisioning' => 'Configurando',
+    'provisioned' => 'Configurado',
+    'failed' => 'Falha na configuração',
+    'revoked' => 'Acesso revogado',
+    'decommissioned' => 'Dispositivo desativado',
+    // Explicit compatibility with values returned by older environments.
+    'active' || 'configured' => 'Configurado',
+    'pending' ||
+    'pending_provisioning' ||
+    'unprovisioned' ||
+    'not_provisioned' => 'Configuração pendente',
+    'provisioning_failed' || 'error' => 'Falha na configuração',
+    _ => 'Não informado',
+  };
+}
+
+bool isProvisioningFailure(String status) =>
+    switch (status.trim().toLowerCase()) {
+      'failed' || 'provisioning_failed' || 'error' => true,
+      _ => false,
+    };
+
+bool provisioningStatusNeedsAttention(String status) =>
+    switch (status.trim().toLowerCase()) {
+      'failed' ||
+      'provisioning_failed' ||
+      'error' ||
+      'revoked' ||
+      'decommissioned' => true,
+      _ => false,
+    };
+
 enum UserDeviceStatus { online, offline, unavailable }
 
 class DeviceStatusPresentation {

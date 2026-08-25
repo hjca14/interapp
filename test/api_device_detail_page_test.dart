@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:interapp/features/devices/domain/entities/api_device.dart';
@@ -482,6 +483,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Diagnóstico'), findsOneWidget);
     expect(find.text('Estado do interfone'), findsOneWidget);
+    expect(find.text('Versão do hardware'), findsOneWidget);
+    expect(find.text('HW-2'), findsOneWidget);
+    expect(find.text('Estado de configuração'), findsOneWidget);
+    expect(find.text('Configurado'), findsOneWidget);
+    expect(find.text('active'), findsNothing);
     expect(find.text('Em espera'), findsOneWidget);
     expect(
       find.text(formatDiagnosticTimestamp(DateTime.utc(2026, 8, 20, 12))),
@@ -498,9 +504,11 @@ void main() {
     expect(find.text('Configurações de Portaria'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('Firmware'),
-      300,
+      600,
       scrollable: find.byType(Scrollable).first,
     );
+    await tester.ensureVisible(find.text('Firmware'));
+    await tester.pump();
     await tester.tap(find.text('Firmware'));
     await tester.pumpAndSettle();
     expect(find.text('2.0.1'), findsOneWidget);
@@ -1143,7 +1151,7 @@ void main() {
     },
   );
 
-  testWidgets('falls back to InterBridge and shows provisioning/role/id', (
+  testWidgets('summary keeps technical and access information out of view', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -1152,8 +1160,9 @@ void main() {
           return const ApiDeviceDetail(
             deviceId: deviceId,
             displayName: null,
+            hardwareVersion: 'HW-HIDDEN',
             ownershipStatus: 'claimed',
-            provisioningStatus: 'active',
+            provisioningStatus: 'PROVISIONED',
             role: DeviceRole.owner,
           );
         },
@@ -1162,19 +1171,119 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('InterBridge'), findsWidgets);
-    expect(find.textContaining('Provisionamento: active'), findsOneWidget);
-    expect(find.textContaining('Papel: Proprietário'), findsOneWidget);
-    await tester.scrollUntilVisible(
-      find.textContaining('ID do dispositivo: $deviceId'),
-      300,
-      scrollable: find.byType(Scrollable).first,
-    );
-    expect(find.textContaining('ID do dispositivo: $deviceId'), findsOneWidget);
-    expect(find.byTooltip('Copiar ID do dispositivo'), findsOneWidget);
-    // The technical row is the only place device_id may appear; nothing
-    // shows the raw id as a title.
-    expect(find.widgetWithText(AppBar, deviceId), findsNothing);
+    expect(find.textContaining(deviceId), findsNothing);
+    expect(find.textContaining('Hardware'), findsNothing);
+    expect(find.text('HW-HIDDEN'), findsNothing);
+    expect(find.textContaining('Provisionamento'), findsNothing);
+    expect(find.textContaining('PROVISIONED'), findsNothing);
+    expect(find.textContaining('Papel'), findsNothing);
   });
+
+  testWidgets('diagnostics reveals and copies the identifier explicitly', (
+    tester,
+  ) async {
+    final clipboardCalls = <MethodCall>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') clipboardCalls.add(call);
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+
+    await tester.pumpWidget(subject());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Online'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('••••0001'), findsOneWidget);
+    final semantics = tester.ensureSemantics();
+    expect(
+      find.bySemanticsLabel('Identificador do dispositivo, ••••0001'),
+      findsOneWidget,
+    );
+    semantics.dispose();
+    expect(find.text(deviceId), findsNothing);
+    expect(clipboardCalls, isEmpty);
+
+    await tester.tap(find.text('••••0001'));
+    await tester.pumpAndSettle();
+    expect(find.text(deviceId), findsOneWidget);
+    expect(
+      find.text('Use este identificador quando o suporte solicitar.'),
+      findsOneWidget,
+    );
+    expect(clipboardCalls, isEmpty);
+
+    await tester.tap(find.text('Copiar identificador'));
+    await tester.pumpAndSettle();
+    expect(clipboardCalls, hasLength(1));
+    expect((clipboardCalls.single.arguments as Map)['text'], deviceId);
+    expect(find.text('Identificador copiado.'), findsOneWidget);
+  });
+
+  testWidgets('diagnostics presents REVOKED as access attention, not failure', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      subject(
+        loadDetail: () async => const ApiDeviceDetail(
+          deviceId: deviceId,
+          displayName: 'Portaria',
+          ownershipStatus: 'claimed',
+          provisioningStatus: 'REVOKED',
+          role: DeviceRole.owner,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Online'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Acesso revogado'), findsOneWidget);
+    expect(find.textContaining('REVOKED'), findsNothing);
+    expect(find.textContaining('Falha na configuração'), findsNothing);
+    expect(find.byIcon(Icons.warning_amber_outlined), findsOneWidget);
+  });
+
+  for (final role in DeviceRole.values) {
+    testWidgets(
+      'settings translates ${role.name} sharing permission without an action',
+      (tester) async {
+        await tester.pumpWidget(subject(role: role));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Configurações'));
+        await tester.pumpAndSettle();
+        await tester.scrollUntilVisible(
+          find.text('Acesso e compartilhamento'),
+          300,
+          scrollable: find.byType(Scrollable).first,
+        );
+
+        expect(find.text(friendlyDeviceRole(role)), findsOneWidget);
+        expect(
+          find.text(
+            role == DeviceRole.member
+                ? 'Você não tem permissão para compartilhar este dispositivo.'
+                : 'Você tem permissão para gerenciar o compartilhamento. Esse recurso ainda não está disponível.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.widgetWithText(FilledButton, 'Compartilhar'), findsNothing);
+        expect(find.widgetWithText(TextButton, 'Compartilhar'), findsNothing);
+        expect(
+          find.widgetWithText(OutlinedButton, 'Compartilhar'),
+          findsNothing,
+        );
+      },
+    );
+  }
 
   for (final role in DeviceRole.values) {
     testWidgets(

@@ -2,6 +2,8 @@
 
 > **Atualização Fase 2C:** a Fase 2B DEV foi implantada/validada, incluindo usuário Cognito confirmado e criação atômica do primeiro Device com membership OWNER/ACTIVE. O app agora usa Cognito User Pool via Amplify (`USER_SRP_AUTH`) e access token para leitura das três rotas HTTPS de dispositivos. Refresh e armazenamento seguro são responsabilidade do Amplify. Não há Identity Pool nem acesso direto do app ao IoT Core. Outputs de ambiente entram exclusivamente por `--dart-define`; valores reais não são versionados. BLE, claim, comandos, MQTT, eventos e voz seguem adiados.
 
+> **Atualização Fase 3:** a Fase 2D de comandos assíncronos permanece concluída e encerrada. A Fase 3 atual começou com o nome pessoal do dispositivo e inclui a evolução da experiência entre Resumo, Diagnóstico e Configurações. A antiga seção de roadmap chamada "Fase 3 — Áudio" foi reclassificada como trabalho futuro sem numeração definitiva; onboarding BLE real também fica para uma etapa posterior.
+
 
 ## 1. Visão do produto
 
@@ -109,10 +111,10 @@ A arquitetura deve permitir trocar a implementação de comunicação sem precis
 * O botão verde do discador é um ponto de integração futuro.
 * O botão de discagem **não deve abrir o aplicativo de telefone do sistema nem usar `tel:`**.
 * A comunicação real com o hardware ainda será implementada.
-* Backend/cloud ainda não está implementado, mas a abstração já existe: `DeviceBackendRepository` (contrato) + `LocalDeviceBackendRepository` (stub honesto, reporta `CLOUD_UNAVAILABLE` em vez de fingir sucesso). Ver seção 26.
-* **A seção 15 (Backend futuro) apontava Supabase como candidato — isso conflita com o protocolo v1.1, que define AWS (Cognito/API/Lambda + AWS IoT Core). Esse conflito está documentado, não resolvido silenciosamente — ver seção 26, "Conflito descoberto: Supabase vs. AWS".**
-* O app já reage localmente a uma chamada recebida (`DeviceStatus.hasIncomingCall`): notificação do sistema + tela de chamada em tela cheia. Ver seção 19. Isso só funciona com o processo do app vivo; com o app fechado, ainda depende de push/backend (Fase 4).
-* Fluxo real de `OPEN_DOOR` (máquina de estados idle/sending/accepted/completed/failed/rejected/timedOut) já existe na tela de detalhe do dispositivo, mas hoje sempre termina em "rejeitado: dispositivo não provisionado" porque não há backend/hardware real. Ver seção 26.
+* O backend não é mais uma pendência geral: Cognito, diretório e leitura de dispositivos, status, `PATCH` de `display_name` e a API assíncrona de comandos estão implantados em DEV. `DeviceBackendRepository` + `LocalDeviceBackendRepository` continuam ativos somente em providers genéricos de comandos/eventos ainda não migrados para transporte remoto; esse stub reporta `CLOUD_UNAVAILABLE` sem representar `HttpDeviceRepository` nem as APIs reais já usadas pelo app. Ver seção 26.
+* **A seção 15 preserva uma decisão histórica que apontava Supabase como candidato. A arquitetura implantada usa AWS (Cognito/API/Lambda + AWS IoT Core); o registro antigo não deve ser interpretado como estado atual. Ver seção 26, "Conflito descoberto: Supabase vs. AWS".**
+* O app já reage localmente a uma chamada recebida (`DeviceStatus.hasIncomingCall`): notificação do sistema + tela de chamada em tela cheia. Ver seção 19. Isso só funciona com o processo do app vivo; com o app fechado, ainda depende da futura integração push/backend, sem numeração definitiva no roadmap.
+* O fluxo assíncrono de API para `OPEN_DOOR` e sua máquina de estados (`idle`/`sending`/`accepted`/`completed`/`failed`/`rejected`/`timedOut`) estão implementados. Um aceite HTTP confirma somente o recebimento pelo backend, não execução ou ação física. Como o firmware/hardware ainda mantém a capacidade física de abertura desabilitada, a tentativa aplicável termina de forma segura em rejeição, como `CAPABILITY_DISABLED` ou estado equivalente previsto pelo contrato; abertura física não foi validada. Ver seção 26.
 
 O projeto deve permanecer funcional mesmo sem um InterBridge físico conectado.
 
@@ -221,7 +223,7 @@ Provider / Controller
  ▼
 DeviceConnectionRepository
  │
- ├── LocalDeviceConnectionRepository (hoje, ativa) — sem hardware/backend
+ ├── LocalDeviceConnectionRepository (ativa neste provider) — sem transporte para hardware
  │
  └── CloudDeviceConnectionRepository (já existe, não é a ativa ainda)
       │
@@ -406,17 +408,23 @@ lib/
    * "Usar nome padrão" envia `display_name: null` para limpar o nome customizado — nunca uma string vazia;
    * sem atualização otimista: a tela espera a confirmação do repository antes de atualizar a UI, e falha recuperável preserva o texto digitado.
    * **Deliberadamente não há campo de cômodo/ambiente/localização interna**; `display_name` é somente o apelido pessoal do usuário para identificar o InterBridge.
-5. Quando `display_name` está ausente, vazio ou ainda não carregado, toda a UI usa o fallback literal **"InterBridge"** (função `deviceDisplayName`, `api_device.dart`) — nunca `device_id`. O `device_id` só aparece em uma área técnica discreta e copiável no detalhe (`_TechnicalInfoRow`), nunca como título.
+5. Quando `display_name` está ausente, vazio ou ainda não carregado, toda a UI usa o fallback literal **"InterBridge"** (função `deviceDisplayName`, `api_device.dart`) — nunca `device_id`. O Resumo não mostra o identificador. Diagnóstico começa com o sufixo mascarado e só revela o ID completo, com cópia explícita, após ação do usuário.
 6. Remover o dispositivo (transferência/exclusão de propriedade) **não está implementado** — adiado para uma PR própria de compartilhamento (seção 14).
 7. Tocar em um dispositivo abre `ApiDeviceDetailPage`.
 8. O detalhe possui as abas:
 
-   * **Resumo** (nome, hardware, provisionamento, papel, status online/offline, `device_id` técnico)
+   * **Resumo** (nome pessoal editável, status online/offline, abertura de porta e eventos recentes; sem metadados técnicos ou de acesso)
    * **Discar**
    * **Favoritos**
 9. O cadastro do dispositivo não depende de uma conexão física.
 10. Eventos, status e firmware não são simulados.
 11. Enquanto não houver conexão, a UI informa que está aguardando conexão/dados.
+
+### Validação real do nome pessoal (Fase 3, DEV)
+
+O `PATCH /v1/devices/{device_id}` e o hotfix correspondente do backend foram implantados em DEV; a atualização CloudFormation terminou em `UPDATE_COMPLETE`. No teste real do app Android, o nome `Casa` foi salvo e permaneceu após sair da tela e retornar. Isso valida ponta a ponta `app → API → DynamoDB → nova leitura`, incluindo edição, persistência e recarga de `display_name`.
+
+Na primeira tentativa, o cold start da Lambda falhou e nenhuma escrita ocorreu. O backend foi corrigido e reimplantado; o reteste posterior funcionou. Esse incidente é histórico e não representa bloqueio atual.
 
 ---
 
@@ -479,6 +487,8 @@ Tocar em um favorito:
 
 # 13. Onboarding (pareamento de um novo InterBridge)
 
+Esta seção preserva a arquitetura e o scaffold app-side já preparados, não uma entrega BLE real. O transporte BLE de produção não foi iniciado; produção usa o stub honesto e somente o mock de debug percorre o fluxo.
+
 Três caminhos de entrada convergem num único coordinator:
 
 ```text
@@ -494,7 +504,7 @@ Arquitetura em `features/pairing/`:
 ```text
 AddInterBridgePage → OnboardingCoordinator → BleOnboardingTransport → BLE real (futuro)
                             │
-                            └──────────────→ OnboardingClaimRepository → backend real (futuro)
+                            └──────────────→ OnboardingClaimRepository → API real de claim futura
 ```
 
 * `OnboardingState`/`OnboardingPhase` (`domain/entities/onboarding_state.dart`) — as 14 fases primárias (idle, checkingSetupMode, scanningBle, deviceFound, confirmingDevice, connectingBle, selectingWifi, sendingWifi, startingClaim, claimActive, awsProvisioning, verifyingDevice, success, error) + 3 de fallback (scanningQr, enteringSetupCode, resolvingSetupCode). `OnboardingFailureKind` classifica o motivo de `error` (bleUnavailable/scanTimeout/connectionFailed/wifiFailed/claimFailed/alreadyOwned/invalidOrExpiredCode/rateLimited/unknown) para a UI escolher a ação de recuperação certa, sem precisar de uma fase por motivo.
@@ -564,7 +574,7 @@ O compartilhamento ainda não está implementado.
 
 ---
 
-# 15. Backend futuro
+# 15. Decisão histórica de backend
 
 **⚠️ Esta seção contém uma decisão desatualizada — ver o aviso abaixo antes de agir sobre ela.**
 
@@ -685,7 +695,7 @@ ERROR
 
 `DeviceEvent.fromJson` faz o parsing tolerando campos extras desconhecidos e validando `protocol_version` (lança `UnsupportedProtocolVersionException` para uma versão que o app não entende). `dedupeDeviceEvents` remove duplicatas por `event_id` (o protocolo entrega eventos pelo menos uma vez — duplicatas são esperadas).
 
-A aba **Resumo** de `DeviceDetailPage` já consome `deviceEventsProvider(deviceId)` (`features/devices/presentation/providers/device_events_provider.dart`), que carrega o histórico recente e escuta eventos ao vivo via `DeviceBackendRepository`. Hoje o backend é o stub `LocalDeviceBackendRepository`, que sempre devolve uma lista vazia — então a tela continua mostrando:
+A aba **Resumo** de `DeviceDetailPage` já consome `deviceEventsProvider(deviceId)` (`features/devices/presentation/providers/device_events_provider.dart`), que carrega o histórico recente e escuta eventos ao vivo via `DeviceBackendRepository`. Para esse provider específico de histórico/eventos, a implementação ativa ainda é o stub `LocalDeviceBackendRepository`, que sempre devolve uma lista vazia — isso não descreve `HttpDeviceRepository`, as leituras/status reais nem a API assíncrona de comandos. Por isso a tela continua mostrando:
 
 ```text
 Nenhum evento recebido
@@ -706,17 +716,17 @@ O evento **chamada recebida** já tem um caminho de reação implementado no app
 
 ### Limitações atuais (por design, não são bugs)
 
-* Atender e Recusar apenas dispensam a tela; não existe canal de áudio real ainda (isso é Fase 3).
+* Atender e Recusar apenas dispensam a tela; não existe canal de áudio real ainda (etapa futura, sem numeração definida).
 * O listener só reage enquanto a `DeviceDetailPage` daquele dispositivo está montada — ainda não há um watcher global cobrindo todas as telas do app (exigiria um provider reativo de "todos os dispositivos", que não existe hoje).
-* Com o app totalmente fechado (killed), não há como acordar o app sem push remoto de um backend. Isso é Fase 4 e não está implementado; a notificação local só funciona com o processo do app vivo (primeiro ou segundo plano).
+* Com o app totalmente fechado (killed), não há como acordar o app sem push remoto de um backend. FCM/APNs ainda não está implementado; a notificação local só funciona com o processo do app vivo (primeiro ou segundo plano).
 * `LocalDeviceConnectionRepository.simulateIncomingCall(deviceId)` é um hook **debug-only** (fora do contrato `DeviceConnectionRepository`) para testar esse fluxo sem hardware — pulsa `hasIncomingCall` por 20s. Só é exposto na UI em `kDebugMode`, via botão no app bar de `DeviceDetailPage`. Não reutilizar esse padrão para simular outros dados fictícios fora de depuração.
 
 ### Falta fazer
 
 * [ ] Watcher global de chamada recebida, independente da tela do dispositivo estar aberta.
 * [ ] Emitir `hasIncomingCall` de verdade a partir do evento `RING_DETECTED` do protocolo (Fase 2) — o evento já está modelado em `DeviceEventType.ringDetected`, falta a ponte entre ele e `DeviceStatus.hasIncomingCall`/`IncomingCallListener`.
-* [ ] Ligar Atender/Recusar a um canal de áudio real (Fase 3).
-* [ ] Push notification (FCM/APNs) para acordar o app fechado (Fase 4) — reaproveitar `IncomingCallNotificationService` para renderizar a notificação quando o payload remoto chegar.
+* [ ] Ligar Atender/Recusar a um canal de áudio real (etapa futura, sem numeração definida).
+* [ ] Push notification (FCM/APNs) para acordar o app fechado — o projeto Firebase ainda não foi criado e FCM não foi configurado; futuramente, reaproveitar `IncomingCallNotificationService` para renderizar a notificação quando o payload remoto chegar.
 * [ ] Fazer a reação a `RING_DETECTED` respeitar `DeviceSettings.calls`/`quietHours` (hoje sempre toca, independente das preferências salvas) — ver seção 25.
 
 ---
@@ -839,14 +849,14 @@ Antes de alterar a arquitetura:
 * [x] Contratos `DeviceBackendRepository`/`AuthRepository` + stubs honestos (`LocalDeviceBackendRepository`/`LocalAuthRepository`, nunca fingem sucesso)
 * [x] Fluxo `OPEN_DOOR` real na UI: máquina de estados idle/sending/accepted/completed/failed/rejected/timedOut, sem duplo-toque, sem reenvio automático (ver seção 26)
 * [x] Alinhamento dos modelos/parsers com o contrato oficial v1: timestamps de comando em epoch segundos, 18 códigos de erro, vocabulário de `intercom_state`, formato do QR (`interbridge://claim?v=1&...`) — ver seção 26, "Alinhamento com o contrato v1"
-* [x] Onboarding de novo InterBridge (BLE primário + QR/manual fallback): `OnboardingCoordinator` (máquina de estados única, 17 fases), `AddInterBridgePage`, contratos `BleOnboardingTransport`/`OnboardingClaimRepository` (stub honesto em produção, mock em debug), `SetupCode`, análise de eventos (`OnboardingAnalytics`) — substitui a arquitetura anterior de `ProvisioningState`/`ProvisioningRepository`/`ProvisioningTransport`/`PairingController`/`PairingPage` (ver seção 13)
+* [x] Scaffold app-side de onboarding (sem BLE real): `OnboardingCoordinator` (máquina de estados única, 17 fases), `AddInterBridgePage`, contratos `BleOnboardingTransport`/`OnboardingClaimRepository` (stub honesto em produção, mock em debug), `SetupCode`, análise de eventos (`OnboardingAnalytics`) — substitui a arquitetura anterior de `ProvisioningState`/`ProvisioningRepository`/`ProvisioningTransport`/`PairingController`/`PairingPage` (ver seção 13)
 
 ## Fase 2 — Primeiro hardware
 
 * [x] Definir protocolo de comunicação — `docs/communication-protocol.md` v1.1 (arquitetura AWS IoT Core); falta confirmar a decisão Supabase vs. AWS do backend de aplicação (ver seção 15)
 * [ ] Definir hardware final/protótipo
 * [ ] Definir interface elétrica com o interfone
-* [ ] Implementar o backend de aplicação AWS real (Cognito/API/Lambda) + `RemoteDeviceBackendRepository`
+* [ ] Integrar os providers genéricos ainda locais de comandos/eventos por meio de uma implementação remota de `DeviceBackendRepository`; Cognito, diretório/status, nome pessoal e API assíncrona de comandos já existem em AWS
 * [ ] Validar/implementar BLE real (`BleOnboardingTransport`) — confirmar compatibilidade com ESP-IDF Unified Provisioning/Protocomm Security 1 (versão pinada ao firmware) antes de escolher pacote
 * [ ] Scanner de QR real (hoje o fallback de QR em `AddInterBridgePage` usa entrada manual do payload) — confirmar antes o formato de serialização do QR de `setup_code`
 * [ ] Ativar `CloudDeviceConnectionRepository` como implementação padrão de `deviceConnectionRepositoryProvider`
@@ -860,7 +870,19 @@ Antes de alterar a arquitetura:
 * [ ] Comando de abertura de porta funcionando de ponta a ponta (hoje a UI já existe, falta o backend/hardware real)
 * [ ] Primeiro teste do fluxo completo
 
-## Fase 3 — Áudio
+## Fase 3 — experiência do dispositivo e do usuário
+
+Esta é a fase corrente, iniciada depois do encerramento da Fase 2D. A primeira entrega funcional foi o nome pessoal por membership, seguido pela reorganização de Resumo, Diagnóstico e Configurações.
+
+Ordem de trabalho decidida:
+
+1. [x] Correção documental e alinhamento das fases.
+2. [ ] Alteração de senha nas configurações gerais da conta, fora das configurações de dispositivo.
+3. [ ] Preferências reais de notificação, com contrato e persistência de backend ainda por definir.
+4. [ ] Integração FCM; FCM não está configurado e o projeto Firebase ainda não existe.
+5. [ ] Onboarding BLE real; a implementação não começou e há um Android físico antigo disponível para o teste futuro.
+
+## Trabalhos futuros sem numeração definitiva — áudio
 
 * [ ] Captura do áudio do interfone
 * [ ] Reprodução no aplicativo
@@ -868,7 +890,7 @@ Antes de alterar a arquitetura:
 * [ ] Controle de chamadas
 * [ ] Tratamento de latência/perda de conexão
 
-## Fase 4 — Cloud
+## Trabalhos futuros sem numeração definitiva — cloud e colaboração
 
 * [ ] Autenticação
 * [ ] Usuários
@@ -886,7 +908,7 @@ Antes de alterar a arquitetura:
 * [ ] Pairing simplificado
 * [ ] OTA (UI + `DeviceBackendRepository` de OTA + AWS IoT Jobs/S3 — nenhum código de OTA existe ainda, ver seção 20)
 * [ ] Telemetria
-* [ ] Diagnóstico
+* [x] Diagnóstico de suporte inicial (ID sob ação explícita, hardware e estado de configuração amigável)
 * [ ] Logs
 * [ ] Recuperação de falhas
 * [ ] Autenticação biométrica para abertura de porta (`DeviceSettings.requireDeviceAuthenticationToOpenDoor`)
@@ -904,6 +926,8 @@ Cada InterBridge tem suas próprias configurações de comportamento, independen
 ## Visão geral
 
 Hoje `DeviceSettings` guarda só preferências locais do app — nada aqui comunica com hardware real. A persistência é local (`shared_preferences`), seguindo o mesmo padrão de repository já usado no resto do projeto, para que uma futura migração para backend não exija reescrever a tela.
+
+Esses controles não constituem uma solução real de notificações: ainda não há persistência de preferências no backend, projeto Firebase, FCM ou entrega push. A modelagem preserva, sem inventar contrato futuro, as distinções entre receber ligação, receber notificação, modo silencioso, dias/horários, notificação silenciosa versus bloqueio completo e comportamento dentro/fora da rede local.
 
 ## Modelo de domínio
 
@@ -945,7 +969,8 @@ Seções (cada uma um `Card`):
 * **Silencioso** — liga/desliga, horário (`showTimePicker`, convertido de/para `ClockTime`), dias da semana (`FilterChip`s), comportamento (`SegmentedButton` com as duas opções de `QuietHoursBehavior`). Os controles de horário/dias/comportamento só aparecem quando o modo silencioso está ligado.
 * **Presença** — mostra o modo local (somente leitura, editado na seção Chamadas) e um `DropdownButton` para escolher o `CallAlertMode` da rede remota.
 * **Porta** — dois `SwitchListTile` independentes (confirmar abertura / exigir autenticação do aparelho). A autenticação biométrica em si **não está implementada** — o campo só reserva o comportamento.
-* **Dispositivo** — Wi-Fi / Firmware / Diagnóstico / Reiniciar: itens de lista que mostram um snackbar "disponível quando o InterBridge estiver conectado" ao toque (mesmo padrão do botão verde do discador). Não fazem nada de verdade ainda.
+* **Acesso e compartilhamento** — mostra o papel atual com texto amigável. OWNER e ADMIN são informados de que têm permissão para gerenciar compartilhamento; MEMBER é informado de que não pode compartilhar. Compartilhamento continua não implementado e a seção não oferece botão ou navegação falsa.
+* **Dispositivo** — Wi-Fi / Firmware / Diagnóstico / Reiniciar. Diagnóstico concentra versão do hardware, os oito estados oficiais de configuração em textos amigáveis e o identificador inicialmente mascarado; o ID completo só aparece sob ação explícita, com cópia separada para suporte. Wi-Fi e Reiniciar mostram um snackbar "disponível quando o InterBridge estiver conectado" ao toque. Não fazem nada de verdade ainda.
 * **Avançado** — "Redefinir configurações": única ação realmente funcional dessa seção; volta as configurações locais desse dispositivo para o padrão (com confirmação). Não reseta nenhum hardware, porque não existe hardware conectado ainda.
 
 ## O que ainda não está implementado
@@ -957,9 +982,11 @@ Seções (cada uma um `Card`):
 * Wi-Fi, firmware, diagnóstico e reinicialização reais do dispositivo.
 * `UserDeviceSettings` (ver abaixo).
 
+Alteração de senha também não está implementada. Quando for criada, pertence às configurações gerais da conta, fora das configurações de um dispositivo.
+
 ## Separação futura: DeviceSettings vs. UserDeviceSettings
 
-`DeviceSettings` é **do dispositivo**, compartilhado por todos que têm acesso a ele (ver seção 14, Compartilhamento). Quando o compartilhamento existir de verdade, algumas preferências deixarão de fazer sentido como globais — por exemplo, uma pessoa silenciar o próprio celular sem silenciar para todo mundo que usa o mesmo InterBridge. Essas preferências devem virar uma futura entidade `UserDeviceSettings`, ligada a `(userId, deviceId)`, sem se misturar com `DeviceSettings`. Não implementar `UserDeviceSettings` antes de existir autenticação/usuários (Fase 4).
+`DeviceSettings` é **do dispositivo**, compartilhado por todos que têm acesso a ele (ver seção 14, Compartilhamento). Quando o compartilhamento existir de verdade, algumas preferências deixarão de fazer sentido como globais — por exemplo, uma pessoa silenciar o próprio celular sem silenciar para todo mundo que usa o mesmo InterBridge. Essas preferências devem virar uma futura entidade `UserDeviceSettings`, ligada a `(userId, deviceId)`, sem se misturar com `DeviceSettings`. Não implementar `UserDeviceSettings` antes de existir um contrato e persistência reais para preferências por usuário.
 
 ---
 
@@ -988,15 +1015,15 @@ A única comunicação direta definida no protocolo v1 é **BLE, exclusivamente 
 ## Separação de autenticação
 
 ```text
-humano  → Cognito/backend de aplicação (abstraído por AuthRepository — ainda não implementado de verdade)
+humano  → Cognito/backend de aplicação (integração real usada pelo app; separada do AuthRepository legado)
 device  → X.509/mTLS contra AWS IoT Core (o app nunca vê essas credenciais)
 ```
 
-`AuthRepository`/`LocalAuthRepository` (`features/auth/`) são novos nesta tarefa. Não têm relação com o "perfil" local já existente (`features/profile/`, só um nome digitado) — são conceitos diferentes que continuam separados.
+`AuthRepository`/`LocalAuthRepository` (`features/auth/`) foram introduzidos como abstração local nesta etapa histórica. A autenticação real do app usa Cognito e não deve ser confundida com esse stub nem com o "perfil" local (`features/profile/`, só um nome digitado); são conceitos diferentes que continuam separados.
 
 ## Claim (associação de propriedade)
 
-QR = `device_id` (não é segredo) + `claim_code` (segredo de posse, single-use), no formato `interbridge://claim?v=1&device_id=ib-<32 hex minúsculos>&claim_code=<segredo>` (`docs/communication-protocol.md` §4). Modelado em `features/pairing/domain/entities/device_claim.dart`: `parseDeviceClaimQrPayload` valida scheme/host/versão/formato do `device_id`/presença do `claim_code`/parâmetros obrigatórios duplicados, sem nunca lançar exceção (entrada inválida vira `null`). `claim_code` nunca aparece em `toString()` e não deve ser persistido depois de um claim bem-sucedido. `DeviceBackendRepository.claimDevice` é a operação de backend correspondente — hoje sempre retorna "backend indisponível".
+QR = `device_id` (não é segredo) + `claim_code` (segredo de posse, single-use), no formato `interbridge://claim?v=1&device_id=ib-<32 hex minúsculos>&claim_code=<segredo>` (`docs/communication-protocol.md` §4). Modelado em `features/pairing/domain/entities/device_claim.dart`: `parseDeviceClaimQrPayload` valida scheme/host/versão/formato do `device_id`/presença do `claim_code`/parâmetros obrigatórios duplicados, sem nunca lançar exceção (entrada inválida vira `null`). `claim_code` nunca aparece em `toString()` e não deve ser persistido depois de um claim bem-sucedido. `DeviceBackendRepository.claimDevice` é a operação correspondente na abstração de onboarding; a implementação local desse fluxo específico hoje retorna "backend indisponível". Isso não descreve as APIs reais de autenticação, diretório, status, nome pessoal ou comandos.
 
 ## Provisioning (pareamento)
 
@@ -1012,7 +1039,7 @@ O botão "Abrir porta" (`_OpenDoorCard` em `device_detail_page.dart`) já usa a 
 idle → sending → accepted → completed / failed / rejected / timedOut
 ```
 
-via `DeviceCommandController` (`features/devices/presentation/providers/device_command_provider.dart`). Uma resposta HTTP `200` nunca é tratada como sucesso — só `status == completed` é. `timedOut` nunca é reenviado automaticamente. Um segundo toque enquanto uma solicitação está em andamento é ignorado (guard por `isBusy`). Hoje toda tentativa termina em `rejected`/`NOT_PROVISIONED` (via `LocalDeviceConnectionRepository`) porque não há dispositivo/backend real.
+via `DeviceCommandController` (`features/devices/presentation/providers/device_command_provider.dart`). Uma resposta HTTP de aceite nunca é tratada como comprovação de abertura — só `status == completed` permitiria confirmar execução. `timedOut` nunca é reenviado automaticamente e um segundo toque durante a solicitação é ignorado (`isBusy`). O fluxo assíncrono de API existe; a capacidade física de abertura permanece desabilitada no firmware/hardware, portanto a tentativa aplicável termina de forma segura em rejeição como `CAPABILITY_DISABLED` ou estado equivalente do contrato. Nenhuma abertura física foi validada. Providers genéricos que ainda usam `LocalDeviceConnectionRepository` constituem um caminho local separado, não evidência de ausência do backend.
 
 `RESTART` está modelado no contrato mas sem UI dedicada — o protocolo nota que `ACCEPTED` pode chegar antes do reboot de verdade, e só a reconexão é o sinal autoritativo de conclusão, o que exige um backend real para ter sentido. Continua atrás do placeholder "Reiniciar" em `DeviceSettingsPage`.
 
@@ -1065,11 +1092,11 @@ A integração inicial do protocolo (o que virou a seção 26 original) tinha tr
 * **Lista de códigos de erro** — antes 13 códigos; agora os 18 do contrato oficial (faltavam `PAYLOAD_TOO_LARGE`, `COMMAND_EXPIRED`, `CLOCK_NOT_TRUSTWORTHY`, `INVALID_TIMESTAMP`, `PROVISIONING_FAILED`).
 * **Timestamps do comando** — antes o exemplo em `docs/communication-protocol.md` mostrava ISO-8601 para `issued_at`/`expires_at`; o wire protocol real usa epoch Unix em segundos (`timestamp` dos *eventos* continua ISO-8601 UTC, isso não mudou).
 
-Essa correção **não** ativou nenhuma integração real nova — só alinhou modelos/parsers/testes ao contrato. `CloudDeviceConnectionRepository` continua fora de uso (`LocalDeviceConnectionRepository` é a implementação ativa); nenhum SDK AWS/Cognito/cliente MQTT foi adicionado; nenhum scanner de QR/câmera foi adicionado.
+Naquele momento, essa correção **não** ativou integração nova; apenas alinhou modelos/parsers/testes ao contrato. `CloudDeviceConnectionRepository` continuou fora de uso naquele caminho genérico e não foram adicionados cliente MQTT nem scanner de QR/câmera. Desde então, Cognito, diretório/status, nome pessoal e a API HTTPS assíncrona de comandos foram implantados por integrações próprias; este registro histórico não substitui o estado atual.
 
 ## Estado de implementação
 
-Ver `docs/APP_COMMUNICATION_STATUS.md` para a matriz completa por área. Nenhuma dependência AWS/BLE/QR real foi adicionada ao `pubspec.yaml` — tudo que existe hoje é contrato + stub honesto + modelo de domínio + testes.
+Ver `docs/APP_COMMUNICATION_STATUS.md` para a matriz completa por área. As integrações reais de Cognito e APIs HTTPS coexistem com contratos e stubs locais restritos a features ainda pendentes. BLE real, scanner QR, áudio, push, compartilhamento e capacidade física de abertura continuam não implementados.
 
 ## Testes
 

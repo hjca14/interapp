@@ -39,13 +39,13 @@ Riverpod provider/controller
         ↓
 DeviceConnectionRepository        (features/devices/domain/repositories)
         ↓
-LocalDeviceConnectionRepository   — active today, no hardware/backend
+LocalDeviceConnectionRepository   — active for this generic provider; no hardware transport
 CloudDeviceConnectionRepository   — delegates to DeviceBackendRepository, not wired as active yet
         ↓
 DeviceBackendRepository           (features/devices/domain/repositories)
         ↓
-LocalDeviceBackendRepository      — active today, honestly reports CLOUD_UNAVAILABLE
-(future) RemoteDeviceBackendRepository — real HTTPS client, not implemented
+LocalDeviceBackendRepository      — active only for generic command/event providers; reports CLOUD_UNAVAILABLE
+(future) RemoteDeviceBackendRepository — HTTPS adapter for those providers, not implemented
 ```
 
 `DeviceConnectionRepository` and `DeviceBackendRepository` are deliberately
@@ -56,14 +56,17 @@ two different contracts:
   on. Its local implementation also carries a debug-only
   `simulateIncomingCall` hook used during development (see
   `IncomingCallListener` in `PROJECT_CONTEXT.md`).
-- `DeviceBackendRepository` answers "what does the AWS application backend's
-  API expose" — claim, device list, status, commands, events. A future
+- `DeviceBackendRepository` is the older generic abstraction for claim,
+  connection, commands and events. It is distinct from `HttpDeviceRepository`,
+  which already consumes the deployed Cognito-authenticated device directory,
+  status and personal-name routes. A future
   `CloudDeviceConnectionRepository` (already implemented, not yet wired as
   the active provider) is the adapter between the two.
 
-Swapping from local to cloud, once a real backend exists, is a one-line
-change in `features/devices/presentation/providers/devices_providers.dart`
-— no presentation code changes, by design.
+Wiring the remaining generic providers from their local implementations to
+their remote adapters is separate from the real backend capabilities already
+used by the app. The provider boundary keeps that migration out of presentation
+code.
 
 ## 2. Onboarding / provisioning (the one direct app ↔ device path)
 
@@ -88,7 +91,7 @@ sequence (they never skip physically talking to the device):
 ```text
 AddInterBridgePage → OnboardingCoordinator → BleOnboardingTransport → (future) real BLE
                             │
-                            └──────────────→ OnboardingClaimRepository → (future) real backend
+                            └──────────────→ OnboardingClaimRepository → (future) real claim API
 ```
 
 `BleOnboardingTransport` has no production implementation yet — only a
@@ -156,8 +159,10 @@ command/response/event *would* look like once the backend relays it — see
 `features/devices/domain/entities/device_command.dart`,
 `device_command_result.dart`, `device_event.dart`, `device_protocol_error.dart`.
 These mirror the wire shapes from `docs/communication-protocol.md` §14/§16/
-§18/§19/§21 so parsing/mapping logic can be written and tested today, but
-none of it is wired to a real transport.
+§18/§19/§21 so parsing/mapping logic can be written and tested. The generic
+MQTT-shaped model/provider path described here is not itself wired to a remote
+transport; separately, the Fase 2D UI uses the deployed authenticated HTTPS
+command API. The app still never connects to MQTT directly.
 
 ## 5. Commands (`OPEN_DOOR`, `RESTART`)
 
@@ -168,13 +173,18 @@ DeviceCommandController (features/devices/presentation/providers/device_command_
         ↓
 DeviceConnectionRepository.openDoor(deviceId)
         ↓
-(future) CloudDeviceConnectionRepository → DeviceBackendRepository → backend
+generic provider path still to wire remotely → command API
         ↓
 backend creates and publishes the final OPEN_DOOR envelope (stamps
 issued_at/expires_at, assigns/validates command_id), correlates the response
         ↓
 DeviceCommandResult { status: ACCEPTED → COMPLETED / FAILED / REJECTED }
 ```
+
+This diagram describes the generic `DeviceConnectionRepository` path that
+still needs a remote adapter. The implemented Fase 2D path already calls the
+deployed asynchronous HTTPS command API directly; HTTP acceptance alone does
+not establish device execution or physical opening.
 
 The app is not the source of the command envelope. `DeviceCommand`
 (`features/devices/domain/entities/device_command.dart`) models that
@@ -300,20 +310,22 @@ This pass corrected the app's **models and parsers** to match the v1
 contract precisely. It did not, and was explicitly scoped not to:
 
 - add the Cognito SDK, AWS SDK, or an MQTT client to the app;
-- implement `RemoteDeviceBackendRepository` (there is still no real HTTPS
-  API to call — `LocalDeviceBackendRepository` remains the active
-  implementation, honestly reporting `CLOUD_UNAVAILABLE`);
+- implement `RemoteDeviceBackendRepository` for commands/events
+  (`LocalDeviceBackendRepository` remains the active implementation for that
+  abstraction, honestly reporting `CLOUD_UNAVAILABLE`; this does not refer to
+  the real directory/name HTTPS APIs already used by `HttpDeviceRepository`);
 - activate `CloudDeviceConnectionRepository` as the default
   `deviceConnectionRepositoryProvider` (still exists, still not wired in —
   see `devices_providers.dart`);
 - implement real BLE provisioning, a QR scanner, or a camera reader.
 
-The app still only ever talks to a **future authenticated HTTPS
-application API** — never to AWS IoT Core/MQTT directly, and it is the
+For commands/events, the app still depends on a **future authenticated HTTPS
+application API** — never on AWS IoT Core/MQTT directly — and it is the
 backend, not the app, that will create and publish the final command
-envelope. All of the above remains Fase 1 AWS work; see
+envelope. This statement does not include the real device directory and
+personal-name HTTPS routes already deployed in DEV. All of the above remains Fase 1 AWS work; see
 `docs/APP_COMMUNICATION_STATUS.md` for the up-to-date status of every area.
-# Atualização da Fase 2D
+# Registro histórico da Fase 2D — concluída e encerrada
 
 A interface de detalhes compõe a camada HTTPS assíncrona de `OPEN_DOOR` e a
 expõe exclusivamente para membership `OWNER`, com confirmação explícita,
@@ -323,8 +335,10 @@ retoma nem reenvia o comando; uma confirmação explícita posterior, inclusive
 na mesma tela, usa controller, tracker e chave novos. Um
 202/`PENDING` nunca é sucesso; somente `COMPLETED` confirma abertura. O hardware
 continua sem relé, GPIO, DTMF ou qualquer ação física, e o primeiro teste manual
-em DEV deve terminar em `REJECTED/CAPABILITY_DISABLED`. A validação ponta a
-ponta permanece pendente para depois do merge.
+em DEV deveria terminar em `REJECTED/CAPABILITY_DISABLED`. No momento em que
+este registro foi escrito, a validação ponta a ponta ainda estava pendente para
+depois do merge. Isso preserva o histórico daquela integração e não reabre a
+Fase 2D nem classifica o trabalho posterior de `display_name` como parte dela.
 
 As preferências locais `confirmBeforeOpeningDoor` e
 `requireDeviceAuthenticationToOpenDoor` controlam, respectivamente, o diálogo
@@ -332,3 +346,18 @@ e a autenticação segura do aparelho antes do POST. A política da porta é
 separada do bloqueio biométrico global e pode aceitar biometria ou credencial
 segura suportada pela plataforma. Falha, cancelamento, indisponibilidade ou
 preferências ainda não carregadas impedem o envio.
+
+# Fase 3 — experiência do dispositivo e do usuário
+
+A Fase 3 atual começa depois do encerramento da Fase 2D. Sua primeira entrega
+funcional foi o nome pessoal por `DeviceMembership`: edição/limpeza via
+`PATCH /v1/devices/{device_id}`, já implantado em DEV e validado no Android com
+o valor `Casa` persistindo após sair e retornar à tela. O hotfix do backend foi
+reimplantado com CloudFormation em `UPDATE_COMPLETE`; a primeira tentativa no
+cold start da Lambda não gravou dados, e o reteste posterior validou
+`app → API → DynamoDB → nova leitura`.
+
+A reorganização entre Resumo, Diagnóstico e Configurações também pertence a
+esta fase. Alteração de senha, preferências reais de notificação, FCM e BLE real
+seguem, nessa ordem. Os modelos e mocks existentes de onboarding preservam
+decisões anteriores, mas não significam que a implementação BLE real começou.
