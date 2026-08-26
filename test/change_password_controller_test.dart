@@ -70,16 +70,61 @@ void main() {
     expect(repository.lastChangePasswordCurrent, isNull);
   });
 
-  test('rejects a new password identical to the current one', () async {
+  test('does not block locally when the typed current and new password texts '
+      'are equal — only Cognito can tell whether the typed current password '
+      'is actually correct, so the repository decides', () async {
     await controller().submit(
       currentPassword: 'Same-Password-1',
       newPassword: 'Same-Password-1',
       confirmPassword: 'Same-Password-1',
     );
 
+    expect(state().status, ChangePasswordStatus.success);
+    expect(state().newPasswordError, isNull);
+    expect(repository.changePasswordCallCount, 1);
+    expect(repository.lastChangePasswordCurrent, 'Same-Password-1');
+    expect(repository.lastChangePasswordNew, 'Same-Password-1');
+  });
+
+  test(
+    'a typo in the current password with an equal new password still '
+    'surfaces "incorrect current password", never a same-as-current message '
+    '— the typed current password is never assumed correct locally',
+    () async {
+      repository.changePasswordFailure = const AuthFailure(
+        AuthFailureKind.incorrectCurrentPassword,
+        'Senha atual incorreta.',
+      );
+
+      await controller().submit(
+        currentPassword: 'abcd',
+        newPassword: 'abcd',
+        confirmPassword: 'abcd',
+      );
+
+      expect(state().status, ChangePasswordStatus.failure);
+      expect(state().errorMessage, 'Senha atual incorreta.');
+      expect(state().newPasswordError, isNull);
+      expect(repository.changePasswordCallCount, 1);
+    },
+  );
+
+  test('an equal current/new password that Cognito rejects as policy-invalid '
+      'surfaces the existing sanitized policy message', () async {
+    repository.changePasswordFailure = const AuthFailure(
+      AuthFailureKind.invalidPassword,
+      'A senha não atende à política informada.',
+    );
+
+    await controller().submit(
+      currentPassword: 'abc',
+      newPassword: 'abc',
+      confirmPassword: 'abc',
+    );
+
     expect(state().status, ChangePasswordStatus.failure);
-    expect(state().newPasswordError, isNotNull);
-    expect(repository.lastChangePasswordCurrent, isNull);
+    expect(state().errorMessage, 'A senha não atende à política informada.');
+    expect(repository.changePasswordCallCount, 1);
   });
 
   test(

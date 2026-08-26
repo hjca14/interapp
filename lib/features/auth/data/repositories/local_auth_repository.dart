@@ -21,6 +21,7 @@ class LocalAuthRepository implements AuthRepository {
   AuthFailure? changePasswordFailure;
   String? lastChangePasswordCurrent;
   String? lastChangePasswordNew;
+  int changePasswordCallCount = 0;
 
   @override
   Future<AuthSession> get currentSession async => _session;
@@ -70,6 +71,7 @@ class LocalAuthRepository implements AuthRepository {
     String currentPassword,
     String newPassword,
   ) async {
+    changePasswordCallCount++;
     lastChangePasswordCurrent = currentPassword;
     lastChangePasswordNew = newPassword;
     final failure = changePasswordFailure;

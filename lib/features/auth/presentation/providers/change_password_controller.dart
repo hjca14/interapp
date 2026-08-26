@@ -31,6 +31,11 @@ class ChangePasswordState {
 /// Drives the "change password" form: local validation, a single in-flight
 /// submission, and mapping the sanitized [AuthFailure] from the auth
 /// repository into field or general errors.
+///
+/// Local validation stays limited to what this form can actually know before
+/// asking Cognito: required fields and a matching confirmation. It never
+/// rejects an equal current/new password up front, since the typed "current
+/// password" cannot be assumed correct without Cognito checking it first.
 class ChangePasswordController extends Notifier<ChangePasswordState> {
   @override
   ChangePasswordState build() => const ChangePasswordState();
@@ -93,13 +98,11 @@ class ChangePasswordController extends Notifier<ChangePasswordState> {
       );
     }
 
-    if (newPassword == currentPassword) {
-      return const ChangePasswordState(
-        status: ChangePasswordStatus.failure,
-        newPasswordError: 'A nova senha deve ser diferente da atual.',
-      );
-    }
-
+    // A new password identical to the current one is NOT rejected here: this
+    // form has no reliable way to know the typed "current password" is
+    // actually correct (it could be a typo), so only Cognito can validate
+    // both together in the same call. Whatever Cognito decides is mapped by
+    // AuthRepository.changePassword into the existing sanitized failures.
     return null;
   }
 }
