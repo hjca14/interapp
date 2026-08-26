@@ -72,45 +72,52 @@ void main() {
 
   test('does not block locally when the typed current and new password texts '
       'are equal — only Cognito can tell whether the typed current password '
-      'is actually correct, so the repository decides', () async {
-    await controller().submit(
-      currentPassword: 'Same-Password-1',
-      newPassword: 'Same-Password-1',
-      confirmPassword: 'Same-Password-1',
+      'is actually correct', () async {
+    // Real Cognito DEV behavior: a typo'd current password of "abcd" (true
+    // password "abc") with a new password of "abcd" must surface as an
+    // incorrect current password, never a premature "must differ" message.
+    repository.changePasswordFailure = const AuthFailure(
+      AuthFailureKind.incorrectCurrentPassword,
+      'Senha atual incorreta.',
     );
 
-    expect(state().status, ChangePasswordStatus.success);
+    await controller().submit(
+      currentPassword: 'abcd',
+      newPassword: 'abcd',
+      confirmPassword: 'abcd',
+    );
+
+    expect(state().status, ChangePasswordStatus.failure);
+    expect(state().errorMessage, 'Senha atual incorreta.');
     expect(state().newPasswordError, isNull);
     expect(repository.changePasswordCallCount, 1);
-    expect(repository.lastChangePasswordCurrent, 'Same-Password-1');
-    expect(repository.lastChangePasswordNew, 'Same-Password-1');
+    expect((await repository.currentSession).isSignedIn, isTrue);
   });
 
-  test(
-    'a typo in the current password with an equal new password still '
-    'surfaces "incorrect current password", never a same-as-current message '
-    '— the typed current password is never assumed correct locally',
-    () async {
-      repository.changePasswordFailure = const AuthFailure(
-        AuthFailureKind.incorrectCurrentPassword,
-        'Senha atual incorreta.',
-      );
+  test('a successful call with an equal current/new password is treated as no '
+      'effective change, not success — Cognito DEV accepts rather than '
+      'rejects that case, so only a post-success check can catch it', () async {
+    // LocalAuthRepository succeeds by default (changePasswordFailure is
+    // unset), mirroring the real Cognito DEV response for "abc" -> "abc".
+    await controller().submit(
+      currentPassword: 'abc',
+      newPassword: 'abc',
+      confirmPassword: 'abc',
+    );
 
-      await controller().submit(
-        currentPassword: 'abcd',
-        newPassword: 'abcd',
-        confirmPassword: 'abcd',
-      );
+    expect(state().status, ChangePasswordStatus.failure);
+    expect(
+      state().newPasswordError,
+      'A nova senha deve ser diferente da atual.',
+    );
+    expect(state().errorMessage, isNull);
+    expect(repository.changePasswordCallCount, 1);
+    expect((await repository.currentSession).isSignedIn, isTrue);
+  });
 
-      expect(state().status, ChangePasswordStatus.failure);
-      expect(state().errorMessage, 'Senha atual incorreta.');
-      expect(state().newPasswordError, isNull);
-      expect(repository.changePasswordCallCount, 1);
-    },
-  );
-
-  test('an equal current/new password that Cognito rejects as policy-invalid '
-      'surfaces the existing sanitized policy message', () async {
+  test('a remote invalidPassword failure is surfaced as-is even when the '
+      'submitted values happen to be equal — equality is never used to '
+      'override a remote failure', () async {
     repository.changePasswordFailure = const AuthFailure(
       AuthFailureKind.invalidPassword,
       'A senha não atende à política informada.',
@@ -124,6 +131,7 @@ void main() {
 
     expect(state().status, ChangePasswordStatus.failure);
     expect(state().errorMessage, 'A senha não atende à política informada.');
+    expect(state().newPasswordError, isNull);
     expect(repository.changePasswordCallCount, 1);
   });
 

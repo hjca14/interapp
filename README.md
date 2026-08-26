@@ -14,7 +14,7 @@ Também se pode fornecer `APP_ENVIRONMENT=dev`, `API_BASE_URL`, `AWS_REGION=sa-e
 
 O Amplify executa `USER_SRP_AUTH`, renova a sessão e guarda credenciais no armazenamento seguro nativo (Keychain no iOS e armazenamento criptografado suportado pelo plugin no Android). Não há app client secret, Hosted UI, MFA ou Identity Pool. A arquitetura é `Cognito → access token → API HTTP`; o app não chama AWS IoT Core.
 
-Valide em aparelho/emulador: login do usuário DEV confirmado, restauração após reiniciar, lista do Device registrado, detalhe/status, pull-to-refresh, expiração/logout e estados offline. Cadastro, confirmação/reenvio e redefinição de senha para quem perdeu o acesso também estão disponíveis. A alteração de senha de uma conta autenticada (usuário que já sabe a senha atual) também está implementada, em **Ajustes → Alterar senha**; falta apenas o teste manual real em Android com a conta DEV no Cognito.
+Valide em aparelho/emulador: login do usuário DEV confirmado, restauração após reiniciar, lista do Device registrado, detalhe/status, pull-to-refresh, expiração/logout e estados offline. Cadastro, confirmação/reenvio e redefinição de senha para quem perdeu o acesso também estão disponíveis. A alteração de senha de uma conta autenticada (usuário que já sabe a senha atual) também está implementada, em **Ajustes → Alterar senha**; um cenário (senha atual correta com nova senha igual) já foi validado manualmente em Android com a conta DEV no Cognito, mas os demais cenários ainda estão pendentes.
 
 ## Fase 3: experiência do dispositivo e do usuário
 
@@ -51,15 +51,18 @@ compartilhamento.
 A ordem de trabalho decidida para a sequência da Fase 3 é: correção documental,
 alteração de senha nas configurações gerais da conta, preferências reais de
 notificação, integração FCM e, depois, onboarding BLE. O item 2 (alteração de
-senha) está implementado e coberto por testes locais; falta só a validação
-manual real em Android com a conta DEV no Cognito. As preferências visuais
+senha) está implementado e coberto por testes locais; a validação manual real
+em Android com a conta DEV no Cognito começou (um cenário confirmado) e
+continua em andamento para os demais casos. As preferências visuais
 atuais ainda são locais/incompletas; não há persistência delas no backend. FCM
 não foi configurado e o projeto Firebase ainda não foi criado. O BLE real não
 foi iniciado; há um Android físico antigo disponível para esse teste futuro.
 
 ## Alteração de senha nas configurações gerais da conta
 
-Em **Ajustes → Alterar senha** (fora das configurações de qualquer Device, sem depender de haver um Device cadastrado), um usuário autenticado que já conhece sua senha atual pode trocá-la via `Amplify.Auth.updatePassword`, através do `AuthRepository.changePassword` já testado (repository, controller Riverpod e widget, todos com fakes — sem tocar o Cognito real em CI). É diferente de **Esqueci minha senha**: essa continua sendo o único fluxo de recuperação para quem não sabe a senha atual; a tela de alteração só oferece um atalho explicando que a recuperação exige sair da sessão antes de seguir para o login. Sessão expirada durante a troca segue o mesmo tratamento central já usado pelo cliente HTTP num 401. Nenhuma mudança em `interBackend`, CDK, User Pool ou política do Cognito. Teste manual real em Android com a conta DEV ainda está pendente.
+Em **Ajustes → Alterar senha** (fora das configurações de qualquer Device, sem depender de haver um Device cadastrado), um usuário autenticado que já conhece sua senha atual pode trocá-la via `Amplify.Auth.updatePassword`, através do `AuthRepository.changePassword` já testado (repository, controller Riverpod e widget, todos com fakes — sem tocar o Cognito real em CI). É diferente de **Esqueci minha senha**: essa continua sendo o único fluxo de recuperação para quem não sabe a senha atual; a tela de alteração só oferece um atalho explicando que a recuperação exige sair da sessão antes de seguir para o login. Sessão expirada durante a troca segue o mesmo tratamento central já usado pelo cliente HTTP num 401. Nenhuma mudança em `interBackend`, CDK, User Pool ou política do Cognito.
+
+O teste manual real em Android com a conta DEV confirmou que o Cognito **aceita** uma nova senha igual à atual em vez de rejeitá-la — `updatePassword` retorna sucesso sem produzir mudança efetiva. Como o app não tem como confirmar, antes da chamada, que o texto digitado em "senha atual" é de fato correto, essa igualdade nunca bloqueia o envio localmente; só depois que `updatePassword` retorna sucesso — o que confirma implicitamente que a senha atual estava certa — o controller trata os dois valores iguais como "nenhuma mudança efetiva", sem reportar sucesso, sem limpar os campos e sem sair da tela, pedindo uma nova senha realmente diferente. Os demais cenários (senha atual incorreta, política inválida, sessão expirada, troca bem-sucedida com senha nova de fato) ainda não foram repetidos manualmente — o fluxo completo não deve ser considerado validado ponta a ponta.
 
 ## Bloqueio biométrico local
 

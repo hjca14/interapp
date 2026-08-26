@@ -232,6 +232,40 @@ void main() {
     );
 
     testWidgets(
+      'a successful call with an equal current/new password stays on the '
+      'screen, keeps the typed values, and shows "must differ" instead of '
+      'a success confirmation',
+      (tester) async {
+        // LocalAuthRepository succeeds by default — mirroring the real
+        // Cognito DEV response observed for identical current/new passwords
+        // (it accepts the call rather than rejecting it).
+        final repository = LocalAuthRepository(
+          initial: const AuthSession(isSignedIn: true, userId: 'user-1'),
+        );
+        await _pumpPage(tester, auth: repository, wrapWithOpener: true);
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
+
+        await tester.enterText(find.byKey(_currentKey), 'abc');
+        await tester.enterText(find.byKey(_newKey), 'abc');
+        await tester.enterText(find.byKey(_confirmKey), 'abc');
+        await tester.tap(find.widgetWithText(FilledButton, 'Alterar senha'));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(ChangePasswordPage), findsOneWidget);
+        expect(find.text('Senha alterada com sucesso.'), findsNothing);
+        expect(
+          find.text('A nova senha deve ser diferente da atual.'),
+          findsOneWidget,
+        );
+        expect(_field(tester, _currentKey).controller!.text, 'abc');
+        expect(_field(tester, _newKey).controller!.text, 'abc');
+        expect(_field(tester, _confirmKey).controller!.text, 'abc');
+        expect(repository.changePasswordCallCount, 1);
+      },
+    );
+
+    testWidgets(
       'a general remote failure is shown legibly and never echoes any password',
       (tester) async {
         final repository =

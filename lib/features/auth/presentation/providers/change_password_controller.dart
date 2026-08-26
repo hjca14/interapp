@@ -35,7 +35,12 @@ class ChangePasswordState {
 /// Local validation stays limited to what this form can actually know before
 /// asking Cognito: required fields and a matching confirmation. It never
 /// rejects an equal current/new password up front, since the typed "current
-/// password" cannot be assumed correct without Cognito checking it first.
+/// password" cannot be assumed correct without Cognito checking it first —
+/// and Cognito DEV has been observed to accept, not reject, that case. Once
+/// [AuthRepository.changePassword] returns successfully, the current
+/// password is known to have been correct; only then is an equal new
+/// password reported as a local "no effective change" field error instead of
+/// a success.
 class ChangePasswordController extends Notifier<ChangePasswordState> {
   @override
   ChangePasswordState build() => const ChangePasswordState();
@@ -64,6 +69,19 @@ class ChangePasswordController extends Notifier<ChangePasswordState> {
       await ref
           .read(authRepositoryProvider)
           .changePassword(currentPassword, newPassword);
+      if (newPassword == currentPassword) {
+        // Cognito DEV was observed accepting updatePassword when the new
+        // password equals the current one — it is not rejected server-side.
+        // A successful call therefore also confirms currentPassword was
+        // correct, so only now is it safe to treat equality as "no
+        // effective change" and ask for a genuinely different password,
+        // instead of reporting a success that changed nothing.
+        state = const ChangePasswordState(
+          status: ChangePasswordStatus.failure,
+          newPasswordError: 'A nova senha deve ser diferente da atual.',
+        );
+        return;
+      }
       state = const ChangePasswordState(status: ChangePasswordStatus.success);
     } on AuthFailure catch (failure) {
       state = ChangePasswordState(
