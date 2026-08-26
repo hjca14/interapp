@@ -1,20 +1,23 @@
 import 'package:flutter/material.dart';
 
 /// The "Ajustes" tab: profile entry (opens `RegistrationPage` again for
-/// editing via [onEditProfile]) and a static app-info row. Everything else
-/// that will eventually live here (device management, notifications, etc.)
-/// isn't built yet — keep it that way rather than adding placeholder rows.
+/// editing via [onEditProfile]), account-wide security/password actions, and
+/// a static app-info row. Everything else that will eventually live here
+/// (notifications, etc.) isn't built yet — keep it that way rather than
+/// adding placeholder rows.
 class SettingsPage extends StatelessWidget {
   const SettingsPage({
     super.key,
     required this.profileName,
     required this.onEditProfile,
     required this.onSecurity,
+    required this.onChangePassword,
     required this.onLogout,
   });
   final String? profileName;
   final VoidCallback onEditProfile;
   final VoidCallback onSecurity;
+  final VoidCallback onChangePassword;
   final VoidCallback onLogout;
 
   @override
@@ -35,6 +38,13 @@ class SettingsPage extends StatelessWidget {
         subtitle: const Text('Biometria e bloqueio do aplicativo'),
         trailing: const Icon(Icons.chevron_right),
         onTap: onSecurity,
+      ),
+      ListTile(
+        leading: const Icon(Icons.lock_outline),
+        title: const Text('Alterar senha'),
+        subtitle: const Text('Defina uma nova senha para sua conta'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: onChangePassword,
       ),
       ListTile(
         leading: const Icon(Icons.logout),

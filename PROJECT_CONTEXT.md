@@ -877,7 +877,7 @@ Esta é a fase corrente, iniciada depois do encerramento da Fase 2D. A primeira 
 Ordem de trabalho decidida:
 
 1. [x] Correção documental e alinhamento das fases.
-2. [ ] Alteração de senha nas configurações gerais da conta, fora das configurações de dispositivo.
+2. [x] Alteração de senha nas configurações gerais da conta, fora das configurações de dispositivo. Implementada localmente e testada com fakes; validação real no Cognito DEV via Android parcial (um cenário confirmado, demais ainda pendentes — ver seção "Alteração de senha" abaixo).
 3. [ ] Preferências reais de notificação, com contrato e persistência de backend ainda por definir.
 4. [ ] Integração FCM; FCM não está configurado e o projeto Firebase ainda não existe.
 5. [ ] Onboarding BLE real; a implementação não começou e há um Android físico antigo disponível para o teste futuro.
@@ -1020,6 +1020,18 @@ device  → X.509/mTLS contra AWS IoT Core (o app nunca vê essas credenciais)
 ```
 
 `AuthRepository`/`LocalAuthRepository` (`features/auth/`) foram introduzidos como abstração local nesta etapa histórica. A autenticação real do app usa Cognito e não deve ser confundida com esse stub nem com o "perfil" local (`features/profile/`, só um nome digitado); são conceitos diferentes que continuam separados.
+
+## Alteração de senha (Fase 3, item 2)
+
+Usuário autenticado que já sabe a senha atual pode trocá-la em **Ajustes → Alterar senha** (`ChangePasswordPage`, rota `/change-password`), fora das configurações de qualquer Device e sem depender de haver um Device cadastrado. É um recurso da conta, não de compartilhamento: não aparece em "Acesso e compartilhamento" (`device_settings_page.dart` permanece intocado).
+
+A operação usa exclusivamente o Amplify Auth já existente — `Amplify.Auth.updatePassword(oldPassword:, newPassword:)`, numa única chamada que recebe a senha anterior e a proposta juntas — através de `AuthRepository.changePassword`, implementado por `CognitoAuthRepository` e testado com um `CognitoAuthGateway` fake (nenhum SDK AWS paralelo, nenhuma chamada HTTP própria, nenhum Lambda/endpoint novo). A validação local antes do envio é deliberadamente mínima (campos obrigatórios, confirmação idêntica, espaços nunca removidos silenciosamente) porque cadastro/redefinição também nunca validaram a política de senha localmente — o texto de política (`PasswordPolicyHint`, compartilhado pelas três telas) é só informativo; o Cognito continua a única autoridade sobre a política real. Em particular, o app **não** rejeita localmente uma nova senha igual ao texto digitado em "senha atual": o campo pode conter um erro de digitação, então só o Cognito — validando os dois valores na mesma chamada — pode confirmar que a senha atual está correta antes de decidir se a nova senha é aceitável.
+
+**Teste real no Android com Cognito DEV mostrou que o serviço aceita `PreviousPassword`/`ProposedPassword` iguais** em vez de rejeitar — `updatePassword` retornou sucesso sem produzir mudança efetiva na senha. Por isso, ao contrário de uma suposição anterior, o app não pode alegar que o Cognito rejeita necessariamente senhas iguais. Como o app só sabe, antes da chamada, que o campo "senha atual" *pode* estar incorreto, essa igualdade nunca bloqueia o envio. Depois que `updatePassword` retorna sucesso, porém, isso confirma implicitamente que a senha atual informada era a verdadeira; só nesse momento — em `ChangePasswordController.submit`, depois do retorno do repository, nunca antes — a igualdade entre os dois valores enviados é tratada com segurança como "nenhuma mudança efetiva": o controller não reporta sucesso, não limpa os campos, não sai da tela e não invalida a sessão, apresentando em vez disso "A nova senha deve ser diferente da atual." como erro do campo de nova senha para nova tentativa. Uma falha remota (por exemplo, senha atual incorreta) nunca é substituída por essa checagem de igualdade — o mapeamento sanitizado existente permanece intacto nesse caso.
+
+Erros ficam sanitizados em `AuthFailureKind` (`incorrectCurrentPassword`, `invalidPassword`, `rateLimited`, `notAuthenticated`, `sessionExpired`, `unavailable`, `unknown`) — nunca a exceção crua do Amplify/Cognito, nunca o texto da mensagem do Cognito e nunca a senha digitada; a classificação usa somente o tipo estruturado da exceção. Uma sessão expirada ou um token inválido durante a troca passa pelo mesmo `invalidateSession()` central já usado pelo cliente HTTP num 401, sem tentativa de reautenticação silenciosa; o redirecionamento ao login é o mesmo mecanismo de `redirect` do `GoRouter` já existente. "Alterar senha" nunca é confundido com "Esqueci minha senha" (`ForgotPasswordPage`): a ação "Não lembra sua senha?" explica que a recuperação por e-mail exige sair da sessão atual antes de chamar `signOut()`, em vez de duplicar o fluxo de recuperação.
+
+Implementado e testado localmente (repository com fake gateway, controller Riverpod com `LocalAuthRepository`, widget). **Um cenário real já foi validado em Android contra o Cognito DEV** — senha atual correta com nova senha igual, confirmando o comportamento de aceitação descrito acima — mas os demais cenários (senha atual incorreta, nova senha fora da política, sessão expirada durante a troca, troca bem-sucedida com senha realmente nova) ainda não foram repetidos manualmente; **não considere o fluxo completo de alteração de senha validado ponta a ponta** até essa verificação adicional. Nenhuma mudança em `interBackend`, AWS CDK, User Pool ou política do Cognito.
 
 ## Claim (associação de propriedade)
 

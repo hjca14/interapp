@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../domain/repositories/auth_repository.dart';
 import '../providers/auth_providers.dart';
+import '../widgets/password_policy_hint.dart';
+import '../widgets/password_visibility_field.dart';
 
 /// E-mail and password login screen.
 class LoginPage extends ConsumerStatefulWidget {
@@ -60,8 +62,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       title: 'Entrar',
       children: [
         _EmailField(controller: _emailController),
-        _PasswordField(
+        PasswordVisibilityField(
           controller: _passwordController,
+          label: 'Senha',
           autofillHint: AutofillHints.password,
           onSubmitted: _submitting ? null : _submit,
         ),
@@ -143,11 +146,12 @@ class _SignUpPageState extends ConsumerState<SignUpPage> {
       title: 'Criar conta',
       children: [
         _EmailField(controller: _emailController),
-        _PasswordField(
+        PasswordVisibilityField(
           controller: _passwordController,
+          label: 'Senha',
           autofillHint: AutofillHints.newPassword,
         ),
-        const _PasswordPolicy(),
+        const PasswordPolicyHint(),
         _InlineError(message: _errorMessage),
         _SubmitButton(
           submitting: _submitting,
@@ -252,11 +256,12 @@ class _CodePageState extends ConsumerState<CodePage> {
           decoration: const InputDecoration(labelText: 'Código'),
         ),
         if (widget.passwordReset) ...[
-          _PasswordField(
+          PasswordVisibilityField(
             controller: _passwordController,
+            label: 'Senha',
             autofillHint: AutofillHints.newPassword,
           ),
-          const _PasswordPolicy(),
+          const PasswordPolicyHint(),
         ],
         _InlineError(message: _errorMessage),
         _SubmitButton(
@@ -384,61 +389,6 @@ class _EmailField extends StatelessWidget {
       textInputAction: TextInputAction.next,
       autofillHints: const [AutofillHints.username, AutofillHints.email],
       decoration: const InputDecoration(labelText: 'E-mail'),
-    );
-  }
-}
-
-class _PasswordField extends StatefulWidget {
-  const _PasswordField({
-    required this.controller,
-    required this.autofillHint,
-    this.onSubmitted,
-  });
-
-  final TextEditingController controller;
-  final String autofillHint;
-  final VoidCallback? onSubmitted;
-
-  @override
-  State<_PasswordField> createState() => _PasswordFieldState();
-}
-
-class _PasswordFieldState extends State<_PasswordField> {
-  bool _visible = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return TextField(
-      controller: widget.controller,
-      obscureText: !_visible,
-      autofillHints: [widget.autofillHint],
-      onSubmitted: widget.onSubmitted == null
-          ? null
-          : (_) => widget.onSubmitted!(),
-      decoration: InputDecoration(
-        labelText: 'Senha',
-        suffixIcon: IconButton(
-          tooltip: _visible ? 'Ocultar senha' : 'Mostrar senha',
-          onPressed: () {
-            setState(() {
-              _visible = !_visible;
-            });
-          },
-          icon: Icon(_visible ? Icons.visibility_off : Icons.visibility),
-        ),
-      ),
-    );
-  }
-}
-
-class _PasswordPolicy extends StatelessWidget {
-  const _PasswordPolicy();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Text(
-      'Use ao menos 8 caracteres, com letra maiúscula, minúscula e número. '
-      'Símbolo é opcional.',
     );
   }
 }

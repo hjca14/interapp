@@ -79,6 +79,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                   profileName: _profileName,
                   onEditProfile: _editProfile,
                   onSecurity: () => context.push('/security'),
+                  onChangePassword: () => context.push('/change-password'),
                   onLogout: _confirmLogout,
                 ),
         ),
