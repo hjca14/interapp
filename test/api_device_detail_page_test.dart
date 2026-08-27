@@ -23,7 +23,9 @@ import 'package:interapp/features/commands/presentation/providers/door_command_p
 import 'package:interapp/core/network/api_failure.dart';
 import 'package:interapp/features/auth/domain/services/biometric_lock.dart';
 import 'package:interapp/features/auth/presentation/providers/biometric_lock_providers.dart';
+import 'package:interapp/features/devices/domain/entities/device_notification_preferences.dart';
 import 'package:interapp/features/devices/domain/entities/device_settings.dart';
+import 'package:interapp/features/devices/domain/repositories/device_notification_preferences_repository.dart';
 import 'package:interapp/features/devices/domain/repositories/device_repository.dart';
 import 'package:interapp/features/devices/domain/repositories/device_settings_repository.dart';
 
@@ -47,6 +49,27 @@ class _SettingsRepository implements DeviceSettingsRepository {
 
   @override
   Future<void> save(String deviceId, DeviceSettings settings) async {}
+}
+
+/// Minimal fake so any test that reaches `DeviceSettingsPage` (its Alertas
+/// section auto-loads via `deviceNotificationPreferencesProvider`) doesn't
+/// hit the real, unoverridden `apiClientProvider`/`appConfigProvider` chain.
+class _NotificationPreferencesRepository
+    implements DeviceNotificationPreferencesRepository {
+  DeviceNotificationPreferences value = DeviceNotificationPreferences();
+
+  @override
+  Future<DeviceNotificationPreferences> get(String deviceId) async => value;
+
+  @override
+  Future<DeviceNotificationPreferences> patch(
+    String deviceId,
+    DeviceNotificationPreferences baseline,
+    DeviceNotificationPreferences draft,
+  ) async {
+    value = draft;
+    return value;
+  }
 }
 
 class _ManualPollingScheduler implements StatusPollingScheduler {
@@ -254,6 +277,9 @@ void main() {
         ),
         deviceSettingsRepositoryProvider.overrideWithValue(
           _SettingsRepository(settings ?? Future.value(const DeviceSettings())),
+        ),
+        deviceNotificationPreferencesRepositoryProvider.overrideWithValue(
+          _NotificationPreferencesRepository(),
         ),
         doorDeviceAuthenticatorProvider.overrideWithValue(
           authenticator ?? _Authenticator(),

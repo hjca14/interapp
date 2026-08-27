@@ -105,13 +105,8 @@ class _DeviceSettingsBody extends ConsumerWidget {
   final String deviceName;
   final DeviceSettings settings;
 
-  void _apply(
-    WidgetRef ref,
-    DeviceSettings Function(DeviceSettings) update,
-  ) {
-    ref
-        .read(deviceSettingsProvider(deviceId).notifier)
-        .updateSettings(update);
+  void _apply(WidgetRef ref, DeviceSettings Function(DeviceSettings) update) {
+    ref.read(deviceSettingsProvider(deviceId).notifier).updateSettings(update);
   }
 
   @override
@@ -125,14 +120,12 @@ class _DeviceSettingsBody extends ConsumerWidget {
           settings: settings,
           onConfirmChanged: (value) => _apply(
             ref,
-            (settings) =>
-                settings.copyWith(confirmBeforeOpeningDoor: value),
+            (settings) => settings.copyWith(confirmBeforeOpeningDoor: value),
           ),
           onAuthChanged: (value) => _apply(
             ref,
-            (settings) => settings.copyWith(
-              requireDeviceAuthenticationToOpenDoor: value,
-            ),
+            (settings) =>
+                settings.copyWith(requireDeviceAuthenticationToOpenDoor: value),
           ),
         ),
         const SizedBox(height: 16),
@@ -195,11 +188,7 @@ class _RemotePreferences extends ConsumerWidget {
 
     return Column(
       children: [
-        _AlertsCard(
-          preferences: draft,
-          enabled: enabled,
-          onChanged: edit,
-        ),
+        _AlertsCard(preferences: draft, enabled: enabled, onChanged: edit),
         const SizedBox(height: 16),
         _QuietScheduleCard(
           schedule: draft.quietSchedule,
@@ -441,9 +430,8 @@ class _QuietScheduleCard extends StatelessWidget {
               ],
               selected: {schedule.behavior},
               onSelectionChanged: enabled
-                  ? (value) => onChanged(
-                      schedule.copyWith(behavior: value.first),
-                    )
+                  ? (value) =>
+                        onChanged(schedule.copyWith(behavior: value.first))
                   : null,
             ),
           ),
@@ -478,9 +466,13 @@ class _AccessCard extends StatelessWidget {
         detail.when(
           data: (device) => ListTile(
             title: const Text('Seu papel'),
-            subtitle: Text(
-              '${friendlyDeviceRole(device.role)}\n'
-              '${_sharingPermissionDescription(device.role)}',
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(friendlyDeviceRole(device.role)),
+                const SizedBox(height: 4),
+                Text(_sharingPermissionDescription(device.role)),
+              ],
             ),
             isThreeLine: true,
           ),
@@ -911,9 +903,7 @@ class _AdvancedCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final errorColor = Theme.of(context).colorScheme.error;
-    final remote = ref.watch(
-      deviceNotificationPreferencesProvider(deviceId),
-    );
+    final remote = ref.watch(deviceNotificationPreferencesProvider(deviceId));
     return _SettingsSection(
       icon: Icons.warning_amber_outlined,
       title: 'Avançado',

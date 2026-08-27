@@ -217,8 +217,7 @@ class DeviceNotificationPreferencesController
           enabled: true,
           timezone: timezone,
           days: current.days.isEmpty ? const {1, 2, 3, 4, 5, 6, 7} : null,
-          startTime:
-              current.startTime ?? ClockTime(hour: 22, minute: 0),
+          startTime: current.startTime ?? ClockTime(hour: 22, minute: 0),
           endTime: current.endTime ?? ClockTime(hour: 7, minute: 0),
         ),
       ),
@@ -299,8 +298,9 @@ class DeviceNotificationPreferencesController
 
 const _unset = Object();
 
-final deviceNotificationPreferencesProvider = NotifierProvider.family<
-  DeviceNotificationPreferencesController,
-  NotificationPreferencesState,
-  String
->(DeviceNotificationPreferencesController.new);
+final deviceNotificationPreferencesProvider =
+    NotifierProvider.family<
+      DeviceNotificationPreferencesController,
+      NotificationPreferencesState,
+      String
+    >(DeviceNotificationPreferencesController.new);

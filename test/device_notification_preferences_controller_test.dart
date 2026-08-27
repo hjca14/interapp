@@ -41,7 +41,7 @@ class _Repository implements DeviceNotificationPreferencesRepository {
   }
 }
 
-ProviderContainer containerFor(
+ProviderContainer _containerFor(
   _Repository repository, {
   TimezoneLoader? timezoneLoader,
 }) {
@@ -69,10 +69,13 @@ void main() {
   test('initial loading, successful GET, and concurrent load limit', () async {
     final pending = Completer<DeviceNotificationPreferences>();
     final repository = _Repository()..pendingGet = pending;
-    final container = containerFor(repository);
+    final container = _containerFor(repository);
     final provider = deviceNotificationPreferencesProvider(deviceId);
 
-    expect(container.read(provider).phase, NotificationPreferencesPhase.loading);
+    expect(
+      container.read(provider).phase,
+      NotificationPreferencesPhase.loading,
+    );
     await flush();
     final controller = container.read(provider.notifier);
     final first = controller.load();
@@ -87,11 +90,14 @@ void main() {
   test('initial error supports retry', () async {
     final repository = _Repository()
       ..getError = const ApiFailure(ApiFailureKind.offline, 'Sem conexão.');
-    final container = containerFor(repository);
+    final container = _containerFor(repository);
     final provider = deviceNotificationPreferencesProvider(deviceId);
     container.read(provider);
     await flush();
-    expect(container.read(provider).phase, NotificationPreferencesPhase.loadError);
+    expect(
+      container.read(provider).phase,
+      NotificationPreferencesPhase.loadError,
+    );
 
     repository.getError = null;
     await container.read(provider.notifier).load();
@@ -99,62 +105,72 @@ void main() {
     expect(repository.getCalls, 2);
   });
 
-  test('dirty state ignores read-only fields and save without changes is inert', () async {
-    final repository = _Repository(
-      value: DeviceNotificationPreferences(
+  test(
+    'dirty state ignores read-only fields and save without changes is inert',
+    () async {
+      final repository = _Repository(
+        value: DeviceNotificationPreferences(
+          updatedAt: DateTime.utc(2026, 8, 27),
+        ),
+      );
+      final container = _containerFor(repository);
+      final provider = deviceNotificationPreferencesProvider(deviceId);
+      container.read(provider);
+      await flush();
+      final controller = container.read(provider.notifier);
+
+      controller.edit(
+        (value) =>
+            value.copyWith(version: 2, updatedAt: DateTime.utc(2026, 8, 28)),
+      );
+      expect(container.read(provider).hasChanges, isFalse);
+      expect(container.read(provider).canSave, isFalse);
+      await controller.save();
+      expect(repository.patchCalls, 0);
+    },
+  );
+
+  test(
+    'save is single-flight and server representation replaces draft',
+    () async {
+      final confirmed = DeviceNotificationPreferences(
+        alertMode: AlertMode.none,
         updatedAt: DateTime.utc(2026, 8, 27),
-      ),
-    );
-    final container = containerFor(repository);
-    final provider = deviceNotificationPreferencesProvider(deviceId);
-    container.read(provider);
-    await flush();
-    final controller = container.read(provider.notifier);
+      );
+      final pending = Completer<DeviceNotificationPreferences>();
+      // Baseline (returned by GET) deliberately differs from `confirmed` (what
+      // the server returns from PATCH) so editing to AlertMode.none is an
+      // actual change — otherwise `save()` would legitimately no-op.
+      final repository = _Repository()..pendingPatch = pending;
+      final container = _containerFor(repository);
+      final provider = deviceNotificationPreferencesProvider(deviceId);
+      container.read(provider);
+      await flush();
+      final controller = container.read(provider.notifier);
+      controller.edit((value) => value.copyWith(alertMode: AlertMode.none));
 
-    controller.edit(
-      (value) => value.copyWith(
-        version: 2,
-        updatedAt: DateTime.utc(2026, 8, 28),
-      ),
-    );
-    expect(container.read(provider).hasChanges, isFalse);
-    expect(container.read(provider).canSave, isFalse);
-    await controller.save();
-    expect(repository.patchCalls, 0);
-  });
+      final first = controller.save();
+      final second = controller.save();
+      expect(
+        container.read(provider).phase,
+        NotificationPreferencesPhase.saving,
+      );
+      expect(repository.patchCalls, 1);
+      pending.complete(confirmed);
+      await Future.wait([first, second]);
 
-  test('save is single-flight and server representation replaces draft', () async {
-    final confirmed = DeviceNotificationPreferences(
-      alertMode: AlertMode.none,
-      updatedAt: DateTime.utc(2026, 8, 27),
-    );
-    final pending = Completer<DeviceNotificationPreferences>();
-    final repository = _Repository(value: confirmed)..pendingPatch = pending;
-    final container = containerFor(repository);
-    final provider = deviceNotificationPreferencesProvider(deviceId);
-    container.read(provider);
-    await flush();
-    final controller = container.read(provider.notifier);
-    controller.edit((value) => value.copyWith(alertMode: AlertMode.none));
-
-    final first = controller.save();
-    final second = controller.save();
-    expect(container.read(provider).phase, NotificationPreferencesPhase.saving);
-    expect(repository.patchCalls, 1);
-    pending.complete(confirmed);
-    await Future.wait([first, second]);
-
-    final state = container.read(provider);
-    expect(state.phase, NotificationPreferencesPhase.saved);
-    expect(state.message, 'Preferências salvas.');
-    expect(state.baseline, same(confirmed));
-    expect(state.draft, same(confirmed));
-    expect(state.canSave, isFalse);
-  });
+      final state = container.read(provider);
+      expect(state.phase, NotificationPreferencesPhase.saved);
+      expect(state.message, 'Preferências salvas.');
+      expect(state.baseline, same(confirmed));
+      expect(state.draft, same(confirmed));
+      expect(state.canSave, isFalse);
+    },
+  );
 
   test('recoverable save error and conflict preserve draft', () async {
     final repository = _Repository();
-    final container = containerFor(repository);
+    final container = _containerFor(repository);
     final provider = deviceNotificationPreferencesProvider(deviceId);
     container.read(provider);
     await flush();
@@ -164,20 +180,29 @@ void main() {
 
     repository.patchError = const ApiFailure(ApiFailureKind.offline, 'Offline');
     await controller.save();
-    expect(container.read(provider).phase, NotificationPreferencesPhase.saveError);
+    expect(
+      container.read(provider).phase,
+      NotificationPreferencesPhase.saveError,
+    );
     expect(container.read(provider).draft, same(draft));
     expect(container.read(provider).canSave, isTrue);
 
-    repository.patchError = const ApiFailure(ApiFailureKind.conflict, 'Conflict');
+    repository.patchError = const ApiFailure(
+      ApiFailureKind.conflict,
+      'Conflict',
+    );
     await controller.save();
-    expect(container.read(provider).phase, NotificationPreferencesPhase.conflict);
+    expect(
+      container.read(provider).phase,
+      NotificationPreferencesPhase.conflict,
+    );
     expect(container.read(provider).draft, same(draft));
     expect(container.read(provider).canSave, isFalse);
   });
 
   test('session expiration prevents editing and saving', () async {
     final repository = _Repository();
-    final container = containerFor(repository);
+    final container = _containerFor(repository);
     final provider = deviceNotificationPreferencesProvider(deviceId);
     container.read(provider);
     await flush();
@@ -188,43 +213,49 @@ void main() {
       'Sessão expirada',
     );
     await controller.save();
-    expect(container.read(provider).phase, NotificationPreferencesPhase.sessionExpired);
+    expect(
+      container.read(provider).phase,
+      NotificationPreferencesPhase.sessionExpired,
+    );
     expect(container.read(provider).canSave, isFalse);
     controller.edit((value) => value.copyWith(alertMode: AlertMode.ringOnly));
     expect(container.read(provider).draft!.alertMode, AlertMode.none);
   });
 
-  test('reset defaults is inert and changed reset preserves read-only fields', () async {
-    final timestamp = DateTime.utc(2026, 8, 27);
-    final defaults = DeviceNotificationPreferences(updatedAt: timestamp);
-    final repository = _Repository(value: defaults);
-    final container = containerFor(repository);
-    final provider = deviceNotificationPreferencesProvider(deviceId);
-    container.read(provider);
-    await flush();
-    final controller = container.read(provider.notifier);
+  test(
+    'reset defaults is inert and changed reset preserves read-only fields',
+    () async {
+      final timestamp = DateTime.utc(2026, 8, 27);
+      final defaults = DeviceNotificationPreferences(updatedAt: timestamp);
+      final repository = _Repository(value: defaults);
+      final container = _containerFor(repository);
+      final provider = deviceNotificationPreferencesProvider(deviceId);
+      container.read(provider);
+      await flush();
+      final controller = container.read(provider.notifier);
 
-    await controller.resetRemote();
-    expect(repository.patchCalls, 0);
+      await controller.resetRemote();
+      expect(repository.patchCalls, 0);
 
-    final changed = DeviceNotificationPreferences(
-      alertMode: AlertMode.none,
-      updatedAt: timestamp,
-    );
-    repository.value = changed;
-    await controller.load();
-    repository.value = defaults;
-    await controller.resetRemote();
-    expect(repository.patchCalls, 1);
-    expect(repository.patchedDraft!.alertMode, AlertMode.ringAndNotification);
-    expect(repository.patchedDraft!.quietSchedule, QuietSchedule());
-    expect(repository.patchedDraft!.updatedAt, timestamp);
-  });
+      final changed = DeviceNotificationPreferences(
+        alertMode: AlertMode.none,
+        updatedAt: timestamp,
+      );
+      repository.value = changed;
+      await controller.load();
+      repository.value = defaults;
+      await controller.resetRemote();
+      expect(repository.patchCalls, 1);
+      expect(repository.patchedDraft!.alertMode, AlertMode.ringAndNotification);
+      expect(repository.patchedDraft!.quietSchedule, QuietSchedule());
+      expect(repository.patchedDraft!.updatedAt, timestamp);
+    },
+  );
 
   test('timezone is loaded once and persisted timezone is preserved', () async {
     var timezoneCalls = 0;
     final repository = _Repository();
-    final container = containerFor(
+    final container = _containerFor(
       repository,
       timezoneLoader: () async {
         timezoneCalls++;
@@ -238,7 +269,10 @@ void main() {
 
     await controller.enableSchedule(true);
     expect(timezoneCalls, 1);
-    expect(container.read(provider).draft!.quietSchedule.timezone, 'America/Recife');
+    expect(
+      container.read(provider).draft!.quietSchedule.timezone,
+      'America/Recife',
+    );
     controller.edit(
       (value) => value.copyWith(
         quietSchedule: value.quietSchedule.copyWith(enabled: false),
@@ -248,21 +282,24 @@ void main() {
     expect(timezoneCalls, 1);
   });
 
-  test('timezone failure is specific and keeps remote values editable', () async {
-    final repository = _Repository();
-    final container = containerFor(
-      repository,
-      timezoneLoader: () async => throw const TimezoneUnavailableException(),
-    );
-    final provider = deviceNotificationPreferencesProvider(deviceId);
-    container.read(provider);
-    await flush();
+  test(
+    'timezone failure is specific and keeps remote values editable',
+    () async {
+      final repository = _Repository();
+      final container = _containerFor(
+        repository,
+        timezoneLoader: () async => throw const TimezoneUnavailableException(),
+      );
+      final provider = deviceNotificationPreferencesProvider(deviceId);
+      container.read(provider);
+      await flush();
 
-    await container.read(provider.notifier).enableSchedule(true);
-    final state = container.read(provider);
-    expect(state.phase, NotificationPreferencesPhase.ready);
-    expect(state.timezoneError, contains('fuso horário'));
-    expect(state.draft!.quietSchedule.enabled, isFalse);
-    expect(state.canEdit, isTrue);
-  });
+      await container.read(provider.notifier).enableSchedule(true);
+      final state = container.read(provider);
+      expect(state.phase, NotificationPreferencesPhase.ready);
+      expect(state.timezoneError, contains('fuso horário'));
+      expect(state.draft!.quietSchedule.enabled, isFalse);
+      expect(state.canEdit, isTrue);
+    },
+  );
 }

@@ -11,14 +11,16 @@ Map<String, dynamic> response({
 }) => {
   'version': version,
   'alert_mode': alertMode,
-  'quiet_schedule': schedule ?? {
-    'enabled': false,
-    'timezone': null,
-    'days': <int>[],
-    'start_time': null,
-    'end_time': null,
-    'behavior': 'NOTIFICATION_ONLY',
-  },
+  'quiet_schedule':
+      schedule ??
+      {
+        'enabled': false,
+        'timezone': null,
+        'days': <int>[],
+        'start_time': null,
+        'end_time': null,
+        'behavior': 'NOTIFICATION_ONLY',
+      },
   'updated_at': updatedAt,
 };
 
@@ -53,10 +55,10 @@ void main() {
       );
       expect(overnight.validate(), isNull);
       expect(overnight, overnight.copyWith());
-      expect(
-        defaults.copyWith(quietSchedule: overnight).quietSchedule.days,
-        {1, 7},
-      );
+      expect(defaults.copyWith(quietSchedule: overnight).quietSchedule.days, {
+        1,
+        7,
+      });
     });
   });
 
@@ -138,7 +140,9 @@ void main() {
         ),
       ),
     );
-    expect(schedulePatch, {'quiet_schedule': {'behavior': 'BLOCK_ALL'}});
+    expect(schedulePatch, {
+      'quiet_schedule': {'behavior': 'BLOCK_ALL'},
+    });
     final text = schedulePatch.toString();
     for (final forbidden in [
       'version',
@@ -175,18 +179,9 @@ void main() {
   });
 
   test('domain rejects invalid values and protects days from mutation', () {
-    expect(
-      () => ClockTime(hour: 24, minute: 0),
-      throwsArgumentError,
-    );
-    expect(
-      () => QuietSchedule(timezone: ''),
-      throwsArgumentError,
-    );
-    expect(
-      () => QuietSchedule(days: const {0}),
-      throwsArgumentError,
-    );
+    expect(() => ClockTime(hour: 24, minute: 0), throwsArgumentError);
+    expect(() => QuietSchedule(timezone: ''), throwsArgumentError);
+    expect(() => QuietSchedule(days: const {0}), throwsArgumentError);
     final input = <int>{1};
     final schedule = QuietSchedule(days: input);
     input.add(2);

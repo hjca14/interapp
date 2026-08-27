@@ -35,8 +35,9 @@ class DeviceSettings {
     final authentication = map['requireDeviceAuthenticationToOpenDoor'];
     return DeviceSettings(
       confirmBeforeOpeningDoor: confirm is bool ? confirm : true,
-      requireDeviceAuthenticationToOpenDoor:
-          authentication is bool ? authentication : false,
+      requireDeviceAuthenticationToOpenDoor: authentication is bool
+          ? authentication
+          : false,
     );
   }
 }

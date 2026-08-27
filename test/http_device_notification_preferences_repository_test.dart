@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -41,43 +40,40 @@ void main() {
 
     final result = await repository.get('bridge/a b');
 
-    expect(
-      path,
-      '/v1/devices/bridge%2Fa%20b/notification-preferences',
-    );
+    expect(path, '/v1/devices/bridge%2Fa%20b/notification-preferences');
     expect(result.alertMode, AlertMode.ringAndNotification);
   });
 
-  test('PATCH sends only changed editable fields and returns server value', () async {
-    String? path;
-    Map<String, dynamic>? payload;
-    var calls = 0;
-    final repository = HttpDeviceNotificationPreferencesRepository.forTest(
-      get: (_) async => response(),
-      patch: (value, {required body}) async {
-        calls++;
-        path = value;
-        payload = body;
-        return response(
-          alertMode: 'NONE',
-          updatedAt: '2026-08-27T10:00:00Z',
-        );
-      },
-    );
-    final baseline = DeviceNotificationPreferences();
+  test(
+    'PATCH sends only changed editable fields and returns server value',
+    () async {
+      String? path;
+      Map<String, dynamic>? payload;
+      var calls = 0;
+      final repository = HttpDeviceNotificationPreferencesRepository.forTest(
+        get: (_) async => response(),
+        patch: (value, {required body}) async {
+          calls++;
+          path = value;
+          payload = body;
+          return response(alertMode: 'NONE', updatedAt: '2026-08-27T10:00:00Z');
+        },
+      );
+      final baseline = DeviceNotificationPreferences();
 
-    final confirmed = await repository.patch(
-      'device',
-      baseline,
-      baseline.copyWith(alertMode: AlertMode.none),
-    );
+      final confirmed = await repository.patch(
+        'device',
+        baseline,
+        baseline.copyWith(alertMode: AlertMode.none),
+      );
 
-    expect(calls, 1);
-    expect(path, '/v1/devices/device/notification-preferences');
-    expect(payload, {'alert_mode': 'NONE'});
-    expect(confirmed.alertMode, AlertMode.none);
-    expect(confirmed.updatedAt, DateTime.utc(2026, 8, 27, 10));
-  });
+      expect(calls, 1);
+      expect(path, '/v1/devices/device/notification-preferences');
+      expect(payload, {'alert_mode': 'NONE'});
+      expect(confirmed.alertMode, AlertMode.none);
+      expect(confirmed.updatedAt, DateTime.utc(2026, 8, 27, 10));
+    },
+  );
 
   test('nested PATCH orders days and omits unrelated values', () async {
     Map<String, dynamic>? payload;
@@ -138,7 +134,10 @@ void main() {
       updatedAt: DateTime.utc(2026, 8, 27),
     );
 
-    expect(await repository.patch('device', baseline, baseline), same(baseline));
+    expect(
+      await repository.patch('device', baseline, baseline),
+      same(baseline),
+    );
     expect(
       await repository.patch(
         'device',
@@ -247,11 +246,7 @@ void main() {
         offlineRepository.get('device'),
         throwsA(
           isA<ApiFailure>()
-              .having(
-                (failure) => failure.kind,
-                'kind',
-                ApiFailureKind.offline,
-              )
+              .having((failure) => failure.kind, 'kind', ApiFailureKind.offline)
               .having(
                 (failure) => failure.message,
                 'message',
@@ -289,9 +284,7 @@ HttpDeviceNotificationPreferencesRepository liveRepository(
       baseUrl: 'https://api.example.invalid',
       auth:
           auth ??
-          LocalAuthRepository(
-            initial: const AuthSession(isSignedIn: true),
-          ),
+          LocalAuthRepository(initial: const AuthSession(isSignedIn: true)),
       client: client,
       timeout: timeout,
     ),

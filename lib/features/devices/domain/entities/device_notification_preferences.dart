@@ -114,7 +114,9 @@ class QuietSchedule {
   }) {
     return QuietSchedule(
       enabled: enabled ?? this.enabled,
-      timezone: identical(timezone, _unset) ? this.timezone : timezone as String?,
+      timezone: identical(timezone, _unset)
+          ? this.timezone
+          : timezone as String?,
       days: days ?? _days,
       startTime: identical(startTime, _unset)
           ? this.startTime
@@ -132,7 +134,9 @@ class QuietSchedule {
       return 'Não foi possível obter o fuso horário do aparelho.';
     }
     if (_days.isEmpty) return 'Selecione pelo menos um dia.';
-    if (startTime == null || endTime == null) return 'Informe os dois horários.';
+    if (startTime == null || endTime == null) {
+      return 'Informe os dois horários.';
+    }
     if (startTime == endTime) return 'Os horários devem ser diferentes.';
     return null;
   }

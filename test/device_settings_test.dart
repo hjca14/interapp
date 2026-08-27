@@ -53,52 +53,61 @@ void main() {
     expect(settings.requireDeviceAuthenticationToOpenDoor, isFalse);
   });
 
-  test('repository safely defaults corrupted and foreign JSON values', () async {
-    for (final raw in ['{', '[]', '"text"', '42', 'true']) {
-      SharedPreferences.setMockInitialValues({'device_settings_a': raw});
-      final settings = await LocalDeviceSettingsRepository().get('a');
-      expect(settings.confirmBeforeOpeningDoor, isTrue, reason: raw);
-      expect(
-        settings.requireDeviceAuthenticationToOpenDoor,
-        isFalse,
-        reason: raw,
+  test(
+    'repository safely defaults corrupted and foreign JSON values',
+    () async {
+      for (final raw in ['{', '[]', '"text"', '42', 'true']) {
+        SharedPreferences.setMockInitialValues({'device_settings_a': raw});
+        final settings = await LocalDeviceSettingsRepository().get('a');
+        expect(settings.confirmBeforeOpeningDoor, isTrue, reason: raw);
+        expect(
+          settings.requireDeviceAuthenticationToOpenDoor,
+          isFalse,
+          reason: raw,
+        );
+      }
+    },
+  );
+
+  test(
+    'local repository save, overwrite and isolation work by device',
+    () async {
+      final repository = LocalDeviceSettingsRepository();
+      await repository.save(
+        'a',
+        const DeviceSettings(confirmBeforeOpeningDoor: false),
       );
-    }
-  });
+      expect((await repository.get('a')).confirmBeforeOpeningDoor, isFalse);
+      expect((await repository.get('b')).confirmBeforeOpeningDoor, isTrue);
 
-  test('local repository save, overwrite and isolation work by device', () async {
-    final repository = LocalDeviceSettingsRepository();
-    await repository.save(
-      'a',
-      const DeviceSettings(confirmBeforeOpeningDoor: false),
-    );
-    expect((await repository.get('a')).confirmBeforeOpeningDoor, isFalse);
-    expect((await repository.get('b')).confirmBeforeOpeningDoor, isTrue);
+      await repository.save(
+        'a',
+        const DeviceSettings(requireDeviceAuthenticationToOpenDoor: true),
+      );
+      final overwritten = await repository.get('a');
+      expect(overwritten.confirmBeforeOpeningDoor, isTrue);
+      expect(overwritten.requireDeviceAuthenticationToOpenDoor, isTrue);
+    },
+  );
 
-    await repository.save(
-      'a',
-      const DeviceSettings(requireDeviceAuthenticationToOpenDoor: true),
-    );
-    final overwritten = await repository.get('a');
-    expect(overwritten.confirmBeforeOpeningDoor, isTrue);
-    expect(overwritten.requireDeviceAuthenticationToOpenDoor, isTrue);
-  });
-
-  test('repository reads legacy object and never reserializes legacy keys', () async {
-    SharedPreferences.setMockInitialValues({
-      'device_settings_a': jsonEncode({
-        'calls': {'remoteNetworkAlertMode': 'none'},
-        'quietHours': {'enabled': true},
-        'confirmBeforeOpeningDoor': false,
-      }),
-    });
-    final repository = LocalDeviceSettingsRepository();
-    final settings = await repository.get('a');
-    await repository.save('a', settings);
-    final preferences = await SharedPreferences.getInstance();
-    final stored = preferences.getString('device_settings_a')!;
-    expect(stored, isNot(contains('calls')));
-    expect(stored, isNot(contains('quietHours')));
-    expect(settings.confirmBeforeOpeningDoor, isFalse);
-  });
+  test(
+    'repository reads legacy object and never reserializes legacy keys',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'device_settings_a': jsonEncode({
+          'calls': {'remoteNetworkAlertMode': 'none'},
+          'quietHours': {'enabled': true},
+          'confirmBeforeOpeningDoor': false,
+        }),
+      });
+      final repository = LocalDeviceSettingsRepository();
+      final settings = await repository.get('a');
+      await repository.save('a', settings);
+      final preferences = await SharedPreferences.getInstance();
+      final stored = preferences.getString('device_settings_a')!;
+      expect(stored, isNot(contains('calls')));
+      expect(stored, isNot(contains('quietHours')));
+      expect(settings.confirmBeforeOpeningDoor, isFalse);
+    },
+  );
 }

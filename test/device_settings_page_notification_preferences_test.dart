@@ -14,8 +14,7 @@ import 'package:interapp/features/devices/presentation/pages/device_settings_pag
 import 'package:interapp/features/devices/presentation/providers/devices_providers.dart';
 import 'package:interapp/features/sharing/domain/entities/device_access.dart';
 
-class _RemoteRepository
-    implements DeviceNotificationPreferencesRepository {
+class _RemoteRepository implements DeviceNotificationPreferencesRepository {
   _RemoteRepository(this.value);
 
   DeviceNotificationPreferences value;
@@ -80,12 +79,10 @@ class _Devices implements DeviceRepository {
   ) => getDeviceDetails(deviceId);
 }
 
-Widget subject(_RemoteRepository remote, _LocalRepository local) {
+Widget _subject(_RemoteRepository remote, _LocalRepository local) {
   return ProviderScope(
     overrides: [
-      deviceNotificationPreferencesRepositoryProvider.overrideWithValue(
-        remote,
-      ),
+      deviceNotificationPreferencesRepositoryProvider.overrideWithValue(remote),
       deviceSettingsRepositoryProvider.overrideWithValue(local),
       deviceRepositoryProvider.overrideWithValue(_Devices()),
     ],
@@ -99,7 +96,7 @@ void main() {
   testWidgets('remote loading does not hide local cards', (tester) async {
     final remote = _RemoteRepository(DeviceNotificationPreferences())
       ..pendingGet = Completer<DeviceNotificationPreferences>();
-    await tester.pumpWidget(subject(remote, _LocalRepository()));
+    await tester.pumpWidget(_subject(remote, _LocalRepository()));
     await tester.pump();
 
     expect(find.text('Alertas'), findsOneWidget);
@@ -109,10 +106,12 @@ void main() {
     expect(find.text('Dispositivo'), findsOneWidget);
   });
 
-  testWidgets('remote error keeps local cards and offers retry', (tester) async {
+  testWidgets('remote error keeps local cards and offers retry', (
+    tester,
+  ) async {
     final remote = _RemoteRepository(DeviceNotificationPreferences())
       ..getError = const ApiFailure(ApiFailureKind.offline, 'Sem conexão.');
-    await tester.pumpWidget(subject(remote, _LocalRepository()));
+    await tester.pumpWidget(_subject(remote, _LocalRepository()));
     await tester.pump();
     await tester.pump();
 
@@ -129,7 +128,7 @@ void main() {
     tester,
   ) async {
     final remote = _RemoteRepository(DeviceNotificationPreferences());
-    await tester.pumpWidget(subject(remote, _LocalRepository()));
+    await tester.pumpWidget(_subject(remote, _LocalRepository()));
     await tester.pump();
     await tester.pump();
 
@@ -157,7 +156,7 @@ void main() {
     final remote = _RemoteRepository(
       DeviceNotificationPreferences(quietSchedule: schedule),
     );
-    await tester.pumpWidget(subject(remote, _LocalRepository()));
+    await tester.pumpWidget(_subject(remote, _LocalRepository()));
     await tester.pump();
     await tester.pump();
 
@@ -176,7 +175,7 @@ void main() {
     final pending = Completer<DeviceNotificationPreferences>();
     final remote = _RemoteRepository(DeviceNotificationPreferences())
       ..pendingPatch = pending;
-    await tester.pumpWidget(subject(remote, _LocalRepository()));
+    await tester.pumpWidget(_subject(remote, _LocalRepository()));
     await tester.pump();
     await tester.pump();
     await tester.tap(find.text('Receber ligação'));
@@ -186,9 +185,11 @@ void main() {
 
     expect(find.text('Salvando...'), findsOneWidget);
     expect(
-      tester.widget<SwitchListTile>(
-        find.widgetWithText(SwitchListTile, 'Receber ligação'),
-      ).onChanged,
+      tester
+          .widget<SwitchListTile>(
+            find.widgetWithText(SwitchListTile, 'Receber ligação'),
+          )
+          .onChanged,
       isNull,
     );
     pending.complete(
@@ -204,7 +205,7 @@ void main() {
 
   testWidgets('back navigation confirms unsaved draft discard', (tester) async {
     final remote = _RemoteRepository(DeviceNotificationPreferences());
-    await tester.pumpWidget(subject(remote, _LocalRepository()));
+    await tester.pumpWidget(_subject(remote, _LocalRepository()));
     await tester.pump();
     await tester.pump();
     await tester.tap(find.text('Receber ligação'));
