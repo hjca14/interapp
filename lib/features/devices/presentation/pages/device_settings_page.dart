@@ -18,18 +18,19 @@ class DeviceSettingsPage extends ConsumerWidget {
   const DeviceSettingsPage({
     super.key,
     required this.deviceId,
-    this.knownDeviceName,
+    this.knownName,
     this.initialSection = DeviceSettingsSection.main,
   });
 
   final String deviceId;
 
-  /// A personal name already known from elsewhere (typically the device
-  /// list) — used only as an interim hint for the AppBar title while
-  /// [apiDeviceDetailProvider] is still loading. Never frozen or treated as
-  /// authoritative: this page watches that provider itself, so once the
-  /// confirmed detail arrives it always wins. See [resolveKnownDeviceName].
-  final String? knownDeviceName;
+  /// A name already known from elsewhere (typically `knownDeviceName` /
+  /// `apiDevicesProvider`) — used only as an interim hint for the AppBar
+  /// title while [apiDeviceDetailProvider] is still loading. Never frozen or
+  /// treated as authoritative: this page watches that provider itself, so
+  /// once the confirmed detail arrives it always wins. See
+  /// [resolveKnownDeviceName].
+  final String? knownName;
   final DeviceSettingsSection initialSection;
 
   @override
@@ -45,7 +46,7 @@ class DeviceSettingsPage extends ConsumerWidget {
     final resolvedName = resolveKnownDeviceName(
       detailLoaded: detail.hasValue,
       confirmedDisplayName: detail.value?.displayName,
-      knownDisplayName: knownDeviceName,
+      knownName: knownName,
     );
     final local = ref.watch(deviceSettingsProvider(deviceId));
     return Scaffold(

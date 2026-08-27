@@ -16,19 +16,21 @@ String deviceDisplayName(String? displayName) {
 
 /// Best currently-known display name for a device given a possibly
 /// still-loading detail read (e.g. `apiDeviceDetailProvider`) and, as a
-/// fallback, a name already known from elsewhere (e.g. the paginated device
-/// list). Returns `null` only when nothing is known yet, so a caller can
-/// render its own neutral loading title instead of ever treating
-/// "InterBridge" as if it were the device's confirmed name during a
-/// transient load — see [deviceDisplayName], which is only safe to apply
-/// once [detailLoaded] is true.
+/// fallback, a presentation name already known from elsewhere (e.g.
+/// [knownName] from `knownDeviceName`/`apiDevicesProvider`) — already
+/// resolved to "InterBridge" wherever that's the confirmed real name, not a
+/// raw, possibly-null `displayName`. Returns `null` only when nothing is
+/// known at all, so a caller can render its own neutral loading title
+/// instead of ever treating "InterBridge" as if it were the device's
+/// confirmed name during a transient load — see [deviceDisplayName], which
+/// is only safe to apply once [detailLoaded] is true.
 String? resolveKnownDeviceName({
   required bool detailLoaded,
   String? confirmedDisplayName,
-  String? knownDisplayName,
+  String? knownName,
 }) {
   if (detailLoaded) return deviceDisplayName(confirmedDisplayName);
-  final known = knownDisplayName?.trim();
+  final known = knownName?.trim();
   return known == null || known.isEmpty ? null : known;
 }
 

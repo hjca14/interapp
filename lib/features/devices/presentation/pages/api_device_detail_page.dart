@@ -138,7 +138,7 @@ class _ApiDeviceDetailPageState extends ConsumerState<ApiDeviceDetailPage>
     // "InterBridge" domain fallback as if it were the confirmed name — see
     // `resolveKnownDeviceName`. No extra HTTP call: this reads the already
     // -loaded `apiDevicesProvider` list state.
-    final knownName = knownDeviceDisplayName(
+    final knownName = knownDeviceName(
       ref.watch(apiDevicesProvider),
       widget.deviceId,
     );
@@ -146,7 +146,7 @@ class _ApiDeviceDetailPageState extends ConsumerState<ApiDeviceDetailPage>
         resolveKnownDeviceName(
           detailLoaded: detail.hasValue,
           confirmedDisplayName: detail.value?.displayName,
-          knownDisplayName: knownName,
+          knownName: knownName,
         ) ??
         'Dispositivo';
     final pages = [
@@ -169,7 +169,7 @@ class _ApiDeviceDetailPageState extends ConsumerState<ApiDeviceDetailPage>
               MaterialPageRoute(
                 builder: (_) => DeviceSettingsPage(
                   deviceId: widget.deviceId,
-                  knownDeviceName: knownName,
+                  knownName: knownName,
                 ),
               ),
             ),
@@ -524,10 +524,7 @@ class _StatusCard extends ConsumerWidget {
     final presentation = DeviceStatusPresentation.from(value);
     // Same known-name reuse as the AppBar above — never a hardcoded
     // "InterBridge" standing in for a name that just hasn't loaded yet.
-    final knownName = knownDeviceDisplayName(
-      ref.watch(apiDevicesProvider),
-      deviceId,
-    );
+    final knownName = knownDeviceName(ref.watch(apiDevicesProvider), deviceId);
     return Card(
       child: ListTile(
         leading: Icon(presentation.icon, color: presentation.color(context)),
@@ -545,7 +542,7 @@ class _StatusCard extends ConsumerWidget {
           MaterialPageRoute(
             builder: (_) => DeviceSettingsPage(
               deviceId: deviceId,
-              knownDeviceName: knownName,
+              knownName: knownName,
               initialSection: DeviceSettingsSection.diagnostics,
             ),
           ),

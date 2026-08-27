@@ -1526,6 +1526,42 @@ void main() {
       },
     );
 
+    testWidgets('a known summary with no personal name shows the confirmed '
+        '"InterBridge" default immediately, never the neutral loading title', (
+      tester,
+    ) async {
+      const namelessSummary = ApiDeviceSummary(
+        deviceId: deviceId,
+        displayName: null,
+        role: DeviceRole.owner,
+        status: MembershipStatus.active,
+      );
+      final pendingDetail = Completer<ApiDeviceDetail>();
+      await tester.pumpWidget(
+        subject(
+          listItems: [namelessSummary],
+          loadDetail: () => pendingDetail.future,
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.widgetWithText(AppBar, 'InterBridge'), findsOneWidget);
+      expect(find.widgetWithText(AppBar, 'Dispositivo'), findsNothing);
+
+      pendingDetail.complete(
+        const ApiDeviceDetail(
+          deviceId: deviceId,
+          displayName: null,
+          ownershipStatus: 'claimed',
+          provisioningStatus: 'active',
+          role: DeviceRole.owner,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(AppBar, 'InterBridge'), findsOneWidget);
+    });
+
     testWidgets('tapping the gear icon before detail resolves opens '
         '"Configurações de Casa"', (tester) async {
       final pendingDetail = Completer<ApiDeviceDetail>();
