@@ -53,8 +53,18 @@ alteração de senha nas configurações gerais da conta, preferências reais de
 notificação, integração FCM e, depois, onboarding BLE. O item 2 (alteração de
 senha) está implementado e coberto por testes locais; a validação manual real
 em Android com a conta DEV no Cognito começou (um cenário confirmado) e
-continua em andamento para os demais casos. As preferências visuais
-atuais ainda são locais/incompletas; não há persistência delas no backend. FCM
+continua em andamento para os demais casos. As preferências de alertas
+consomem o contrato final, mergeado no interBackend PR #21, por usuário e
+dispositivo; o backend foi implantado em DEV (`InterBridge-Dev-ApiStack`,
+CloudFormation `UPDATE_COMPLETE`) e a integração foi validada ponta a ponta
+com um PATCH real do app confirmado diretamente no DynamoDB
+(`app → API → Lambda → DynamoDB`), incluindo `alert_mode: NOTIFICATION_ONLY`
+e `quiet_schedule.enabled: false` preservando os dados inativos. A tela de
+alertas foi reorganizada em uma página própria, aberta a partir de um único
+item "Notificações" nas configurações do dispositivo, com o antigo botão
+"Salvar" substituído por salvamento automático (debounce + outbox local); a
+validação manual desse novo fluxo de autosave ainda depende do próximo
+`flutter run`. FCM
 não foi configurado e o projeto Firebase ainda não foi criado. O BLE real não
 foi iniciado; há um Android físico antigo disponível para esse teste futuro.
 

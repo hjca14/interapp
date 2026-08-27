@@ -22,9 +22,13 @@ class LocalDeviceSettingsRepository implements DeviceSettingsRepository {
       return const DeviceSettings();
     }
     try {
-      final map = jsonDecode(raw) as Map<String, dynamic>;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return const DeviceSettings();
+      final map = decoded;
       return DeviceSettings.fromMap(map);
     } on FormatException {
+      return const DeviceSettings();
+    } on TypeError {
       // Corrupted/foreign value under this key: fall back to defaults
       // instead of crashing the settings screen.
       return const DeviceSettings();

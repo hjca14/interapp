@@ -4,15 +4,19 @@ import 'package:interapp/core/config/app_environment.dart';
 import 'package:interapp/core/network/interbridge_api_client.dart';
 import 'package:interapp/features/auth/presentation/providers/auth_providers.dart';
 import 'package:interapp/features/devices/data/repositories/http_device_repository.dart';
+import 'package:interapp/features/devices/data/repositories/http_device_notification_preferences_repository.dart';
 import 'package:interapp/features/devices/data/repositories/local_device_backend_repository.dart';
 import 'package:interapp/features/devices/data/repositories/local_device_connection_repository.dart';
 import 'package:interapp/features/devices/data/repositories/local_device_settings_repository.dart';
 import 'package:interapp/features/devices/data/repositories/local_devices_repository.dart';
+import 'package:interapp/features/devices/data/repositories/local_notification_preferences_outbox_repository.dart';
 import 'package:interapp/features/devices/data/services/incoming_call_notification_service.dart';
 import 'package:interapp/features/devices/domain/repositories/device_backend_repository.dart';
 import 'package:interapp/features/devices/domain/repositories/device_connection_repository.dart';
 import 'package:interapp/features/devices/domain/repositories/device_repository.dart';
 import 'package:interapp/features/devices/domain/repositories/device_settings_repository.dart';
+import 'package:interapp/features/devices/domain/repositories/device_notification_preferences_repository.dart';
+import 'package:interapp/features/devices/domain/repositories/notification_preferences_outbox_repository.dart';
 import 'package:interapp/features/favorites/data/repositories/local_favorites_repository.dart';
 import 'package:interapp/features/profile/data/repositories/local_profile_repository.dart';
 
@@ -66,6 +70,21 @@ final favoritesRepositoryProvider = Provider<LocalFavoritesRepository>(
 final deviceSettingsRepositoryProvider = Provider<DeviceSettingsRepository>(
   (_) => LocalDeviceSettingsRepository(),
 );
+
+final deviceNotificationPreferencesRepositoryProvider =
+    Provider<DeviceNotificationPreferencesRepository>((ref) {
+      return HttpDeviceNotificationPreferencesRepository(
+        ref.watch(apiClientProvider),
+      );
+    });
+
+/// Local sync-intent outbox for notification-preferences autosave — a cache
+/// of "what the user last chose but the server hasn't confirmed yet", never
+/// a source of truth. See [LocalNotificationPreferencesOutboxRepository].
+final notificationPreferencesOutboxRepositoryProvider =
+    Provider<NotificationPreferencesOutboxRepository>(
+      (_) => LocalNotificationPreferencesOutboxRepository(),
+    );
 
 final profileRepositoryProvider = Provider<LocalProfileRepository>(
   (_) => LocalProfileRepository(),

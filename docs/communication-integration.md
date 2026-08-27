@@ -361,3 +361,14 @@ A reorganização entre Resumo, Diagnóstico e Configurações também pertence 
 esta fase. Alteração de senha, preferências reais de notificação, FCM e BLE real
 seguem, nessa ordem. Os modelos e mocks existentes de onboarding preservam
 decisões anteriores, mas não significam que a implementação BLE real começou.
+
+
+## Notification preferences (interBackend PR #21)
+
+The final contract was merged in interBackend PR #21. The app integrates authenticated `GET`/`PATCH /v1/devices/{device_id}/notification-preferences` through `InterBridgeApiClient`. Preferences are per authenticated user and device, use one global alert mode and a quiet schedule, and are separate from local door preferences.
+
+The backend is deployed in **DEV** (`InterBridge-Dev-ApiStack`, CloudFormation `UPDATE_COMPLETE`), and the integration has been validated end to end with a real call from the app: the app issued a real `PATCH`, and the resulting `notification_preferences` item was confirmed directly in DynamoDB (`app → API → Lambda → DynamoDB`). `alert_mode: NOTIFICATION_ONLY` was validated, as was `quiet_schedule.enabled: false` — disabling the quiet schedule preserves (does not clear) the previously saved days/times/timezone/behavior, which reappear on reactivation.
+
+The UI was reorganized: alert/schedule settings moved out of the general device settings screen into a dedicated `NotificationPreferencesPage`, reached from a single "Notificações" entry on the main settings screen — opening that entry is what triggers the remote `GET`; the main screen never fetches remote preferences just to render its own summary. The page's manual "Salvar" button was replaced with autosave: valid edits start a debounced (700ms), coalesced, single-flight PATCH cycle, backed by a local per-user/per-device outbox that survives the app being killed mid-edit. Manual validation of this new autosave UI (distinct from the already-validated GET/PATCH/DynamoDB contract above) is still pending the next `flutter run` on a real device.
+
+FCM/push and filter enforcement are not part of this integration; Android killed-state calls, later iOS calls, and audio remain separate work — none of that changed here. Network presence is only an undefined future possibility. Android and iOS obtain the current IANA identifier through a native channel without location or Wi-Fi permissions; the iOS implementation has not yet been validated in a macOS build or real device.

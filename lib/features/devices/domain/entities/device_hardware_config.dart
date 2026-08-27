@@ -3,8 +3,9 @@
 /// per `docs/communication-protocol.md` §22.
 ///
 /// Deliberately **not** part of `DeviceSettings`: those are app/user
-/// preferences the phone acts on locally (ring vs. notification, quiet
-/// hours...), while this is configuration the *device itself* would apply
+/// preferences such as local door confirmation (remote alert preferences live
+/// in `DeviceNotificationPreferences`), while this is configuration the
+/// *device itself* would apply
 /// (e.g. how long to hold the door relay open). See PROJECT_CONTEXT.md,
 /// "DeviceSettings vs. Device Shadow config", for the full reasoning.
 ///

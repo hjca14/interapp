@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:interapp/features/devices/domain/entities/api_device.dart';
 import 'package:interapp/features/devices/domain/entities/intercom_state.dart';
 import 'package:interapp/features/devices/presentation/device_status_presentation.dart';
 import 'package:interapp/features/devices/presentation/pages/api_device_detail_page.dart';
 import 'package:interapp/features/devices/presentation/pages/edit_device_name_page.dart';
+import 'package:interapp/features/devices/presentation/pages/notification_preferences_page.dart';
 import 'package:interapp/features/devices/presentation/providers/api_devices_provider.dart';
 import 'package:interapp/features/devices/presentation/providers/device_refresh_provider.dart';
 import 'package:interapp/features/favorites/data/repositories/local_favorites_repository.dart';
@@ -23,7 +25,9 @@ import 'package:interapp/features/commands/presentation/providers/door_command_p
 import 'package:interapp/core/network/api_failure.dart';
 import 'package:interapp/features/auth/domain/services/biometric_lock.dart';
 import 'package:interapp/features/auth/presentation/providers/biometric_lock_providers.dart';
+import 'package:interapp/features/devices/domain/entities/device_notification_preferences.dart';
 import 'package:interapp/features/devices/domain/entities/device_settings.dart';
+import 'package:interapp/features/devices/domain/repositories/device_notification_preferences_repository.dart';
 import 'package:interapp/features/devices/domain/repositories/device_repository.dart';
 import 'package:interapp/features/devices/domain/repositories/device_settings_repository.dart';
 
@@ -47,6 +51,27 @@ class _SettingsRepository implements DeviceSettingsRepository {
 
   @override
   Future<void> save(String deviceId, DeviceSettings settings) async {}
+}
+
+/// Minimal fake so any test that reaches `DeviceSettingsPage` (its Alertas
+/// section auto-loads via `deviceNotificationPreferencesProvider`) doesn't
+/// hit the real, unoverridden `apiClientProvider`/`appConfigProvider` chain.
+class _NotificationPreferencesRepository
+    implements DeviceNotificationPreferencesRepository {
+  DeviceNotificationPreferences value = DeviceNotificationPreferences();
+
+  @override
+  Future<DeviceNotificationPreferences> get(String deviceId) async => value;
+
+  @override
+  Future<DeviceNotificationPreferences> patch(
+    String deviceId,
+    DeviceNotificationPreferences baseline,
+    DeviceNotificationPreferences draft,
+  ) async {
+    value = draft;
+    return value;
+  }
 }
 
 class _ManualPollingScheduler implements StatusPollingScheduler {
@@ -109,23 +134,31 @@ class _Authenticator implements BiometricAuthenticator {
   }
 }
 
-/// Test double for [DeviceRepository]. Detail-page tests only exercise
+/// Test double for [DeviceRepository]. Detail-page tests mostly exercise
 /// `getDeviceDetails` (via [loadDetail]) and `updateDeviceName` (via
 /// [onUpdateName]) — `listDevices` just backs the unrelated
 /// `apiDevicesProvider` that also lives in the widget tree, so it returns an
-/// empty page rather than modeling the list feature here too.
+/// empty page by default rather than modeling the list feature here too.
+/// [listItems] lets the known-name-reuse tests seed that list with a summary
+/// the detail page can read before its own GET resolves.
 class _DeviceDirectory implements DeviceRepository {
-  _DeviceDirectory({required this.role, this.loadDetail, this.onUpdateName});
+  _DeviceDirectory({
+    required this.role,
+    this.loadDetail,
+    this.onUpdateName,
+    this.listItems = const [],
+  });
 
   final DeviceRole role;
   final Future<ApiDeviceDetail> Function()? loadDetail;
   final Future<ApiDeviceDetail> Function(String deviceId, String? displayName)?
   onUpdateName;
+  final List<ApiDeviceSummary> listItems;
   int updateNameCalls = 0;
 
   @override
   Future<ApiDevicePage> listDevices({int limit = 25, String? cursor}) async {
-    return const ApiDevicePage(items: []);
+    return ApiDevicePage(items: listItems);
   }
 
   @override
@@ -226,6 +259,7 @@ void main() {
     Future<ApiDeviceDetail> Function()? loadDetail,
     Future<ApiDeviceDetail> Function(String deviceId, String? displayName)?
     onUpdateName,
+    List<ApiDeviceSummary> listItems = const [],
   }) {
     return ProviderScope(
       overrides: [
@@ -234,6 +268,7 @@ void main() {
             role: role,
             loadDetail: loadDetail,
             onUpdateName: onUpdateName,
+            listItems: listItems,
           ),
         ),
         apiDeviceStatusProvider.overrideWith((ref, id) async {
@@ -254,6 +289,9 @@ void main() {
         ),
         deviceSettingsRepositoryProvider.overrideWithValue(
           _SettingsRepository(settings ?? Future.value(const DeviceSettings())),
+        ),
+        deviceNotificationPreferencesRepositoryProvider.overrideWithValue(
+          _NotificationPreferencesRepository(),
         ),
         doorDeviceAuthenticatorProvider.overrideWithValue(
           authenticator ?? _Authenticator(),
@@ -1447,6 +1485,225 @@ void main() {
     expect(
       find.text('Não foi possível salvar o nome. Tente novamente.'),
       findsOneWidget,
+    );
+  });
+
+  group('known-name reuse while a detail GET races navigation', () {
+    const casaSummary = ApiDeviceSummary(
+      deviceId: deviceId,
+      displayName: 'Casa',
+      role: DeviceRole.owner,
+      status: MembershipStatus.active,
+    );
+
+    ApiDeviceDetail casaDetail() => const ApiDeviceDetail(
+      deviceId: deviceId,
+      displayName: 'Casa',
+      ownershipStatus: 'claimed',
+      provisioningStatus: 'active',
+      role: DeviceRole.owner,
+    );
+
+    testWidgets(
+      'shows the list-known name immediately while detail is still loading',
+      (tester) async {
+        final pendingDetail = Completer<ApiDeviceDetail>();
+        await tester.pumpWidget(
+          subject(
+            listItems: [casaSummary],
+            loadDetail: () => pendingDetail.future,
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.widgetWithText(AppBar, 'Casa'), findsOneWidget);
+        expect(find.text('InterBridge'), findsNothing);
+
+        pendingDetail.complete(casaDetail());
+        await tester.pumpAndSettle();
+        expect(find.widgetWithText(AppBar, 'Casa'), findsOneWidget);
+      },
+    );
+
+    testWidgets('a known summary with no personal name shows the confirmed '
+        '"InterBridge" default immediately, never the neutral loading title', (
+      tester,
+    ) async {
+      const namelessSummary = ApiDeviceSummary(
+        deviceId: deviceId,
+        displayName: null,
+        role: DeviceRole.owner,
+        status: MembershipStatus.active,
+      );
+      final pendingDetail = Completer<ApiDeviceDetail>();
+      await tester.pumpWidget(
+        subject(
+          listItems: [namelessSummary],
+          loadDetail: () => pendingDetail.future,
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.widgetWithText(AppBar, 'InterBridge'), findsOneWidget);
+      expect(find.widgetWithText(AppBar, 'Dispositivo'), findsNothing);
+
+      pendingDetail.complete(
+        const ApiDeviceDetail(
+          deviceId: deviceId,
+          displayName: null,
+          ownershipStatus: 'claimed',
+          provisioningStatus: 'active',
+          role: DeviceRole.owner,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(AppBar, 'InterBridge'), findsOneWidget);
+    });
+
+    testWidgets('tapping the gear icon before detail resolves opens '
+        '"Configurações de Casa"', (tester) async {
+      final pendingDetail = Completer<ApiDeviceDetail>();
+      await tester.pumpWidget(
+        subject(
+          listItems: [casaSummary],
+          loadDetail: () => pendingDetail.future,
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('Configurações'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        find.widgetWithText(AppBar, 'Configurações de Casa'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('InterBridge'), findsNothing);
+    });
+
+    testWidgets(
+      'entering Notificações immediately never shows InterBridge as the '
+      'name',
+      (tester) async {
+        final pendingDetail = Completer<ApiDeviceDetail>();
+        await tester.pumpWidget(
+          subject(
+            listItems: [casaSummary],
+            loadDetail: () => pendingDetail.future,
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        await tester.tap(find.byTooltip('Configurações'));
+        await tester.pump();
+        await tester.pump();
+        await tester.tap(find.text('Notificações'));
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.byType(NotificationPreferencesPage), findsOneWidget);
+        expect(find.textContaining('InterBridge'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'when the confirmed detail arrives with the same name there is no '
+      'visual change',
+      (tester) async {
+        await tester.pumpWidget(
+          subject(
+            listItems: [casaSummary],
+            loadDetail: () async => casaDetail(),
+          ),
+        );
+        await tester.pump();
+        expect(find.widgetWithText(AppBar, 'Casa'), findsOneWidget);
+
+        await tester.pumpAndSettle();
+        expect(find.widgetWithText(AppBar, 'Casa'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'opened directly with no known summary shows a neutral title while '
+      'loading, then the confirmed name once detail resolves',
+      (tester) async {
+        final pendingDetail = Completer<ApiDeviceDetail>();
+        await tester.pumpWidget(
+          subject(loadDetail: () => pendingDetail.future),
+        );
+        await tester.pump();
+
+        expect(find.widgetWithText(AppBar, 'Dispositivo'), findsOneWidget);
+        expect(find.text('Casa'), findsNothing);
+        expect(find.text('InterBridge'), findsNothing);
+
+        pendingDetail.complete(casaDetail());
+        await tester.pumpAndSettle();
+        expect(find.widgetWithText(AppBar, 'Casa'), findsOneWidget);
+        expect(find.widgetWithText(AppBar, 'Dispositivo'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'a deep link into the device route works without GoRouterState.extra',
+      (tester) async {
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              deviceRepositoryProvider.overrideWithValue(
+                _DeviceDirectory(role: DeviceRole.owner),
+              ),
+              apiDeviceStatusProvider.overrideWith(
+                (ref, id) async => ApiDeviceStatus(
+                  deviceId: deviceId,
+                  connectivity: DeviceConnectivity.recentlySeen,
+                  freshness: DeviceFreshness.fresh,
+                ),
+              ),
+              favoritesRepositoryProvider.overrideWithValue(
+                _MemoryFavoritesRepository(const []),
+              ),
+              deviceSettingsRepositoryProvider.overrideWithValue(
+                _SettingsRepository(Future.value(const DeviceSettings())),
+              ),
+              deviceNotificationPreferencesRepositoryProvider.overrideWithValue(
+                _NotificationPreferencesRepository(),
+              ),
+              doorDeviceAuthenticatorProvider.overrideWithValue(
+                _Authenticator(),
+              ),
+              authSessionProvider.overrideWith(
+                (ref) => Stream.value(const AuthSession(isSignedIn: true)),
+              ),
+              commandRepositoryProvider.overrideWithValue(_CommandRepository()),
+            ],
+            child: MaterialApp.router(
+              routerConfig: GoRouter(
+                initialLocation: '/devices/$deviceId',
+                observers: [deviceDetailRouteObserver],
+                routes: [
+                  GoRoute(
+                    path: '/devices/:deviceId',
+                    builder: (_, state) => ApiDeviceDetailPage(
+                      deviceId: state.pathParameters['deviceId']!,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.widgetWithText(AppBar, 'Portaria'), findsOneWidget);
+        expect(find.text('Receber ligação'), findsNothing);
+      },
     );
   });
 }

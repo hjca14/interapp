@@ -164,4 +164,57 @@ void main() {
       );
     },
   );
+
+  group('knownDeviceName', () {
+    test(
+      'returns the safe name for a known summary that has a personal name',
+      () {
+        const state = DeviceListState(
+          items: [
+            ApiDeviceSummary(
+              deviceId: 'device-1',
+              displayName: 'Casa',
+              role: DeviceRole.owner,
+              status: MembershipStatus.active,
+            ),
+          ],
+          loading: false,
+        );
+        expect(knownDeviceName(state, 'device-1'), 'Casa');
+      },
+    );
+
+    test('returns the confirmed "InterBridge" default for a known summary '
+        'with no personal name — not null, since the list already confirmed '
+        'there is none', () {
+      const state = DeviceListState(
+        items: [
+          ApiDeviceSummary(
+            deviceId: 'device-1',
+            displayName: null,
+            role: DeviceRole.owner,
+            status: MembershipStatus.active,
+          ),
+        ],
+        loading: false,
+      );
+      expect(knownDeviceName(state, 'device-1'), 'InterBridge');
+    });
+
+    test('returns null when the device is not in the list at all — genuinely '
+        'unknown, distinct from a confirmed absence of a personal name', () {
+      const state = DeviceListState(
+        items: [
+          ApiDeviceSummary(
+            deviceId: 'device-1',
+            displayName: 'Casa',
+            role: DeviceRole.owner,
+            status: MembershipStatus.active,
+          ),
+        ],
+        loading: false,
+      );
+      expect(knownDeviceName(state, 'device-2'), isNull);
+    });
+  });
 }

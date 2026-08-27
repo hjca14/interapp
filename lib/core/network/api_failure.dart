@@ -6,6 +6,7 @@ enum ApiFailureKind {
   notFound,
   conflict,
   rateLimited,
+  payloadTooLarge,
   server,
   unavailable,
   timeout,
