@@ -38,7 +38,7 @@ permanecem explicitamente pendentes.
   - nome visível `InterBridge`;
   - entrega da PR 19;
   - nenhum Firebase configurado.
-- [ ] **3B.2 — Projeto Firebase DEV**
+- [x] **3B.2 — Projeto Firebase DEV**
   - criar projeto separado de produção;
   - manter Analytics inicialmente desativado;
   - não habilitar Firestore, Firebase Auth, Hosting ou Functions sem necessidade;
