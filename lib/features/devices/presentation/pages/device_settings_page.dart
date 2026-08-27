@@ -18,12 +18,18 @@ class DeviceSettingsPage extends ConsumerWidget {
   const DeviceSettingsPage({
     super.key,
     required this.deviceId,
-    required this.deviceName,
+    this.knownDeviceName,
     this.initialSection = DeviceSettingsSection.main,
   });
 
   final String deviceId;
-  final String deviceName;
+
+  /// A personal name already known from elsewhere (typically the device
+  /// list) — used only as an interim hint for the AppBar title while
+  /// [apiDeviceDetailProvider] is still loading. Never frozen or treated as
+  /// authoritative: this page watches that provider itself, so once the
+  /// confirmed detail arrives it always wins. See [resolveKnownDeviceName].
+  final String? knownDeviceName;
   final DeviceSettingsSection initialSection;
 
   @override
@@ -35,15 +41,24 @@ class DeviceSettingsPage extends ConsumerWidget {
       return DiagnosticsPage(deviceId: deviceId);
     }
 
+    final detail = ref.watch(apiDeviceDetailProvider(deviceId));
+    final resolvedName = resolveKnownDeviceName(
+      detailLoaded: detail.hasValue,
+      confirmedDisplayName: detail.value?.displayName,
+      knownDisplayName: knownDeviceName,
+    );
     final local = ref.watch(deviceSettingsProvider(deviceId));
     return Scaffold(
-      appBar: AppBar(title: Text('Configurações de $deviceName')),
-      body: local.when(
-        data: (settings) => _DeviceSettingsBody(
-          deviceId: deviceId,
-          deviceName: deviceName,
-          settings: settings,
+      appBar: AppBar(
+        title: Text(
+          resolvedName == null
+              ? 'Configurações'
+              : 'Configurações de $resolvedName',
         ),
+      ),
+      body: local.when(
+        data: (settings) =>
+            _DeviceSettingsBody(deviceId: deviceId, settings: settings),
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (_, _) => const Center(
           child: Text('Não foi possível carregar as preferências locais.'),
@@ -54,14 +69,9 @@ class DeviceSettingsPage extends ConsumerWidget {
 }
 
 class _DeviceSettingsBody extends ConsumerWidget {
-  const _DeviceSettingsBody({
-    required this.deviceId,
-    required this.deviceName,
-    required this.settings,
-  });
+  const _DeviceSettingsBody({required this.deviceId, required this.settings});
 
   final String deviceId;
-  final String deviceName;
   final DeviceSettings settings;
 
   void _apply(WidgetRef ref, DeviceSettings Function(DeviceSettings) update) {
@@ -73,7 +83,7 @@ class _DeviceSettingsBody extends ConsumerWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _NotificationsEntry(deviceId: deviceId, deviceName: deviceName),
+        _NotificationsEntry(deviceId: deviceId),
         const SizedBox(height: 16),
         _DoorCard(
           settings: settings,
@@ -92,7 +102,7 @@ class _DeviceSettingsBody extends ConsumerWidget {
         const SizedBox(height: 16),
         _DeviceCard(deviceId: deviceId),
         const SizedBox(height: 16),
-        _AdvancedCard(deviceId: deviceId, deviceName: deviceName),
+        _AdvancedCard(deviceId: deviceId),
       ],
     );
   }
@@ -103,10 +113,9 @@ class _DeviceSettingsBody extends ConsumerWidget {
 /// settings screen, only a static summary, so opening this page is the only
 /// thing that triggers their GET.
 class _NotificationsEntry extends StatelessWidget {
-  const _NotificationsEntry({required this.deviceId, required this.deviceName});
+  const _NotificationsEntry({required this.deviceId});
 
   final String deviceId;
-  final String deviceName;
 
   @override
   Widget build(BuildContext context) {
@@ -122,10 +131,7 @@ class _NotificationsEntry extends StatelessWidget {
         trailing: const Icon(Icons.chevron_right),
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => NotificationPreferencesPage(
-              deviceId: deviceId,
-              deviceName: deviceName,
-            ),
+            builder: (_) => NotificationPreferencesPage(deviceId: deviceId),
           ),
         ),
       ),
@@ -511,10 +517,9 @@ String _maskedDeviceId(String id) {
 }
 
 class _AdvancedCard extends ConsumerWidget {
-  const _AdvancedCard({required this.deviceId, required this.deviceName});
+  const _AdvancedCard({required this.deviceId});
 
   final String deviceId;
-  final String deviceName;
 
   Future<bool> _confirmReset(
     BuildContext context,

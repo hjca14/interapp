@@ -14,6 +14,24 @@ String deviceDisplayName(String? displayName) {
   return trimmed == null || trimmed.isEmpty ? 'InterBridge' : trimmed;
 }
 
+/// Best currently-known display name for a device given a possibly
+/// still-loading detail read (e.g. `apiDeviceDetailProvider`) and, as a
+/// fallback, a name already known from elsewhere (e.g. the paginated device
+/// list). Returns `null` only when nothing is known yet, so a caller can
+/// render its own neutral loading title instead of ever treating
+/// "InterBridge" as if it were the device's confirmed name during a
+/// transient load — see [deviceDisplayName], which is only safe to apply
+/// once [detailLoaded] is true.
+String? resolveKnownDeviceName({
+  required bool detailLoaded,
+  String? confirmedDisplayName,
+  String? knownDisplayName,
+}) {
+  if (detailLoaded) return deviceDisplayName(confirmedDisplayName);
+  final known = knownDisplayName?.trim();
+  return known == null || known.isEmpty ? null : known;
+}
+
 /// Membership status returned by the deployed list endpoint.
 enum MembershipStatus { active }
 

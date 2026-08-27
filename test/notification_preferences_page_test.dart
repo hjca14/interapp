@@ -77,7 +77,6 @@ Future<void> _pumpPage(
                         MaterialPageRoute<void>(
                           builder: (_) => const NotificationPreferencesPage(
                             deviceId: 'device',
-                            deviceName: 'Portaria',
                           ),
                         ),
                       ),
@@ -86,10 +85,7 @@ Future<void> _pumpPage(
                   ),
                 ),
               )
-            : const NotificationPreferencesPage(
-                deviceId: 'device',
-                deviceName: 'Portaria',
-              ),
+            : const NotificationPreferencesPage(deviceId: 'device'),
       ),
     ),
   );
@@ -117,10 +113,7 @@ void main() {
           authRepositoryProvider.overrideWithValue(_signedInAuth()),
         ],
         child: const MaterialApp(
-          home: NotificationPreferencesPage(
-            deviceId: 'device',
-            deviceName: 'Portaria',
-          ),
+          home: NotificationPreferencesPage(deviceId: 'device'),
         ),
       ),
     );
@@ -384,10 +377,7 @@ void main() {
           authRepositoryProvider.overrideWithValue(_signedInAuth()),
         ],
         child: const MaterialApp(
-          home: NotificationPreferencesPage(
-            deviceId: 'device',
-            deviceName: 'Portaria',
-          ),
+          home: NotificationPreferencesPage(deviceId: 'device'),
         ),
       ),
     );
@@ -424,6 +414,64 @@ void main() {
       expect(find.text('Notificação sem som'), findsNothing);
       expect(find.textContaining('rede local'), findsNothing);
       expect(find.textContaining('Não Perturbe'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'the reset dialog uses friendly, name-agnostic wording, "Cancelar" '
+    'never resets, and "Restaurar" resets exactly once',
+    (tester) async {
+      final repository = _Repository();
+      await _pumpPage(tester, repository);
+
+      // Diverge from defaults first so a reset has something real to do.
+      await tester.tap(find.text('Receber ligação'));
+      await tester.pump(
+        DeviceNotificationPreferencesController.debounceDuration,
+      );
+      await tester.pumpAndSettle();
+      expect(repository.patchCalls, 1);
+
+      await tester.tap(find.byTooltip('Restaurar padrões'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Restaurar configurações padrão?'), findsOneWidget);
+      expect(
+        find.text(
+          'As preferências de alertas e horários voltarão aos valores '
+          'padrão.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('servidor'), findsNothing);
+      expect(find.textContaining('API'), findsNothing);
+      expect(find.textContaining('PATCH'), findsNothing);
+      expect(find.textContaining('InterBridge'), findsNothing);
+      expect(find.textContaining('"'), findsNothing);
+
+      await tester.tap(find.text('Cancelar'));
+      await tester.pumpAndSettle();
+      expect(
+        repository.patchCalls,
+        1,
+        reason: 'Cancelar must never call resetRemote',
+      );
+
+      await tester.tap(find.byTooltip('Restaurar padrões'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Restaurar'));
+      await tester.pumpAndSettle();
+
+      expect(
+        repository.patchCalls,
+        2,
+        reason: 'Restaurar performs exactly one reset write',
+      );
+      expect(
+        repository.lastPatchDraft?.alertMode.includesRing,
+        isTrue,
+        reason: 'reset restores the default (ring included) value',
+      );
     },
   );
 }

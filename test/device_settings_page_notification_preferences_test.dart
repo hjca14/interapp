@@ -85,9 +85,7 @@ Widget _subject(_RemoteRepository remote, _LocalRepository local) {
       deviceSettingsRepositoryProvider.overrideWithValue(local),
       deviceRepositoryProvider.overrideWithValue(_Devices()),
     ],
-    child: const MaterialApp(
-      home: DeviceSettingsPage(deviceId: 'device', deviceName: 'Portaria'),
-    ),
+    child: const MaterialApp(home: DeviceSettingsPage(deviceId: 'device')),
   );
 }
 

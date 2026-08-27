@@ -11,14 +11,9 @@ import 'package:interapp/features/devices/presentation/widgets/settings_section.
 /// away — [DeviceNotificationPreferencesController] outlives this page and
 /// keeps syncing after it is popped.
 class NotificationPreferencesPage extends ConsumerStatefulWidget {
-  const NotificationPreferencesPage({
-    super.key,
-    required this.deviceId,
-    required this.deviceName,
-  });
+  const NotificationPreferencesPage({super.key, required this.deviceId});
 
   final String deviceId;
-  final String deviceName;
 
   @override
   ConsumerState<NotificationPreferencesPage> createState() =>
@@ -58,9 +53,9 @@ class _NotificationPreferencesPageState
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Redefinir preferências de alertas?'),
-        content: Text(
-          'Os padrões serão salvos no servidor para "${widget.deviceName}".',
+        title: const Text('Restaurar configurações padrão?'),
+        content: const Text(
+          'As preferências de alertas e horários voltarão aos valores padrão.',
         ),
         actions: [
           TextButton(
@@ -69,7 +64,7 @@ class _NotificationPreferencesPageState
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Redefinir'),
+            child: const Text('Restaurar'),
           ),
         ],
       ),

@@ -133,6 +133,19 @@ final apiDevicesProvider =
       ApiDevicesController.new,
     );
 
+/// The personal name already known for [deviceId] from the paginated device
+/// list, independent of whether `apiDeviceDetailProvider(deviceId)` has
+/// resolved yet. Lets a freshly opened device page (or a child screen
+/// reached before the detail GET completes) show the real name immediately
+/// instead of a transient loading fallback, without triggering any new HTTP
+/// call — see [resolveKnownDeviceName].
+String? knownDeviceDisplayName(DeviceListState listState, String deviceId) {
+  for (final item in listState.items) {
+    if (item.deviceId == deviceId) return item.displayName;
+  }
+  return null;
+}
+
 /// Loads one device's details and, unlike a plain read-only provider, also
 /// carries [updateName] — the personal-name edit needs to write through the
 /// repository and reflect the confirmed result immediately. See

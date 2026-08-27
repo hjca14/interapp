@@ -133,7 +133,22 @@ class _ApiDeviceDetailPageState extends ConsumerState<ApiDeviceDetailPage>
   @override
   Widget build(BuildContext context) {
     final detail = ref.watch(apiDeviceDetailProvider(widget.deviceId));
-    final title = deviceDisplayName(detail.value?.displayName);
+    // Reused immediately while the detail GET this page kicked off is still
+    // in flight, so a device tapped from the list never shows the
+    // "InterBridge" domain fallback as if it were the confirmed name — see
+    // `resolveKnownDeviceName`. No extra HTTP call: this reads the already
+    // -loaded `apiDevicesProvider` list state.
+    final knownName = knownDeviceDisplayName(
+      ref.watch(apiDevicesProvider),
+      widget.deviceId,
+    );
+    final title =
+        resolveKnownDeviceName(
+          detailLoaded: detail.hasValue,
+          confirmedDisplayName: detail.value?.displayName,
+          knownDisplayName: knownName,
+        ) ??
+        'Dispositivo';
     final pages = [
       _DeviceOverview(deviceId: widget.deviceId),
       DialerPage(controller: _dialerController),
@@ -154,7 +169,7 @@ class _ApiDeviceDetailPageState extends ConsumerState<ApiDeviceDetailPage>
               MaterialPageRoute(
                 builder: (_) => DeviceSettingsPage(
                   deviceId: widget.deviceId,
-                  deviceName: title,
+                  knownDeviceName: knownName,
                 ),
               ),
             ),
@@ -507,6 +522,12 @@ class _StatusCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final value = status.value ?? lastStatus;
     final presentation = DeviceStatusPresentation.from(value);
+    // Same known-name reuse as the AppBar above — never a hardcoded
+    // "InterBridge" standing in for a name that just hasn't loaded yet.
+    final knownName = knownDeviceDisplayName(
+      ref.watch(apiDevicesProvider),
+      deviceId,
+    );
     return Card(
       child: ListTile(
         leading: Icon(presentation.icon, color: presentation.color(context)),
@@ -524,7 +545,7 @@ class _StatusCard extends ConsumerWidget {
           MaterialPageRoute(
             builder: (_) => DeviceSettingsPage(
               deviceId: deviceId,
-              deviceName: 'InterBridge',
+              knownDeviceName: knownName,
               initialSection: DeviceSettingsSection.diagnostics,
             ),
           ),
