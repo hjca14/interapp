@@ -4,6 +4,7 @@ import 'package:interapp/core/config/app_environment.dart';
 import 'package:interapp/core/network/interbridge_api_client.dart';
 import 'package:interapp/features/auth/presentation/providers/auth_providers.dart';
 import 'package:interapp/features/devices/data/repositories/http_device_repository.dart';
+import 'package:interapp/features/devices/data/repositories/http_device_notification_preferences_repository.dart';
 import 'package:interapp/features/devices/data/repositories/local_device_backend_repository.dart';
 import 'package:interapp/features/devices/data/repositories/local_device_connection_repository.dart';
 import 'package:interapp/features/devices/data/repositories/local_device_settings_repository.dart';
@@ -13,6 +14,7 @@ import 'package:interapp/features/devices/domain/repositories/device_backend_rep
 import 'package:interapp/features/devices/domain/repositories/device_connection_repository.dart';
 import 'package:interapp/features/devices/domain/repositories/device_repository.dart';
 import 'package:interapp/features/devices/domain/repositories/device_settings_repository.dart';
+import 'package:interapp/features/devices/domain/repositories/device_notification_preferences_repository.dart';
 import 'package:interapp/features/favorites/data/repositories/local_favorites_repository.dart';
 import 'package:interapp/features/profile/data/repositories/local_profile_repository.dart';
 
@@ -66,6 +68,13 @@ final favoritesRepositoryProvider = Provider<LocalFavoritesRepository>(
 final deviceSettingsRepositoryProvider = Provider<DeviceSettingsRepository>(
   (_) => LocalDeviceSettingsRepository(),
 );
+
+final deviceNotificationPreferencesRepositoryProvider =
+    Provider<DeviceNotificationPreferencesRepository>((ref) {
+      return HttpDeviceNotificationPreferencesRepository(
+        ref.watch(apiClientProvider),
+      );
+    });
 
 final profileRepositoryProvider = Provider<LocalProfileRepository>(
   (_) => LocalProfileRepository(),

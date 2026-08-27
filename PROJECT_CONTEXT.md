@@ -727,7 +727,7 @@ O evento **chamada recebida** já tem um caminho de reação implementado no app
 * [ ] Emitir `hasIncomingCall` de verdade a partir do evento `RING_DETECTED` do protocolo (Fase 2) — o evento já está modelado em `DeviceEventType.ringDetected`, falta a ponte entre ele e `DeviceStatus.hasIncomingCall`/`IncomingCallListener`.
 * [ ] Ligar Atender/Recusar a um canal de áudio real (etapa futura, sem numeração definida).
 * [ ] Push notification (FCM/APNs) para acordar o app fechado — o projeto Firebase ainda não foi criado e FCM não foi configurado; futuramente, reaproveitar `IncomingCallNotificationService` para renderizar a notificação quando o payload remoto chegar.
-* [ ] Fazer a reação a `RING_DETECTED` respeitar `DeviceSettings.calls`/`quietHours` (hoje sempre toca, independente das preferências salvas) — ver seção 25.
+* [ ] Fazer a reação a `RING_DETECTED` respeitar `DeviceNotificationPreferences` (hoje sempre toca, independente das preferências salvas) — ver seção 25.
 
 ---
 
@@ -865,8 +865,8 @@ Antes de alterar a arquitetura:
 * [ ] Comunicação básica
 * [ ] Ler status real
 * [ ] Emitir `hasIncomingCall` de verdade a partir do evento `RING_DETECTED` (ver seção 19)
-* [ ] Detectar `NetworkPresence` real (rede local vs. remota) para `DeviceSettings.calls`
-* [ ] Fazer `IncomingCallListener`/`IncomingCallNotificationService` respeitarem `DeviceSettings` (modo de alerta por presença, horário silencioso) em vez de sempre tocar
+* [ ] Avaliar presença por rede como evolução futura, sem solução ou contrato definidos
+* [ ] Fazer `IncomingCallListener`/`IncomingCallNotificationService` respeitarem `DeviceNotificationPreferences` (os filtros ainda não são aplicados)
 * [ ] Comando de abertura de porta funcionando de ponta a ponta (hoje a UI já existe, falta o backend/hardware real)
 * [ ] Primeiro teste do fluxo completo
 
@@ -878,7 +878,7 @@ Ordem de trabalho decidida:
 
 1. [x] Correção documental e alinhamento das fases.
 2. [x] Alteração de senha nas configurações gerais da conta, fora das configurações de dispositivo. Implementada localmente e testada com fakes; validação real no Cognito DEV via Android parcial (um cenário confirmado, demais ainda pendentes — ver seção "Alteração de senha" abaixo).
-3. [ ] Preferências reais de notificação, com contrato e persistência de backend ainda por definir.
+3. [x] Preferências de alertas integradas localmente ao contrato final do interBackend PR #21; deploy DEV e validação ponta a ponta pendentes.
 4. [ ] Integração FCM; FCM não está configurado e o projeto Firebase ainda não existe.
 5. [ ] Onboarding BLE real; a implementação não começou e há um Android físico antigo disponível para o teste futuro.
 
@@ -919,76 +919,21 @@ Ordem de trabalho decidida:
 
 ---
 
-# 25. DeviceSettings — configurações por InterBridge
+# 25. Preferências do dispositivo
 
-Cada InterBridge tem suas próprias configurações de comportamento, independentes das de outros dispositivos cadastrados.
+## Alertas remotos por usuário + dispositivo
 
-## Visão geral
+O contrato final é o **interBackend PR #21**: `GET` e `PATCH /v1/devices/{device_id}/notification-preferences`. A integração está implementada no app com `InterBridgeApiClient`, parser estrito, repository e controller próprios, mas o backend ainda não foi implantado em DEV; os testes usam fakes/mocks e a validação ponta a ponta aguarda deploy autorizado.
 
-Hoje `DeviceSettings` guarda só preferências locais do app — nada aqui comunica com hardware real. A persistência é local (`shared_preferences`), seguindo o mesmo padrão de repository já usado no resto do projeto, para que uma futura migração para backend não exija reescrever a tela.
+`DeviceNotificationPreferences` contém `version`, um único `alertMode`, `quietSchedule` e `updatedAt`. O modo global compõe os switches de ligação e notificação. Os horários sem ligação usam dias ISO, `HH:mm`, timezone IANA e comportamento “Só notificação” ou “Bloquear tudo”. Ao ativar pela primeira vez, o app obtém o timezone IANA do aparelho sem localização; após salvar, preserva o timezone retornado pelo servidor e não o troca silenciosamente em viagens. As escolhas pertencem ao par usuário autenticado + dispositivo.
 
-Esses controles não constituem uma solução real de notificações: ainda não há persistência de preferências no backend, projeto Firebase, FCM ou entrega push. A modelagem preserva, sem inventar contrato futuro, as distinções entre receber ligação, receber notificação, modo silencioso, dias/horários, notificação silenciosa versus bloqueio completo e comportamento dentro/fora da rede local.
+A tela mantém um rascunho e só envia PATCH explícito com campos alterados. Conflito 409 preserva o rascunho e oferece recarga. Redefinir alertas envia os defaults contratuais; não altera porta, hardware ou Device Shadow.
 
-## Modelo de domínio
+## Preferências locais da porta
 
-Em `features/devices/domain/entities/device_settings.dart`:
+`DeviceSettings`, persistido por dispositivo em `shared_preferences`, contém somente `confirmBeforeOpeningDoor` e `requireDeviceAuthenticationToOpenDoor`. Registros antigos podem conter `calls`, `quietHours` e campos experimentais: o parser ignora essas chaves, preserva as duas preferências da porta e nunca migra dados legados ao backend. A redefinição local não chama a API.
 
-* `DeviceSettings` — a raiz: `calls` (`DeviceCallSettings`), `quietHours` (`QuietHoursSettings`), `confirmBeforeOpeningDoor` (bool), `requireDeviceAuthenticationToOpenDoor` (bool).
-* `NetworkPresence` — enum `{localNetwork, remoteNetwork}`. Não assume que "conectado a algum Wi-Fi" signifique "em casa"; é só o conceito de domínio para presença — a detecção real ainda não existe (Fase 2).
-* `CallAlertMode` — enum `{none, ringOnly, notificationOnly, ringAndNotification}`, com getters `includesRing`/`includesNotification` e o construtor `CallAlertMode.from(ring:, notification:)`. Substitui os três booleans soltos que uma modelagem ingênua de "receber ligação/notificação/chamada fora da rede" teria.
-* `DeviceCallSettings` — um `CallAlertMode` por zona de rede (`localNetworkAlertMode`, `remoteNetworkAlertMode`). `remoteNetworkAlertMode == none` já expressa "não receber chamadas fora da rede local", sem precisar de um bool redundante.
-* `QuietHoursSettings` — `enabled`, `start`/`end` (`ClockTime`), `weekdays` (`Set<int>`, 1 = segunda ... 7 = domingo, igual a `DateTime.monday`..`DateTime.sunday`), `behavior` (`QuietHoursBehavior`).
-* `QuietHoursBehavior` — enum `{blockAll, silentNotificationOnly}`.
-* `ClockTime` — par hora/minuto próprio, deliberadamente independente de `TimeOfDay`/Flutter, para manter a camada de domínio livre de framework (mesmo padrão das outras entidades de `devices/domain`). A tela converte para/de `TimeOfDay` ao abrir o seletor de horário.
-
-Todas essas classes têm `copyWith` (edições imutáveis a partir da UI) e `toMap`/`fromMap`. Diferente de `InterBridgeDevice`/`Favorite` (string tab-separated), `DeviceSettings` serializa como `Map` → JSON, porque tem estrutura aninhada, enums e um `Set` — um formato tab-separated ficaria ilegível e frágil para esse formato.
-
-## Persistência
-
-`DeviceSettingsRepository` (contrato) + `LocalDeviceSettingsRepository` (`features/devices/data/repositories/`), seguindo o mesmo padrão de `DeviceConnectionRepository`/`LocalDeviceConnectionRepository`: a UI depende só da abstração.
-
-Persistido em `shared_preferences` sob a chave `device_settings_<deviceId>`, isolado por dispositivo (mesmo padrão de `favorites_<deviceId>`). Se não houver nada salvo, ou o valor salvo estiver corrompido, `get()` devolve `DeviceSettings()` (valores padrão) em vez de lançar erro.
-
-## Provider
-
-Em `features/devices/presentation/providers/device_settings_provider.dart`:
-
-* `deviceSettingsRepositoryProvider` (em `devices_providers.dart`) expõe o repository, tipado pelo contrato abstrato.
-* `DeviceSettingsController` — `AsyncNotifier<DeviceSettings>` com family por `deviceId`. `build()` carrega do repository; `updateSettings(updater)` aplica a alteração, atualiza o `state` na hora (a UI responde sem esperar o disco) e persiste; `reset()` volta para `DeviceSettings()` padrão.
-* `deviceSettingsProvider` — `AsyncNotifierProvider.family<DeviceSettingsController, DeviceSettings, String>`, consumido pela tela como `AsyncValue` via `.when(...)`, igual ao `deviceStatusProvider`.
-
-A tela nunca acessa `LocalDeviceSettingsRepository`/`shared_preferences` diretamente.
-
-## Tela
-
-`features/devices/presentation/pages/device_settings_page.dart`, aberta pelo ícone de engrenagem no app bar de `DeviceDetailPage`.
-
-Seções (cada uma um `Card`):
-
-* **Chamadas** — dois `SwitchListTile` ("Receber ligação"/"Receber notificação") que editam `calls.localNetworkAlertMode` via `CallAlertMode.from`.
-* **Silencioso** — liga/desliga, horário (`showTimePicker`, convertido de/para `ClockTime`), dias da semana (`FilterChip`s), comportamento (`SegmentedButton` com as duas opções de `QuietHoursBehavior`). Os controles de horário/dias/comportamento só aparecem quando o modo silencioso está ligado.
-* **Presença** — mostra o modo local (somente leitura, editado na seção Chamadas) e um `DropdownButton` para escolher o `CallAlertMode` da rede remota.
-* **Porta** — dois `SwitchListTile` independentes (confirmar abertura / exigir autenticação do aparelho). A autenticação biométrica em si **não está implementada** — o campo só reserva o comportamento.
-* **Acesso e compartilhamento** — mostra o papel atual com texto amigável. OWNER e ADMIN são informados de que têm permissão para gerenciar compartilhamento; MEMBER é informado de que não pode compartilhar. Compartilhamento continua não implementado e a seção não oferece botão ou navegação falsa.
-* **Dispositivo** — Wi-Fi / Firmware / Diagnóstico / Reiniciar. Diagnóstico concentra versão do hardware, os oito estados oficiais de configuração em textos amigáveis e o identificador inicialmente mascarado; o ID completo só aparece sob ação explícita, com cópia separada para suporte. Wi-Fi e Reiniciar mostram um snackbar "disponível quando o InterBridge estiver conectado" ao toque. Não fazem nada de verdade ainda.
-* **Avançado** — "Redefinir configurações": única ação realmente funcional dessa seção; volta as configurações locais desse dispositivo para o padrão (com confirmação). Não reseta nenhum hardware, porque não existe hardware conectado ainda.
-
-## O que ainda não está implementado
-
-* Detecção real de `NetworkPresence` (saber se o celular está na rede do InterBridge) — depende do hardware/protocolo (Fase 2).
-* `DeviceSettings.calls`/`quietHours` ainda não são **consumidos** por `IncomingCallListener`/`IncomingCallNotificationService` — hoje eles só ficam salvos; a lógica de checar as configurações antes de tocar/notificar ainda precisa ser plugada na feature de chamada recebida (seção 19).
-* Autenticação biométrica/Face ID para abrir a porta.
-* Registro da ação de abertura no histórico de eventos (seção 19).
-* Wi-Fi, firmware, diagnóstico e reinicialização reais do dispositivo.
-* `UserDeviceSettings` (ver abaixo).
-
-Alteração de senha também não está implementada. Quando for criada, pertence às configurações gerais da conta, fora das configurações de um dispositivo.
-
-## Separação futura: DeviceSettings vs. UserDeviceSettings
-
-`DeviceSettings` é **do dispositivo**, compartilhado por todos que têm acesso a ele (ver seção 14, Compartilhamento). Quando o compartilhamento existir de verdade, algumas preferências deixarão de fazer sentido como globais — por exemplo, uma pessoa silenciar o próprio celular sem silenciar para todo mundo que usa o mesmo InterBridge. Essas preferências devem virar uma futura entidade `UserDeviceSettings`, ligada a `(userId, deviceId)`, sem se misturar com `DeviceSettings`. Não implementar `UserDeviceSettings` antes de existir um contrato e persistência reais para preferências por usuário.
-
----
+FCM/Firebase não está configurado e esta integração apenas persiste escolhas: os filtros não são aplicados a `IncomingCallListener`, `IncomingCallNotificationService` ou ao fluxo atual. Chamada Android com app encerrado continua pendente; iOS vem depois. Áudio é uma frente separada de push. Presença por rede fica adiada como possibilidade futura, sem solução escolhida, detecção ou campos reservados.
 
 # 26. Protocolo de comunicação (InterBridge Communication Protocol v1.1)
 

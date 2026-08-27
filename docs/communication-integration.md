@@ -361,3 +361,8 @@ A reorganização entre Resumo, Diagnóstico e Configurações também pertence 
 esta fase. Alteração de senha, preferências reais de notificação, FCM e BLE real
 seguem, nessa ordem. Os modelos e mocks existentes de onboarding preservam
 decisões anteriores, mas não significam que a implementação BLE real começou.
+
+
+## Notification preferences (interBackend PR #21)
+
+The app now integrates authenticated `GET`/`PATCH /v1/devices/{device_id}/notification-preferences` through `InterBridgeApiClient`. Preferences are per authenticated user and device, use one global alert mode and a quiet schedule, and are separate from local door preferences. DEV deployment and end-to-end validation are pending. FCM/push and filter enforcement are not part of this integration; Android killed-state calls, later iOS calls, and audio remain separate work. Network presence is only an undefined future possibility.
