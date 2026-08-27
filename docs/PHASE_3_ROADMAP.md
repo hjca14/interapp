@@ -33,10 +33,10 @@ permanecem explicitamente pendentes.
 
 ## Fase 3B — alertas remotos e chamada
 
-- [ ] **3B.1 — Identidade definitiva dos apps móveis**
+- [x] **3B.1 — Identidade definitiva dos apps móveis**
   - `com.interbridge.app` no Android e iOS;
   - nome visível `InterBridge`;
-  - entrega desta PR;
+  - entrega da PR 19;
   - nenhum Firebase configurado.
 - [ ] **3B.2 — Projeto Firebase DEV**
   - criar projeto separado de produção;
