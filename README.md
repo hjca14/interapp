@@ -20,6 +20,13 @@ Valide em aparelho/emulador: login do usuário DEV confirmado, restauração ap�
 
 A Fase 2D, dedicada à integração visual controlada dos comandos assíncronos, está concluída e encerrada. O nome pessoal e a reorganização da experiência do dispositivo iniciam uma nova Fase 3; não são continuação da Fase 2D.
 
+A numeração, a ordem e os critérios de conclusão de 3A, 3B e 3C estão no
+[roadmap canônico da Fase 3](docs/PHASE_3_ROADMAP.md). A Fase 3A reúne nome
+pessoal/experiência do dispositivo, segurança da conta e preferências de
+alertas. A Fase 3B começa pela identidade móvel definitiva
+`com.interbridge.app`, antes de qualquer configuração Firebase/FCM. A Fase 3C
+fica reservada ao onboarding BLE real.
+
 ## Gerenciamento de dispositivos: lista, detalhes e nome pessoal
 
 A lista de dispositivos, a tela de detalhes e a edição do nome pessoal
@@ -48,10 +55,7 @@ mascarado ficam em Diagnóstico, e o ID completo exige uma ação explícita. Pa
 e permissão ficam na seção "Acesso e compartilhamento", sem ação funcional de
 compartilhamento.
 
-A ordem de trabalho decidida para a sequência da Fase 3 é: correção documental,
-alteração de senha nas configurações gerais da conta, preferências reais de
-notificação, integração FCM e, depois, onboarding BLE. O item 2 (alteração de
-senha) está implementado e coberto por testes locais; a validação manual real
+A alteração de senha está implementada e coberta por testes locais; a validação manual real
 em Android com a conta DEV no Cognito começou (um cenário confirmado) e
 continua em andamento para os demais casos. As preferências de alertas
 consomem o contrato final, mergeado no interBackend PR #21, por usuário e
@@ -64,7 +68,8 @@ alertas foi reorganizada em uma página própria, aberta a partir de um único
 item "Notificações" nas configurações do dispositivo, com o antigo botão
 "Salvar" substituído por salvamento automático (debounce + outbox local); a
 validação manual desse novo fluxo de autosave ainda depende do próximo
-`flutter run`. FCM
+`flutter run`. A identidade definitiva desta etapa se aplica aos alvos móveis
+Android e iOS; não é uma renomeação mecânica das plataformas desktop/web. FCM
 não foi configurado e o projeto Firebase ainda não foi criado. O BLE real não
 foi iniciado; há um Android físico antigo disponível para esse teste futuro.
 

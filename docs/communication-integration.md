@@ -349,6 +349,9 @@ preferências ainda não carregadas impedem o envio.
 
 # Fase 3 — experiência do dispositivo e do usuário
 
+Consulte o [roadmap canônico da Fase 3](PHASE_3_ROADMAP.md) para a numeração
+detalhada, ordem e critérios de conclusão de 3A, 3B e 3C.
+
 A Fase 3 atual começa depois do encerramento da Fase 2D. Sua primeira entrega
 funcional foi o nome pessoal por `DeviceMembership`: edição/limpeza via
 `PATCH /v1/devices/{device_id}`, já implantado em DEV e validado no Android com
@@ -357,10 +360,13 @@ reimplantado com CloudFormation em `UPDATE_COMPLETE`; a primeira tentativa no
 cold start da Lambda não gravou dados, e o reteste posterior validou
 `app → API → DynamoDB → nova leitura`.
 
-A reorganização entre Resumo, Diagnóstico e Configurações também pertence a
-esta fase. Alteração de senha, preferências reais de notificação, FCM e BLE real
-seguem, nessa ordem. Os modelos e mocks existentes de onboarding preservam
-decisões anteriores, mas não significam que a implementação BLE real começou.
+A reorganização entre Resumo, Diagnóstico e Configurações, a alteração de senha
+e as preferências reais de alertas compõem a Fase 3A. As preferências estão
+implantadas e validadas em DEV; somente a experiência reorganizada de autosave
+ainda aguarda repetição manual. A Fase 3B começa pela identidade definitiva
+`com.interbridge.app` para Android e iOS, sem Firebase/FCM nesta subfase. Os
+modelos e mocks existentes de onboarding preservam decisões anteriores, mas
+não significam que a Fase 3C ou a implementação BLE real começou.
 
 
 ## Notification preferences (interBackend PR #21)
