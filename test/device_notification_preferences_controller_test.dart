@@ -11,6 +11,7 @@ import 'package:interapp/features/devices/data/repositories/local_notification_p
 import 'package:interapp/features/devices/domain/entities/device_notification_preferences.dart';
 import 'package:interapp/features/devices/domain/entities/notification_preferences_outbox_entry.dart';
 import 'package:interapp/features/devices/domain/repositories/device_notification_preferences_repository.dart';
+import 'package:interapp/features/devices/domain/repositories/notification_preferences_outbox_repository.dart';
 import 'package:interapp/features/devices/presentation/providers/device_notification_preferences_provider.dart';
 import 'package:interapp/features/devices/presentation/providers/devices_providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -26,6 +27,8 @@ class _Repository implements DeviceNotificationPreferencesRepository {
   Completer<DeviceNotificationPreferences>? pendingPatch;
   int getCalls = 0;
   int patchCalls = 0;
+  int activePatchCalls = 0;
+  int maxActivePatchCalls = 0;
   final List<DeviceNotificationPreferences> patchedDrafts = [];
   final List<DeviceNotificationPreferences> patchedBaselines = [];
 
@@ -43,6 +46,10 @@ class _Repository implements DeviceNotificationPreferencesRepository {
     DeviceNotificationPreferences draft,
   ) async {
     patchCalls++;
+    activePatchCalls++;
+    if (activePatchCalls > maxActivePatchCalls) {
+      maxActivePatchCalls = activePatchCalls;
+    }
     patchedBaselines.add(baseline);
     patchedDrafts.add(draft);
     if (patchError case final Object error) throw error;
@@ -50,8 +57,48 @@ class _Repository implements DeviceNotificationPreferencesRepository {
     // updatedAt); echoing `draft` here is far closer to that than always
     // returning the fixed `value`, which a test overrides explicitly via
     // `pendingPatch` whenever it needs a different confirmed response.
-    return pendingPatch?.future ??
-        draft.copyWith(updatedAt: DateTime.utc(2026, 8, 27));
+    try {
+      return await (pendingPatch?.future ??
+          Future.value(draft.copyWith(updatedAt: DateTime.utc(2026, 8, 27))));
+    } finally {
+      activePatchCalls--;
+    }
+  }
+}
+
+class _ControlledOutbox implements NotificationPreferencesOutboxRepository {
+  NotificationPreferencesOutboxEntry? entry;
+  int writeCalls = 0;
+  int clearCalls = 0;
+  Completer<void>? blockNextWrite;
+  Completer<void>? blockNextClear;
+
+  @override
+  Future<NotificationPreferencesOutboxEntry?> read(
+    String userId,
+    String deviceId,
+  ) async => entry;
+
+  @override
+  Future<void> write(
+    String userId,
+    String deviceId,
+    NotificationPreferencesOutboxEntry value,
+  ) async {
+    writeCalls++;
+    final blocker = blockNextWrite;
+    blockNextWrite = null;
+    if (blocker != null) await blocker.future;
+    entry = value;
+  }
+
+  @override
+  Future<void> clear(String userId, String deviceId) async {
+    clearCalls++;
+    final blocker = blockNextClear;
+    blockNextClear = null;
+    if (blocker != null) await blocker.future;
+    entry = null;
   }
 }
 
@@ -63,6 +110,7 @@ ProviderContainer _containerFor(
   _Repository repository, {
   TimezoneLoader? timezoneLoader,
   LocalAuthRepository? auth,
+  NotificationPreferencesOutboxRepository? outbox,
 }) {
   final container = ProviderContainer(
     overrides: [
@@ -71,6 +119,10 @@ ProviderContainer _containerFor(
       ),
       if (timezoneLoader != null)
         timezoneLoaderProvider.overrideWithValue(timezoneLoader),
+      if (outbox != null)
+        notificationPreferencesOutboxRepositoryProvider.overrideWithValue(
+          outbox,
+        ),
       // `LocalAuthRepository.watchSession()` yields its current value
       // synchronously (an async* generator, not a raw controller-backed
       // stream), which resolves reliably under fakeAsync's microtask
@@ -176,6 +228,156 @@ void main() {
         repository.patchedDrafts.single.alertMode,
         AlertMode.notificationOnly,
       );
+    });
+  });
+
+  test('edit starts durable outbox persistence before the remote debounce', () {
+    fakeAsync((async) {
+      final blocker = Completer<void>();
+      final outbox = _ControlledOutbox()..blockNextWrite = blocker;
+      final repository = _Repository();
+      final container = _containerFor(repository, outbox: outbox);
+      _load(async, container);
+
+      _controller(
+        container,
+      ).edit((value) => value.copyWith(alertMode: AlertMode.none));
+      async.flushMicrotasks();
+
+      expect(repository.patchCalls, 0);
+      expect(outbox.writeCalls, 1, reason: 'local persistence starts at edit');
+      expect(outbox.entry, isNull, reason: 'the controlled write is blocked');
+
+      blocker.complete();
+      async.flushMicrotasks();
+      expect(outbox.entry!.pendingDraft.alertMode, AlertMode.none);
+      expect(repository.patchCalls, 0, reason: '700 ms has not elapsed');
+    });
+  });
+
+  test('abrupt disposal during debounce leaves the edit recoverable', () {
+    fakeAsync((async) {
+      final blocker = Completer<void>();
+      final outbox = _ControlledOutbox()..blockNextWrite = blocker;
+      final repository = _Repository();
+      final container = _containerFor(repository, outbox: outbox);
+      _load(async, container);
+
+      _controller(
+        container,
+      ).edit((value) => value.copyWith(alertMode: AlertMode.none));
+      async.flushMicrotasks();
+      container.dispose();
+      blocker.complete();
+      async.flushMicrotasks();
+
+      expect(repository.patchCalls, 0);
+      expect(outbox.entry!.pendingDraft.alertMode, AlertMode.none);
+    });
+  });
+
+  test('flush lock is held while the first local write is blocked', () {
+    fakeAsync((async) {
+      final blocker = Completer<void>();
+      final outbox = _ControlledOutbox()..blockNextWrite = blocker;
+      final repository = _Repository();
+      final container = _containerFor(repository, outbox: outbox);
+      _load(async, container);
+      final controller = _controller(container);
+
+      controller.edit((value) => value.copyWith(alertMode: AlertMode.none));
+      async.elapse(_debounce);
+      async.flushMicrotasks();
+      controller.flushPendingNow();
+      async.flushMicrotasks();
+
+      expect(repository.patchCalls, 0);
+      blocker.complete();
+      async.flushMicrotasks();
+      expect(repository.patchCalls, 1);
+      expect(repository.maxActivePatchCalls, 1);
+    });
+  });
+
+  test(
+    'an edit queued behind a blocked clear survives and sends one delta',
+    () {
+      fakeAsync((async) {
+        final outbox = _ControlledOutbox();
+        final repository = _Repository();
+        final container = _containerFor(repository, outbox: outbox);
+        _load(async, container);
+        final controller = _controller(container);
+
+        controller.edit((value) => value.copyWith(alertMode: AlertMode.none));
+        async.flushMicrotasks();
+        final clearBlocker = Completer<void>();
+        outbox.blockNextClear = clearBlocker;
+        async.elapse(_debounce);
+        async.flushMicrotasks();
+        expect(repository.patchCalls, 1);
+        expect(outbox.clearCalls, 1);
+
+        controller.edit(
+          (value) => value.copyWith(alertMode: AlertMode.ringOnly),
+        );
+        async.flushMicrotasks();
+        expect(_state(container).draft!.alertMode, AlertMode.ringOnly);
+
+        clearBlocker.complete();
+        async.flushMicrotasks();
+        expect(outbox.entry!.pendingDraft.alertMode, AlertMode.ringOnly);
+        expect(_state(container).isSyncing, isTrue);
+
+        async.elapse(_debounce);
+        async.flushMicrotasks();
+        expect(repository.patchCalls, 2);
+        expect(repository.patchedDrafts.last.alertMode, AlertMode.ringOnly);
+        expect(outbox.entry, isNull);
+        expect(_state(container).isSyncing, isFalse);
+      });
+    },
+  );
+
+  test('an edit during a blocked post-response write is never overwritten', () {
+    fakeAsync((async) {
+      final outbox = _ControlledOutbox();
+      final response = Completer<DeviceNotificationPreferences>();
+      final repository = _Repository()..pendingPatch = response;
+      final container = _containerFor(repository, outbox: outbox);
+      _load(async, container);
+      final controller = _controller(container);
+
+      controller.edit((value) => value.copyWith(alertMode: AlertMode.none));
+      async.elapse(_debounce);
+      async.flushMicrotasks();
+      expect(repository.patchCalls, 1);
+
+      controller.edit((value) => value.copyWith(alertMode: AlertMode.ringOnly));
+      async.flushMicrotasks();
+      final postResponseBlocker = Completer<void>();
+      outbox.blockNextWrite = postResponseBlocker;
+      response.complete(
+        DeviceNotificationPreferences(
+          alertMode: AlertMode.none,
+          updatedAt: DateTime.utc(2026, 8, 28),
+        ),
+      );
+      async.flushMicrotasks();
+
+      controller.edit(
+        (value) => value.copyWith(alertMode: AlertMode.ringAndNotification),
+      );
+      async.flushMicrotasks();
+      expect(_state(container).draft!.alertMode, AlertMode.ringAndNotification);
+
+      postResponseBlocker.complete();
+      async.flushMicrotasks();
+      expect(
+        outbox.entry!.pendingDraft.alertMode,
+        AlertMode.ringAndNotification,
+      );
+      expect(_state(container).draft!.alertMode, AlertMode.ringAndNotification);
     });
   });
 

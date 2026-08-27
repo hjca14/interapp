@@ -120,8 +120,11 @@ class DeviceNotificationPreferencesController
 
   Future<void>? _activeLoad;
   int _generation = 0;
+  int _draftRevision = 0;
   bool _disposed = false;
-  bool _saving = false;
+  bool _flushInProgress = false;
+  bool _flushRequested = false;
+  Future<void> _outboxTail = Future<void>.value();
   Timer? _debounceTimer;
 
   @override
@@ -155,9 +158,7 @@ class DeviceNotificationPreferencesController
       final signedOutNow = next.value?.isSignedIn != true;
       if (wasSignedIn && signedOutNow && previousUserId != null) {
         unawaited(
-          ref
-              .read(notificationPreferencesOutboxRepositoryProvider)
-              .clear(previousUserId, deviceId),
+          _mutateOutbox((outbox) => outbox.clear(previousUserId, deviceId)),
         );
       }
     });
@@ -166,6 +167,47 @@ class DeviceNotificationPreferencesController
   }
 
   String? _currentUserId() => ref.read(authSessionProvider).value?.userId;
+
+  Future<void> _mutateOutbox(
+    Future<void> Function(NotificationPreferencesOutboxRepository outbox)
+    mutation,
+  ) {
+    final operation = _outboxTail.then(
+      (_) =>
+          mutation(ref.read(notificationPreferencesOutboxRepositoryProvider)),
+    );
+    _outboxTail = operation.catchError((_) {});
+    return operation;
+  }
+
+  Future<void> _persistCurrentDraft(String userId) {
+    return _mutateOutbox((outbox) async {
+      if (_disposed) return;
+      final baseline = state.baseline;
+      final draft = state.draft;
+      if (baseline == null || draft == null) return;
+      if (baseline.hasSameEditableValues(draft)) {
+        await outbox.clear(userId, deviceId);
+        return;
+      }
+      if (draft.quietSchedule.validate() != null) return;
+      await outbox.write(
+        userId,
+        deviceId,
+        NotificationPreferencesOutboxEntry(
+          pendingDraft: draft,
+          baselineUpdatedAt: baseline.updatedAt,
+        ),
+      );
+    });
+  }
+
+  void _draftChanged({bool immediate = false}) {
+    _draftRevision++;
+    final userId = _currentUserId();
+    if (userId != null) unawaited(_persistCurrentDraft(userId));
+    _scheduleFlush(immediate: immediate);
+  }
 
   Future<void> load() {
     final active = _activeLoad;
@@ -193,7 +235,7 @@ class DeviceNotificationPreferencesController
           .read(deviceNotificationPreferencesRepositoryProvider)
           .get(deviceId);
       if (!_canApply(generation)) return;
-      await _reconcileOnLoad(userId, outbox, serverValue, pending);
+      await _reconcileOnLoad(userId, serverValue, pending);
     } on ApiFailure catch (error) {
       if (!_canApply(generation)) return;
       state = NotificationPreferencesState(
@@ -213,7 +255,6 @@ class DeviceNotificationPreferencesController
   /// surfaced as a recoverable error rather than overwritten blindly.
   Future<void> _reconcileOnLoad(
     String? userId,
-    NotificationPreferencesOutboxRepository outbox,
     DeviceNotificationPreferences serverValue,
     NotificationPreferencesOutboxEntry? pending,
   ) async {
@@ -227,7 +268,9 @@ class DeviceNotificationPreferencesController
     }
 
     if (serverValue.hasSameEditableValues(pending.pendingDraft)) {
-      if (userId != null) await outbox.clear(userId, deviceId);
+      if (userId != null) {
+        await _mutateOutbox((serialized) => serialized.clear(userId, deviceId));
+      }
       state = NotificationPreferencesState(
         phase: NotificationPreferencesPhase.ready,
         baseline: serverValue,
@@ -272,7 +315,7 @@ class DeviceNotificationPreferencesController
       draft: update(state.draft!),
       message: null,
     );
-    _scheduleFlush();
+    _draftChanged();
   }
 
   Future<void> enableSchedule(bool enabled) async {
@@ -329,7 +372,7 @@ class DeviceNotificationPreferencesController
       ),
       timezoneError: null,
     );
-    _scheduleFlush();
+    _draftChanged();
   }
 
   /// Restores contractual defaults and autosaves them immediately: this is
@@ -345,7 +388,7 @@ class DeviceNotificationPreferencesController
       draft: defaults,
       message: null,
     );
-    _scheduleFlush(immediate: true);
+    _draftChanged(immediate: true);
   }
 
   /// Cancels any pending debounce and flushes immediately if there is
@@ -391,7 +434,10 @@ class DeviceNotificationPreferencesController
   /// flush once the response for the current one lands.
   Future<void> _flush() async {
     if (_disposed) return;
-    if (_saving) return;
+    if (_flushInProgress) {
+      _flushRequested = true;
+      return;
+    }
     if (state.phase == NotificationPreferencesPhase.loading ||
         state.phase == NotificationPreferencesPhase.sessionExpired) {
       return;
@@ -411,76 +457,83 @@ class DeviceNotificationPreferencesController
       return;
     }
 
+    _flushInProgress = true;
+    _flushRequested = false;
+    final sentRevision = _draftRevision;
     final userId = _currentUserId();
-    final outbox = ref.read(notificationPreferencesOutboxRepositoryProvider);
-    if (userId != null) {
-      await outbox.write(
-        userId,
-        deviceId,
-        NotificationPreferencesOutboxEntry(
-          pendingDraft: draft,
-          baselineUpdatedAt: baseline.updatedAt,
-        ),
-      );
-    }
-    if (_disposed) return;
-
-    _saving = true;
-    state = state.copyWith(
-      phase: NotificationPreferencesPhase.saving,
-      message: null,
-    );
     try {
+      if (userId != null) await _persistCurrentDraft(userId);
+      if (_disposed) return;
+      state = state.copyWith(
+        phase: NotificationPreferencesPhase.saving,
+        message: null,
+      );
       final confirmed = await ref
           .read(deviceNotificationPreferencesRepositoryProvider)
           .patch(deviceId, baseline, draft);
-      _saving = false;
       if (_disposed) return;
 
       // The draft may have changed again while this call was in flight —
       // never let a stale response overwrite a newer choice.
-      final latestDraft = state.draft ?? draft;
-      final converged = confirmed.hasSameEditableValues(latestDraft);
+      state = state.copyWith(baseline: confirmed);
       if (userId != null) {
-        if (converged) {
-          await outbox.clear(userId, deviceId);
-        } else {
-          await outbox.write(
-            userId,
-            deviceId,
-            NotificationPreferencesOutboxEntry(
-              pendingDraft: latestDraft,
-              baselineUpdatedAt: confirmed.updatedAt,
-            ),
+        final currentDraft = state.draft;
+        final canClear =
+            sentRevision == _draftRevision &&
+            currentDraft != null &&
+            confirmed.hasSameEditableValues(currentDraft);
+        if (canClear) {
+          await _mutateOutbox(
+            (serialized) => serialized.clear(userId, deviceId),
           );
+        } else {
+          await _persistCurrentDraft(userId);
         }
       }
       if (_disposed) return;
+      final latestDraft = state.draft;
+      final converged =
+          sentRevision == _draftRevision &&
+          latestDraft != null &&
+          confirmed.hasSameEditableValues(latestDraft);
       state = state.copyWith(
-        phase: NotificationPreferencesPhase.ready,
-        baseline: confirmed,
-        draft: latestDraft,
+        phase: converged
+            ? NotificationPreferencesPhase.ready
+            : NotificationPreferencesPhase.saving,
         message: null,
       );
-      if (!converged) _scheduleFlush();
+      if (!converged) _flushRequested = true;
     } on ApiFailure catch (error) {
-      _saving = false;
       if (_disposed) return;
       if (error.kind == ApiFailureKind.conflict) {
-        await _reconcileConflict(userId, outbox);
+        await _reconcileConflict(userId);
         return;
       }
       if (error.kind == ApiFailureKind.unauthorized) {
         state = state.copyWith(
           phase: NotificationPreferencesPhase.sessionExpired,
         );
-        if (userId != null) await outbox.clear(userId, deviceId);
+        if (userId != null) {
+          await _mutateOutbox(
+            (serialized) => serialized.clear(userId, deviceId),
+          );
+        }
         return;
       }
       state = state.copyWith(
         phase: NotificationPreferencesPhase.saveError,
         message: error.message,
       );
+    } finally {
+      _flushInProgress = false;
+      if (!_disposed &&
+          (_flushRequested || state.hasChanges) &&
+          state.phase != NotificationPreferencesPhase.saveError &&
+          state.phase != NotificationPreferencesPhase.conflict &&
+          state.phase != NotificationPreferencesPhase.sessionExpired) {
+        _flushRequested = false;
+        _scheduleFlush();
+      }
     }
   }
 
@@ -488,10 +541,7 @@ class DeviceNotificationPreferencesController
   /// loop. If the server already matches the draft, the conflict resolves
   /// silently; otherwise the app surfaces a recoverable error and waits for
   /// the user to retry rather than guessing how to merge further.
-  Future<void> _reconcileConflict(
-    String? userId,
-    NotificationPreferencesOutboxRepository outbox,
-  ) async {
+  Future<void> _reconcileConflict(String? userId) async {
     try {
       final serverValue = await ref
           .read(deviceNotificationPreferencesRepositoryProvider)
@@ -499,24 +549,24 @@ class DeviceNotificationPreferencesController
       if (_disposed) return;
       final draft = state.draft ?? serverValue;
       if (serverValue.hasSameEditableValues(draft)) {
-        if (userId != null) await outbox.clear(userId, deviceId);
+        if (userId != null) {
+          await _mutateOutbox(
+            (serialized) => serialized.clear(userId, deviceId),
+          );
+        }
+        if (_disposed) return;
+        final latestDraft = state.draft ?? serverValue;
         state = state.copyWith(
           phase: NotificationPreferencesPhase.ready,
           baseline: serverValue,
-          draft: serverValue,
+          draft: latestDraft,
           message: null,
         );
         return;
       }
       if (userId != null) {
-        await outbox.write(
-          userId,
-          deviceId,
-          NotificationPreferencesOutboxEntry(
-            pendingDraft: draft,
-            baselineUpdatedAt: serverValue.updatedAt,
-          ),
-        );
+        state = state.copyWith(baseline: serverValue);
+        await _persistCurrentDraft(userId);
       }
       if (_disposed) return;
       state = state.copyWith(
@@ -532,7 +582,11 @@ class DeviceNotificationPreferencesController
         state = state.copyWith(
           phase: NotificationPreferencesPhase.sessionExpired,
         );
-        if (userId != null) await outbox.clear(userId, deviceId);
+        if (userId != null) {
+          await _mutateOutbox(
+            (serialized) => serialized.clear(userId, deviceId),
+          );
+        }
         return;
       }
       state = state.copyWith(
