@@ -25,6 +25,7 @@ class _Repository implements DeviceNotificationPreferencesRepository {
   Completer<DeviceNotificationPreferences>? pendingPatch;
   int getCalls = 0;
   int patchCalls = 0;
+  DeviceNotificationPreferences? lastPatchDraft;
 
   @override
   Future<DeviceNotificationPreferences> get(String deviceId) async {
@@ -40,6 +41,7 @@ class _Repository implements DeviceNotificationPreferencesRepository {
     DeviceNotificationPreferences draft,
   ) async {
     patchCalls++;
+    lastPatchDraft = draft;
     if (patchError case final Object error) throw error;
     return pendingPatch?.future ??
         draft.copyWith(updatedAt: DateTime.utc(2026, 8, 27));
@@ -150,27 +152,35 @@ void main() {
     expect(find.text('Receber ligação'), findsOneWidget);
   });
 
-  testWidgets('starts synced, shows "Salvando..." while dirty, then '
-      '"Tudo salvo" again once converged', (tester) async {
-    final repository = _Repository();
-    await _pumpPage(tester, repository);
+  testWidgets(
+    'autosave is silent on success: no "Salvando...", no "Salvo"/"Tudo '
+    'salvo", no SnackBar, before, during, or after a write',
+    (tester) async {
+      final repository = _Repository();
+      await _pumpPage(tester, repository);
 
-    expect(find.text('Tudo salvo'), findsOneWidget);
-    expect(find.text('Salvando...'), findsNothing);
+      expect(find.text('Salvando...'), findsNothing);
+      expect(find.textContaining('Salvo'), findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
 
-    await tester.tap(find.text('Receber ligação'));
-    await tester.pump();
-    expect(find.text('Salvando...'), findsOneWidget);
-    expect(find.text('Tudo salvo'), findsNothing);
-    expect(repository.patchCalls, 0, reason: 'debounce has not fired yet');
+      await tester.tap(find.text('Receber ligação'));
+      await tester.pump();
+      expect(find.text('Salvando...'), findsNothing);
+      expect(find.textContaining('Salvo'), findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(repository.patchCalls, 0, reason: 'debounce has not fired yet');
 
-    await tester.pump(DeviceNotificationPreferencesController.debounceDuration);
-    await tester.pumpAndSettle();
+      await tester.pump(
+        DeviceNotificationPreferencesController.debounceDuration,
+      );
+      await tester.pumpAndSettle();
 
-    expect(repository.patchCalls, 1);
-    expect(find.text('Tudo salvo'), findsOneWidget);
-    expect(find.text('Salvando...'), findsNothing);
-  });
+      expect(repository.patchCalls, 1);
+      expect(find.text('Salvando...'), findsNothing);
+      expect(find.textContaining('Salvo'), findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
+    },
+  );
 
   testWidgets(
     'controls remain editable and tappable while autosave is in flight',
@@ -184,7 +194,6 @@ void main() {
         DeviceNotificationPreferencesController.debounceDuration,
       );
       await tester.pump();
-      expect(find.text('Salvando...'), findsOneWidget);
 
       final switchTile = tester.widget<SwitchListTile>(
         find.widgetWithText(SwitchListTile, 'Receber notificação'),
@@ -209,13 +218,14 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Tudo salvo'), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
       expect(repository.patchCalls, 2);
     },
   );
 
   testWidgets(
-    'a sync failure shows "Não foi possível sincronizar" with a working retry',
+    'a save failure shows a sanitized message with a "Tentar novamente" '
+    'action, and never claims success',
     (tester) async {
       final repository = _Repository()
         ..patchError = const ApiFailure(ApiFailureKind.offline, 'Offline');
@@ -227,18 +237,71 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Não foi possível sincronizar.'), findsNothing);
+      expect(find.byType(SnackBar), findsOneWidget);
       expect(find.text('Offline'), findsOneWidget);
       expect(
-        find.widgetWithText(TextButton, 'Tentar novamente'),
+        find.widgetWithText(SnackBarAction, 'Tentar novamente'),
         findsOneWidget,
       );
+      expect(find.textContaining('Salvo'), findsNothing);
 
       repository.patchError = null;
-      await tester.tap(find.widgetWithText(TextButton, 'Tentar novamente'));
+      await tester.tap(find.widgetWithText(SnackBarAction, 'Tentar novamente'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Tudo salvo'), findsOneWidget);
+      expect(repository.patchCalls, 2);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(find.textContaining('Salvo'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'retry resends the current draft, not a stale snapshot of what failed',
+    (tester) async {
+      final repository = _Repository()
+        ..patchError = const ApiFailure(ApiFailureKind.offline, 'Offline');
+      await _pumpPage(tester, repository);
+
+      await tester.tap(find.text('Receber ligação'));
+      await tester.pump(
+        DeviceNotificationPreferencesController.debounceDuration,
+      );
+      await tester.pumpAndSettle();
+
+      expect(repository.patchCalls, 1);
+      expect(repository.lastPatchDraft?.alertMode.includesRing, isFalse);
+      expect(repository.lastPatchDraft?.alertMode.includesNotification, isTrue);
+
+      repository.patchError = null;
+      await tester.tap(find.widgetWithText(SnackBarAction, 'Tentar novamente'));
+      await tester.pumpAndSettle();
+
+      expect(repository.patchCalls, 2);
+      // The resent payload is still the latest desired draft (ring off,
+      // notification untouched) — not some earlier/default value.
+      expect(repository.lastPatchDraft?.alertMode.includesRing, isFalse);
+      expect(repository.lastPatchDraft?.alertMode.includesNotification, isTrue);
+    },
+  );
+
+  testWidgets(
+    'repeated failures from the same retry never stack multiple SnackBars',
+    (tester) async {
+      final repository = _Repository()
+        ..patchError = const ApiFailure(ApiFailureKind.offline, 'Offline');
+      await _pumpPage(tester, repository);
+
+      await tester.tap(find.text('Receber ligação'));
+      await tester.pump(
+        DeviceNotificationPreferencesController.debounceDuration,
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsOneWidget);
+
+      // Retry again while still failing — must replace, not stack.
+      await tester.tap(find.widgetWithText(SnackBarAction, 'Tentar novamente'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsOneWidget);
       expect(repository.patchCalls, 2);
     },
   );

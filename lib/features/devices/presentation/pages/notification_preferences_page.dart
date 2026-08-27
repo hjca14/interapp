@@ -81,6 +81,48 @@ class _NotificationPreferencesPageState
     }
   }
 
+  /// Autosave failure is the only case that gets visible feedback (per
+  /// [NotificationPreferencesState.phase] entering `saveError`/`conflict`).
+  /// Gated on the *transition*, not the phase itself, so re-rendering while
+  /// already showing an error — or while already synced — never stacks a
+  /// second SnackBar for the same failure. A later edit or successful save
+  /// moves the phase away from these two, which hides it again; success
+  /// itself stays silent, matching autosave everywhere else in this screen.
+  void _showSaveFailureIfNeeded(
+    BuildContext context,
+    NotificationPreferencesState? previous,
+    NotificationPreferencesState next,
+  ) {
+    bool isSaveFailure(NotificationPreferencesState? value) =>
+        value != null &&
+        (value.phase == NotificationPreferencesPhase.saveError ||
+            value.phase == NotificationPreferencesPhase.conflict);
+
+    final wasFailing = isSaveFailure(previous);
+    final isFailing = isSaveFailure(next);
+    if (wasFailing == isFailing) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    if (!isFailing) return;
+
+    messenger.showSnackBar(
+      SnackBar(
+        duration: const Duration(days: 1),
+        content: Text(
+          next.message ?? 'Não foi possível salvar suas preferências.',
+        ),
+        action: SnackBarAction(
+          label: 'Tentar novamente',
+          // Always resends whatever `state.draft` currently holds — never a
+          // snapshot of the draft that failed — since `retry()` reads
+          // current state at call time, same as every other flush path.
+          onPressed: _controller.retry,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(
@@ -88,6 +130,11 @@ class _NotificationPreferencesPageState
     );
     final controller = ref.read(
       deviceNotificationPreferencesProvider(widget.deviceId).notifier,
+    );
+
+    ref.listen<NotificationPreferencesState>(
+      deviceNotificationPreferencesProvider(widget.deviceId),
+      (previous, next) => _showSaveFailureIfNeeded(context, previous, next),
     );
 
     return Scaffold(
@@ -178,8 +225,6 @@ class _NotificationPreferencesBody extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _SyncStatus(state: state, onRetry: controller.retry),
-        const SizedBox(height: 8),
         _AlertsCard(preferences: draft, enabled: enabled, onChanged: edit),
         const SizedBox(height: 16),
         _QuietScheduleCard(
@@ -192,71 +237,6 @@ class _NotificationPreferencesBody extends StatelessWidget {
               edit(draft.copyWith(quietSchedule: schedule)),
         ),
       ],
-    );
-  }
-}
-
-/// Small, stable, discreet feedback replacing the old Save button: no
-/// SnackBars on every change, just "Salvando..." while anything is
-/// unconverged and "Tudo salvo" once baseline and draft match with nothing
-/// pending — see [NotificationPreferencesState.isSyncing].
-class _SyncStatus extends StatelessWidget {
-  const _SyncStatus({required this.state, required this.onRetry});
-
-  final NotificationPreferencesState state;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final errorColor = Theme.of(context).colorScheme.error;
-    if (state.phase == NotificationPreferencesPhase.saveError ||
-        state.phase == NotificationPreferencesPhase.conflict) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              Icon(Icons.error_outline, color: errorColor, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  state.message ?? 'Não foi possível sincronizar.',
-                  style: TextStyle(color: errorColor),
-                ),
-              ),
-              TextButton(
-                onPressed: onRetry,
-                child: const Text('Tentar novamente'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-    if (state.isSyncing) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-        child: Row(
-          children: [
-            SizedBox.square(
-              dimension: 14,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-            SizedBox(width: 8),
-            Text('Salvando...'),
-          ],
-        ),
-      );
-    }
-    return const Padding(
-      padding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-      child: Row(
-        children: [
-          Icon(Icons.check_circle_outline, size: 18),
-          SizedBox(width: 8),
-          Text('Tudo salvo'),
-        ],
-      ),
     );
   }
 }
