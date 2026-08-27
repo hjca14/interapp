@@ -159,6 +159,96 @@ void main() {
     );
   });
 
+  group('failures in one phase do not block the others', () {
+    test(
+      'a permission check failure still lets token and listeners run',
+      () async {
+        client.getAuthorizationStatusError = Exception('boom');
+        client.token = 'token-despite-permission-failure';
+        final service = PushNotificationService(client, debugMode: true);
+
+        await service.initialize();
+
+        expect(service.authorizationStatus, isNull);
+        expect(service.debugOnlyToken, 'token-despite-permission-failure');
+        expect(client.tokenRefreshListenCount, 1);
+        expect(client.foregroundListenCount, 1);
+        expect(client.openedAppListenCount, 1);
+        expect(client.getInitialMessageCallCount, 1);
+      },
+    );
+
+    test(
+      'a getToken() failure still lets foreground and tap-to-open work',
+      () async {
+        client.authorizationStatus = PushAuthorizationStatus.granted;
+        client.getTokenError = Exception('boom');
+        final service = PushNotificationService(client, debugMode: false);
+        await service.initialize();
+
+        client.emitForegroundMessage(
+          const PushMessage(messageId: 'fg-after-token-failure', title: 'x'),
+        );
+        client.emitMessageOpenedApp(
+          const PushMessage(
+            messageId: 'opened-after-token-failure',
+            title: 'y',
+          ),
+        );
+        await pumpEventQueue();
+
+        expect(
+          service.lastForegroundEvent?.messageId,
+          'fg-after-token-failure',
+        );
+        expect(
+          service.lastOpenedAppEvent?.messageId,
+          'opened-after-token-failure',
+        );
+      },
+    );
+
+    test('a getInitialMessage() failure still leaves the token and listeners '
+        'active', () async {
+      client.authorizationStatus = PushAuthorizationStatus.granted;
+      client.token = 'token-despite-initial-message-failure';
+      client.getInitialMessageError = Exception('boom');
+      final service = PushNotificationService(client, debugMode: true);
+      await service.initialize();
+
+      client.emitForegroundMessage(
+        const PushMessage(messageId: 'fg-after-initial-failure', title: 'z'),
+      );
+      await pumpEventQueue();
+
+      expect(service.debugOnlyToken, 'token-despite-initial-message-failure');
+      expect(
+        service.lastForegroundEvent?.messageId,
+        'fg-after-initial-failure',
+      );
+      expect(service.lastInitialMessageEvent, isNull);
+    });
+
+    test(
+      'none of the four phases run more than once, even when some fail',
+      () async {
+        client.getAuthorizationStatusError = Exception('boom');
+        client.getTokenError = Exception('boom');
+        client.getInitialMessageError = Exception('boom');
+        final service = PushNotificationService(client, debugMode: false);
+
+        await service.initialize();
+        await service.initialize();
+
+        expect(client.getTokenCallCount, 1);
+        expect(client.getInitialMessageCallCount, 1);
+        expect(client.tokenRefreshListenCount, 1);
+        expect(client.foregroundListenCount, 1);
+        expect(client.openedAppListenCount, 1);
+      },
+    );
+  });
+
   group('permission handling', () {
     test('requests permission when status is not yet determined', () async {
       client.authorizationStatus = PushAuthorizationStatus.notDetermined;

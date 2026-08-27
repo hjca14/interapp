@@ -21,16 +21,16 @@ Future<void> main() async {
     await container.read(incomingCallNotificationServiceProvider).initialize();
     // Firebase.initializeApp + registering the background handler is local
     // plugin setup (no network, no permission prompt) and must complete
-    // before runApp per the plugin's own requirement. Requesting permission
-    // and fetching the token, however, can hit Play Services or the
-    // network, so that work is only kicked off here (fire-and-forget) and
-    // runs alongside the first frame instead of delaying it — see
-    // PushNotificationService.initialize's doc comment.
+    // before runApp per the plugin's own requirement.
     await FirebaseBootstrap.configure();
-    unawaited(container.read(pushNotificationServiceProvider).initialize());
     runApp(
       UncontrolledProviderScope(container: container, child: const InterApp()),
     );
+    // Requesting permission and fetching the token can hit Play Services or
+    // the network (and the permission prompt needs a rendered screen to
+    // show over), so this is fire-and-forget and only starts once the UI is
+    // already up — see PushNotificationService.initialize's doc comment.
+    unawaited(container.read(pushNotificationServiceProvider).initialize());
   } on Object {
     runApp(const _ConfigurationErrorApp());
   }

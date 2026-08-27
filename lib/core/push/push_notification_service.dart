@@ -49,22 +49,47 @@ class PushNotificationService {
   /// initial token, subscribes once to token refresh/foreground/tap-to-open,
   /// and consults the cold-start initial message once. Idempotent — a
   /// second call returns the same in-flight/completed future instead of
-  /// creating duplicate subscriptions. Swallows any failure so a broken
-  /// Firebase setup never prevents the rest of the app from working.
+  /// re-running any of this or creating duplicate subscriptions.
+  ///
+  /// Each phase below is isolated: a failure in one (say, [PushMessagingClient.getToken])
+  /// is swallowed and never prevents the others (permission, message
+  /// listeners, the cold-start message) from still running. A broken
+  /// Firebase setup must never prevent the rest of the app from working.
   Future<void> initialize() {
     return _initialization ??= _initializeOnce();
   }
 
   Future<void> _initializeOnce() async {
+    await _initializePermission();
+    await _initializeToken();
+    _subscribeToMessageStreams();
+    await _consumeInitialMessage();
+  }
+
+  Future<void> _initializePermission() async {
     try {
       final status = await _client.getAuthorizationStatus();
       _authorizationStatus = status == PushAuthorizationStatus.notDetermined
           ? await _client.requestPermission()
           : status;
+    } on Object {
+      // Sanitized on purpose: never let a raw Firebase/FCM error surface.
+      // Token fetching and message listeners below must still run.
+    }
+  }
 
+  Future<void> _initializeToken() async {
+    try {
       _currentToken = await _client.getToken();
       _logToken('token_initial', _currentToken);
+    } on Object {
+      // Sanitized on purpose. Message listeners below must still run even
+      // without a token.
+    }
+  }
 
+  void _subscribeToMessageStreams() {
+    try {
       _tokenRefreshSubscription = _client.onTokenRefresh.listen((token) {
         _currentToken = token;
         _logToken('token_refresh', token);
@@ -79,7 +104,14 @@ class PushNotificationService {
         _lastOpenedAppEvent = PushEventDiagnostic.fromMessage(message);
         _logEvent('opened_app', _lastOpenedAppEvent!);
       }, onError: (Object _) {});
+    } on Object {
+      // Sanitized on purpose. The cold-start message check below must
+      // still run even if wiring one of these streams failed.
+    }
+  }
 
+  Future<void> _consumeInitialMessage() async {
+    try {
       final initialMessage = await _client.getInitialMessage();
       if (initialMessage != null) {
         _lastInitialMessageEvent = PushEventDiagnostic.fromMessage(
@@ -88,7 +120,8 @@ class PushNotificationService {
         _logEvent('initial_message', _lastInitialMessageEvent!);
       }
     } on Object {
-      // Sanitized on purpose: never let a raw Firebase/FCM error surface.
+      // Sanitized on purpose. The token and listeners set up above stay
+      // active regardless.
     }
   }
 
