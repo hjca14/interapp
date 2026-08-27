@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app/app.dart';
 import 'core/config/amplify_bootstrap.dart';
 import 'core/config/app_environment.dart';
+import 'core/push/firebase_bootstrap.dart';
+import 'core/push/push_providers.dart';
 import 'features/devices/presentation/providers/devices_providers.dart';
 
 Future<void> main() async {
@@ -15,6 +17,9 @@ Future<void> main() async {
       overrides: [appConfigProvider.overrideWithValue(config)],
     );
     await container.read(incomingCallNotificationServiceProvider).initialize();
+    if (await FirebaseBootstrap.configure()) {
+      await container.read(pushNotificationServiceProvider).initialize();
+    }
     runApp(
       UncontrolledProviderScope(container: container, child: const InterApp()),
     );

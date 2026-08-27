@@ -43,12 +43,28 @@ permanecem explicitamente pendentes.
   - manter Analytics inicialmente desativado;
   - não habilitar Firestore, Firebase Auth, Hosting ou Functions sem necessidade;
   - cadastrar inicialmente somente Android.
-- [ ] **3B.3 — FlutterFire e FCM no Android**
-  - `firebase_core`, `firebase_messaging` e `flutterfire configure`;
-  - inicialização segura e permissão de notificações;
-  - token inicial, renovação e handlers de foreground, background e app
-    encerrado;
-  - sem backend nesta subfase.
+- [x] **3B.3 — FlutterFire e FCM no Android**
+  - projeto Firebase DEV `interbridge-dev`, plano Spark, `firebase_core`
+    4.14.0, `firebase_messaging` 16.6.0 e `flutterfire configure` executado
+    somente para Android;
+  - `Firebase.initializeApp` isolado do bootstrap do Amplify/Cognito: uma
+    falha de Firebase/FCM é capturada de forma sanitizada e nunca impede
+    login, listagem de dispositivos ou o restante do app;
+  - abstração estreita (`lib/core/push`) entre o app e o `firebase_messaging`
+    — a UI não chama `FirebaseMessaging.instance` diretamente;
+  - permissão de notificação solicitada pela API oficial apenas quando ainda
+    não decidida, sem repetição, sem tratar recusa como erro fatal;
+  - token inicial e renovação mantidos em memória; caminhos de recebimento
+    em foreground, toque que abre o app em background e mensagem inicial
+    (app encerrado) implementados; handler de background como função
+    top-level com `@pragma('vm:entry-point')`, sem UI/provider/BuildContext
+    e sem operação AWS;
+  - token completo exposto apenas em builds de debug, só no console, nunca
+    persistido nem enviado a analytics/AWS — saída temporária apenas para o
+    teste manual da Fase 3B.4, a remover quando a Fase 3B.5 existir;
+  - cadastro de token no backend continua fora do escopo desta subfase;
+  - validado apenas via testes automatizados com fakes; o recebimento real
+    de push permanece pendente para a Fase 3B.4.
 - [ ] **3B.4 — Validação direta do FCM**
   - enviar mensagem de teste pelo Firebase Console;
   - validar Android em foreground, background e app encerrado;

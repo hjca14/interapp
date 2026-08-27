@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "213155741806",
+    "project_id": "interbridge-dev",
+    "storage_bucket": "interbridge-dev.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:213155741806:android:3110917a2ac297ebe6a67f",
+        "android_client_info": {
+          "package_name": "com.interbridge.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDEe8yhgXrNWyU6AF5nxb8FqDNVo014NKA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
