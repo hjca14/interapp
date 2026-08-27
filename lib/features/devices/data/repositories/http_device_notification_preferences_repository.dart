@@ -3,29 +3,51 @@ import 'package:interapp/features/devices/data/parsers/device_notification_prefe
 import 'package:interapp/features/devices/domain/entities/device_notification_preferences.dart';
 import 'package:interapp/features/devices/domain/repositories/device_notification_preferences_repository.dart';
 
+typedef JsonGet = Future<Map<String, dynamic>> Function(String path);
+typedef JsonPatch = Future<Map<String, dynamic>> Function(
+  String path, {
+  required Map<String, dynamic> body,
+});
+
 class HttpDeviceNotificationPreferencesRepository
     implements DeviceNotificationPreferencesRepository {
   HttpDeviceNotificationPreferencesRepository(
-    this._client, {
+    InterBridgeApiClient client, {
     DeviceNotificationPreferencesParser parser =
         const DeviceNotificationPreferencesParser(),
-  }) : _parser = parser;
-  final InterBridgeApiClient _client;
+  }) : this.forTest(get: client.get, patch: client.patch, parser: parser);
+
+  HttpDeviceNotificationPreferencesRepository.forTest({
+    required JsonGet get,
+    required JsonPatch patch,
+    DeviceNotificationPreferencesParser parser =
+        const DeviceNotificationPreferencesParser(),
+  }) : _get = get,
+       _patch = patch,
+       _parser = parser;
+
+  final JsonGet _get;
+  final JsonPatch _patch;
   final DeviceNotificationPreferencesParser _parser;
 
   String _path(String id) =>
       '/v1/devices/${Uri.encodeComponent(id)}/notification-preferences';
 
   @override
-  Future<DeviceNotificationPreferences> get(String deviceId) async =>
-      _parser.parse(await _client.get(_path(deviceId)));
+  Future<DeviceNotificationPreferences> get(String deviceId) async {
+    return _parser.parse(await _get(_path(deviceId)));
+  }
 
   @override
   Future<DeviceNotificationPreferences> patch(
     String deviceId,
     DeviceNotificationPreferences baseline,
     DeviceNotificationPreferences draft,
-  ) async => _parser.parse(
-    await _client.patch(_path(deviceId), body: _parser.patch(baseline, draft)),
-  );
+  ) async {
+    final payload = _parser.patch(baseline, draft);
+    if (payload.isEmpty) return baseline;
+    return _parser.parse(
+      await _patch(_path(deviceId), body: payload),
+    );
+  }
 }

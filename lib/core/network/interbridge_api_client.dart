@@ -282,6 +282,11 @@ class InterBridgeApiClient {
         'A tentativa conflita com uma solicitação anterior.',
         requestId: requestId,
       ),
+      413 => ApiFailure(
+        ApiFailureKind.payloadTooLarge,
+        'A solicitação é grande demais.',
+        requestId: requestId,
+      ),
       429 => ApiFailure(
         ApiFailureKind.rateLimited,
         'Muitas solicitações. Tente mais tarde.',

@@ -30,10 +30,13 @@ class DeviceSettings {
         requireDeviceAuthenticationToOpenDoor,
   };
 
-  factory DeviceSettings.fromMap(Map<String, dynamic> map) => DeviceSettings(
-    confirmBeforeOpeningDoor:
-        map['confirmBeforeOpeningDoor'] as bool? ?? true,
-    requireDeviceAuthenticationToOpenDoor:
-        map['requireDeviceAuthenticationToOpenDoor'] as bool? ?? false,
-  );
+  factory DeviceSettings.fromMap(Map<String, dynamic> map) {
+    final confirm = map['confirmBeforeOpeningDoor'];
+    final authentication = map['requireDeviceAuthenticationToOpenDoor'];
+    return DeviceSettings(
+      confirmBeforeOpeningDoor: confirm is bool ? confirm : true,
+      requireDeviceAuthenticationToOpenDoor:
+          authentication is bool ? authentication : false,
+    );
+  }
 }

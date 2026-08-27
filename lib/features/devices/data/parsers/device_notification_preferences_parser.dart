@@ -4,51 +4,59 @@ import 'package:interapp/features/devices/domain/entities/device_notification_pr
 class DeviceNotificationPreferencesParser {
   const DeviceNotificationPreferencesParser();
 
+  static const _topLevelKeys = {
+    'version',
+    'alert_mode',
+    'quiet_schedule',
+    'updated_at',
+  };
+  static const _scheduleKeys = {
+    'enabled',
+    'timezone',
+    'days',
+    'start_time',
+    'end_time',
+    'behavior',
+  };
+
   DeviceNotificationPreferences parse(Map<String, dynamic> json) {
     try {
-      if (json.keys.toSet().containsAll({
-            'version', 'alert_mode', 'quiet_schedule', 'updated_at',
-          }) ==
-          false) {
-        throw const FormatException('missing field');
-      }
-      if (json['version'] != 1) throw const FormatException('version');
-      final scheduleJson = json['quiet_schedule'];
-      if (scheduleJson is! Map<String, dynamic> ||
-          !scheduleJson.keys.toSet().containsAll({
-            'enabled', 'timezone', 'days', 'start_time', 'end_time', 'behavior',
-          })) {
-        throw const FormatException('schedule');
-      }
-      final enabled = scheduleJson['enabled'];
-      final timezone = scheduleJson['timezone'];
-      final rawDays = scheduleJson['days'];
+      _requireExactKeys(json, _topLevelKeys);
+      if (json['version'] != 1) throw const FormatException();
+
+      final rawSchedule = json['quiet_schedule'];
+      if (rawSchedule is! Map<String, dynamic>) throw const FormatException();
+      _requireExactKeys(rawSchedule, _scheduleKeys);
+
+      final enabled = rawSchedule['enabled'];
+      final timezone = rawSchedule['timezone'];
+      final rawDays = rawSchedule['days'];
       if (enabled is! bool ||
-          timezone is! String? ||
-          rawDays is! List ||
+          (timezone != null && timezone is! String) ||
+          timezone == '' ||
+          rawDays is! List<dynamic> ||
           rawDays.any((day) => day is! int || day < 1 || day > 7)) {
-        throw const FormatException('schedule values');
+        throw const FormatException();
       }
+
       final days = rawDays.cast<int>().toSet();
-      if (days.length != rawDays.length) throw const FormatException('days');
-      final start = _nullableTime(scheduleJson['start_time']);
-      final end = _nullableTime(scheduleJson['end_time']);
+      if (days.length != rawDays.length) throw const FormatException();
+
       final schedule = QuietSchedule(
         enabled: enabled,
-        timezone: timezone,
+        timezone: timezone as String?,
         days: days,
-        startTime: start,
-        endTime: end,
-        behavior: _behavior(scheduleJson['behavior']),
+        startTime: _nullableTime(rawSchedule['start_time']),
+        endTime: _nullableTime(rawSchedule['end_time']),
+        behavior: _behavior(rawSchedule['behavior']),
       );
-      if (enabled && schedule.validate() != null) {
-        throw const FormatException('incomplete schedule');
-      }
-      final updatedAt = _updatedAt(json['updated_at']);
+      if (enabled && schedule.validate() != null) throw const FormatException();
+
       return DeviceNotificationPreferences(
+        version: 1,
         alertMode: _alertMode(json['alert_mode']),
         quietSchedule: schedule,
-        updatedAt: updatedAt,
+        updatedAt: _updatedAt(json['updated_at']),
       );
     } on ApiFailure {
       rethrow;
@@ -68,11 +76,14 @@ class DeviceNotificationPreferencesParser {
     if (baseline.alertMode != draft.alertMode) {
       result['alert_mode'] = _alertWire(draft.alertMode);
     }
+
     final before = baseline.quietSchedule;
     final after = draft.quietSchedule;
     final quiet = <String, dynamic>{};
     if (before.enabled != after.enabled) quiet['enabled'] = after.enabled;
-    if (before.timezone != after.timezone) quiet['timezone'] = after.timezone;
+    if (before.timezone != after.timezone) {
+      quiet['timezone'] = after.timezone;
+    }
     if (!_sameDays(before.days, after.days)) {
       quiet['days'] = after.days.toList()..sort();
     }
@@ -89,20 +100,29 @@ class DeviceNotificationPreferencesParser {
     return result;
   }
 
+  void _requireExactKeys(Map<String, dynamic> value, Set<String> expected) {
+    final keys = value.keys.toSet();
+    if (keys.length != expected.length || !keys.containsAll(expected)) {
+      throw const FormatException();
+    }
+  }
+
   ClockTime? _nullableTime(Object? raw) {
     if (raw == null) return null;
-    if (raw is! String) throw const FormatException('time');
+    if (raw is! String) throw const FormatException();
     final parsed = ClockTime.tryParse(raw);
-    if (parsed == null) throw const FormatException('time');
+    if (parsed == null) throw const FormatException();
     return parsed;
   }
 
   DateTime? _updatedAt(Object? raw) {
     if (raw == null) return null;
-    if (raw is! String) throw const FormatException('updated_at');
+    if (raw is! String) throw const FormatException();
     final parsed = DateTime.tryParse(raw);
-    if (parsed == null || !parsed.isUtc) {
-      throw const FormatException('updated_at');
+    final hasUtcSuffix =
+        raw.endsWith('Z') || RegExp(r'[+-]00:00$').hasMatch(raw);
+    if (parsed == null || !parsed.isUtc || !hasUtcSuffix) {
+      throw const FormatException();
     }
     return parsed;
   }
@@ -112,23 +132,27 @@ class DeviceNotificationPreferencesParser {
     'RING_ONLY' => AlertMode.ringOnly,
     'NOTIFICATION_ONLY' => AlertMode.notificationOnly,
     'RING_AND_NOTIFICATION' => AlertMode.ringAndNotification,
-    _ => throw const FormatException('alert_mode'),
+    _ => throw const FormatException(),
   };
+
   QuietScheduleBehavior _behavior(Object? raw) => switch (raw) {
     'NOTIFICATION_ONLY' => QuietScheduleBehavior.notificationOnly,
     'BLOCK_ALL' => QuietScheduleBehavior.blockAll,
-    _ => throw const FormatException('behavior'),
+    _ => throw const FormatException(),
   };
+
   String _alertWire(AlertMode mode) => switch (mode) {
     AlertMode.none => 'NONE',
     AlertMode.ringOnly => 'RING_ONLY',
     AlertMode.notificationOnly => 'NOTIFICATION_ONLY',
     AlertMode.ringAndNotification => 'RING_AND_NOTIFICATION',
   };
+
   String _behaviorWire(QuietScheduleBehavior behavior) => switch (behavior) {
     QuietScheduleBehavior.notificationOnly => 'NOTIFICATION_ONLY',
     QuietScheduleBehavior.blockAll => 'BLOCK_ALL',
   };
+
   bool _sameDays(Set<int> a, Set<int> b) =>
       a.length == b.length && a.containsAll(b);
 }

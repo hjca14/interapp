@@ -187,9 +187,9 @@ Quando existir comunicação real, o status deverá ser atualizado por uma fonte
 
 ## DeviceSettings
 
-Existe uma terceira camada, além de identidade (`InterBridgeDevice`) e estado (`DeviceStatus`): as **preferências configuradas pelo usuário** para aquele dispositivo — `DeviceSettings`.
+Além de identidade (`InterBridgeDevice`) e estado (`DeviceStatus`), existem duas camadas de preferências: `DeviceNotificationPreferences`, remota por usuário autenticado + dispositivo, e `DeviceSettings`, local por instalação/dispositivo e restrita à porta.
 
-Diferente do status, `DeviceSettings` não vem do hardware: é escrito pelo usuário na tela de configurações e persistido por `deviceId`, com a mesma lógica de repository/provider usada no resto do projeto. Ver seção 25 para o modelo completo, a tela e o que falta implementar.
+Nenhuma das duas vem do hardware ou do Device Shadow. As preferências de alertas usam a API autenticada; as preferências da porta permanecem no `shared_preferences`, isoladas por `deviceId`. Ver seção 25.
 
 ---
 
@@ -923,9 +923,11 @@ Ordem de trabalho decidida:
 
 ## Alertas remotos por usuário + dispositivo
 
-O contrato final é o **interBackend PR #21**: `GET` e `PATCH /v1/devices/{device_id}/notification-preferences`. A integração está implementada no app com `InterBridgeApiClient`, parser estrito, repository e controller próprios, mas o backend ainda não foi implantado em DEV; os testes usam fakes/mocks e a validação ponta a ponta aguarda deploy autorizado.
+O contrato final foi mergeado no **interBackend PR #21**: `GET` e `PATCH /v1/devices/{device_id}/notification-preferences`. A integração está implementada no app com `InterBridgeApiClient`, parser estrito, repository e controller próprios, mas o backend ainda não foi implantado em DEV; os testes usam fakes/mocks e a validação ponta a ponta aguarda deploy autorizado.
 
 `DeviceNotificationPreferences` contém `version`, um único `alertMode`, `quietSchedule` e `updatedAt`. O modo global compõe os switches de ligação e notificação. Os horários sem ligação usam dias ISO, `HH:mm`, timezone IANA e comportamento “Só notificação” ou “Bloquear tudo”. Ao ativar pela primeira vez, o app obtém o timezone IANA do aparelho sem localização; após salvar, preserva o timezone retornado pelo servidor e não o troca silenciosamente em viagens. As escolhas pertencem ao par usuário autenticado + dispositivo.
+
+Android e iOS expõem o identificador atual por um `MethodChannel`, sem permissões de localização ou Wi-Fi. A implementação iOS está versionada, mas ainda não foi validada por build macOS ou em aparelho real.
 
 A tela mantém um rascunho e só envia PATCH explícito com campos alterados. Conflito 409 preserva o rascunho e oferece recarga. Redefinir alertas envia os defaults contratuais; não altera porta, hardware ou Device Shadow.
 
