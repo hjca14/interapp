@@ -2,6 +2,12 @@
 
 ## Fase 3 — experiência do dispositivo e do usuário
 
+O detalhamento e os critérios de conclusão estão no
+[roadmap canônico da Fase 3](PHASE_3_ROADMAP.md). A Fase 3A reúne os fundamentos
+já implementados; a 3B começa pela identidade móvel definitiva
+`com.interbridge.app`; a 3C permanece reservada ao BLE real. Android e iOS são
+os alvos móveis desta identidade, sem renomeação ampla de desktop/web.
+
 The device list (`HomePage`'s Dispositivos tab) and details
 (`ApiDeviceDetailPage`) already existed and are unchanged in their reading of
 `listDevices`/`getDeviceDetails` (still the three GET routes from Fase 2C).
@@ -29,9 +35,11 @@ DEV, com CloudFormation em `UPDATE_COMPLETE`. O teste real no Android salvou
 cold start da Lambda sem gravar dados; o backend foi corrigido, reimplantado e
 o reteste funcionou. O incidente não é um bloqueio atual.
 
-Esta experiência inaugura a Fase 3. A sequência decidida é: documentação,
-alteração de senha da conta, preferências reais de notificação, FCM e onboarding
-BLE real. Compartilhamento funcional não foi implementado.
+Esta experiência inaugurou a Fase 3A. Alteração de senha e preferências reais
+de notificação vieram em seguida; as preferências já estão implantadas e
+validadas em DEV, embora o autosave reorganizado ainda aguarde repetição
+manual. Firebase/FCM não foi iniciado. Compartilhamento funcional não foi
+implementado e continua sem numeração definitiva.
 
 ## Fase 2D — concluída e encerrada
 
@@ -103,7 +111,8 @@ production — that distinction is the entire point of this table.
 | Device personal name (`display_name`) | Validated in DEV | Fase 3. Contract confirmed by interBackend PR #18: GET list/detail return the authenticated user's `DeviceMembership.display_name`; `PATCH /v1/devices/{device_id}` accepts a string of at most 60 characters or `null`, derives the user from the JWT, and lets ACTIVE OWNER/ADMIN/MEMBER memberships update only their own value. PATCH + backend hotfix are deployed in DEV (`UPDATE_COMPLETE`); Android saved `Casa` and loaded it again after leaving/returning, validating app → API → DynamoDB → read. |
 | Authenticated password change | Implemented; DEV validation partial | Implemented in PR #17 under general account settings. One Android/Cognito DEV scenario was confirmed; the remaining scenarios still require end-to-end validation. Password recovery remains a separate flow. |
 | Notification preferences | Validated in DEV; UI reorganized with autosave | GET/PATCH contract from interBackend PR #21, deployed in DEV (`InterBridge-Dev-ApiStack`, CloudFormation `UPDATE_COMPLETE`). A real app PATCH was executed and `notification_preferences` was confirmed directly in DynamoDB (`app → API → Lambda → DynamoDB`); `alert_mode: NOTIFICATION_ONLY` and `quiet_schedule.enabled: false` (with inactive days/times/timezone preserved) were both validated. The settings moved off the main device settings screen into a dedicated `NotificationPreferencesPage` (opened from a single "Notificações" entry, which is what triggers the GET) with autosave replacing the old manual "Salvar" button — debounced, coalesced, single-flight PATCHes backed by a local outbox for app-kill resilience. Manual validation of this new autosave UI (as opposed to the already-validated GET/PATCH contract above) is still pending the next `flutter run`. Actual filter application to incoming-call handling remains pending; no network-presence behavior exists. |
-| FCM / Firebase | Not implemented | FCM is not configured and no Firebase project exists. No setup is required in this documentation PR. |
+| Mobile app identity | Phase 3B.1 | Android and iOS use the definitive `com.interbridge.app` identity and visible name `InterBridge`. Desktop/web identifiers are outside this mobile-scoped change. |
+| FCM / Firebase | Not implemented | Phase 3B.1 deliberately configures no Firebase project, SDK, service file, capability, token handling, or push delivery. |
 | Generic command/event repository abstraction | Implemented | `DeviceBackendRepository` + `LocalDeviceBackendRepository`; the local implementation remains active only for specific generic providers and honestly reports `CLOUD_UNAVAILABLE`. It is distinct from `HttpDeviceRepository` and from the deployed asynchronous command API. |
 | Human auth abstraction | Implemented | `AuthRepository` + `LocalAuthRepository` (always signed-out; `signIn()` throws rather than faking a session) |
 | Generic command/event provider migration | Pending | The asynchronous command API is deployed and used by the Fase 2D flow. What remains is migrating providers that still depend on `LocalDeviceBackendRepository`—not implementing the backend as a whole. |

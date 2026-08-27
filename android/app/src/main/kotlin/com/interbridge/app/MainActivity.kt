@@ -1,4 +1,4 @@
-package com.example.interapp
+package com.interbridge.app
 
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine

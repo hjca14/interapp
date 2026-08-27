@@ -2,7 +2,7 @@
 
 > **Atualização Fase 2C:** a Fase 2B DEV foi implantada/validada, incluindo usuário Cognito confirmado e criação atômica do primeiro Device com membership OWNER/ACTIVE. O app agora usa Cognito User Pool via Amplify (`USER_SRP_AUTH`) e access token para leitura das três rotas HTTPS de dispositivos. Refresh e armazenamento seguro são responsabilidade do Amplify. Não há Identity Pool nem acesso direto do app ao IoT Core. Outputs de ambiente entram exclusivamente por `--dart-define`; valores reais não são versionados. BLE, claim, comandos, MQTT, eventos e voz seguem adiados.
 
-> **Atualização Fase 3:** a Fase 2D de comandos assíncronos permanece concluída e encerrada. A Fase 3 atual começou com o nome pessoal do dispositivo e inclui a evolução da experiência entre Resumo, Diagnóstico e Configurações. A antiga seção de roadmap chamada "Fase 3 — Áudio" foi reclassificada como trabalho futuro sem numeração definitiva; onboarding BLE real também fica para uma etapa posterior.
+> **Atualização Fase 3:** a Fase 2D de comandos assíncronos permanece concluída e encerrada. A numeração detalhada de 3A (fundamentos), 3B (alertas remotos e chamada) e 3C (onboarding BLE real) está em [`docs/PHASE_3_ROADMAP.md`](docs/PHASE_3_ROADMAP.md). Áudio, compartilhamento e presença por rede continuam sem numeração definitiva.
 
 
 ## 1. Visão do produto
@@ -874,13 +874,14 @@ Antes de alterar a arquitetura:
 
 Esta é a fase corrente, iniciada depois do encerramento da Fase 2D. A primeira entrega funcional foi o nome pessoal por membership, seguido pela reorganização de Resumo, Diagnóstico e Configurações.
 
-Ordem de trabalho decidida:
-
-1. [x] Correção documental e alinhamento das fases.
-2. [x] Alteração de senha nas configurações gerais da conta, fora das configurações de dispositivo. Implementada localmente e testada com fakes; validação real no Cognito DEV via Android parcial (um cenário confirmado, demais ainda pendentes — ver seção "Alteração de senha" abaixo).
-3. [x] Preferências de alertas integradas localmente ao contrato final do interBackend PR #21; deploy DEV e validação ponta a ponta pendentes.
-4. [ ] Integração FCM; FCM não está configurado e o projeto Firebase ainda não existe.
-5. [ ] Onboarding BLE real; a implementação não começou e há um Android físico antigo disponível para o teste futuro.
+O [roadmap canônico da Fase 3](docs/PHASE_3_ROADMAP.md) preserva o histórico e
+define a sequência vigente. A Fase 3A está implementada: nome pessoal e
+reorganização da experiência foram validados em DEV; alteração de senha tem
+validação manual parcial; preferências GET/PATCH foram implantadas e validadas
+em DEV, enquanto a UI de autosave ainda aguarda repetição manual. A Fase 3B
+começa pela identidade Android/iOS `com.interbridge.app`, sem Firebase nesta
+subfase. FCM, aplicação dos filtros e chamada continuam pendentes. A Fase 3C,
+onboarding BLE real, ainda não começou.
 
 ## Trabalhos futuros sem numeração definitiva — áudio
 
