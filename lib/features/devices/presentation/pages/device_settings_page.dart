@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:interapp/features/devices/domain/entities/api_device.dart';
-import 'package:interapp/features/devices/domain/entities/device_notification_preferences.dart';
 import 'package:interapp/features/devices/domain/entities/device_settings.dart';
 import 'package:interapp/features/devices/domain/entities/intercom_state.dart';
 import 'package:interapp/features/devices/presentation/device_status_presentation.dart';
+import 'package:interapp/features/devices/presentation/pages/notification_preferences_page.dart';
 import 'package:interapp/features/devices/presentation/providers/api_devices_provider.dart';
-import 'package:interapp/features/devices/presentation/providers/device_notification_preferences_provider.dart';
 import 'package:interapp/features/devices/presentation/providers/device_refresh_provider.dart';
 import 'package:interapp/features/devices/presentation/providers/device_settings_provider.dart';
+import 'package:interapp/features/devices/presentation/widgets/settings_section.dart';
 import 'package:interapp/features/sharing/domain/entities/device_access.dart';
 
 enum DeviceSettingsSection { main, firmware, diagnostics }
@@ -26,35 +26,6 @@ class DeviceSettingsPage extends ConsumerWidget {
   final String deviceName;
   final DeviceSettingsSection initialSection;
 
-  Future<void> _confirmPop(
-    BuildContext context,
-    DeviceNotificationPreferencesController controller,
-  ) async {
-    final discard = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Descartar alterações?'),
-        content: const Text(
-          'As alterações nas preferências de alertas ainda não foram salvas.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Continuar editando'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Descartar'),
-          ),
-        ],
-      ),
-    );
-    if (discard == true && context.mounted) {
-      controller.discard();
-      Navigator.of(context).pop();
-    }
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (initialSection == DeviceSettingsSection.firmware) {
@@ -65,29 +36,17 @@ class DeviceSettingsPage extends ConsumerWidget {
     }
 
     final local = ref.watch(deviceSettingsProvider(deviceId));
-    final remote = ref.watch(deviceNotificationPreferencesProvider(deviceId));
-    final remoteController = ref.read(
-      deviceNotificationPreferencesProvider(deviceId).notifier,
-    );
-    return PopScope(
-      canPop: !remote.hasChanges,
-      onPopInvokedWithResult: (didPop, result) {
-        if (!didPop && remote.hasChanges) {
-          _confirmPop(context, remoteController);
-        }
-      },
-      child: Scaffold(
-        appBar: AppBar(title: Text('Configurações de $deviceName')),
-        body: local.when(
-          data: (settings) => _DeviceSettingsBody(
-            deviceId: deviceId,
-            deviceName: deviceName,
-            settings: settings,
-          ),
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (_, _) => const Center(
-            child: Text('Não foi possível carregar as preferências locais.'),
-          ),
+    return Scaffold(
+      appBar: AppBar(title: Text('Configurações de $deviceName')),
+      body: local.when(
+        data: (settings) => _DeviceSettingsBody(
+          deviceId: deviceId,
+          deviceName: deviceName,
+          settings: settings,
+        ),
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (_, _) => const Center(
+          child: Text('Não foi possível carregar as preferências locais.'),
         ),
       ),
     );
@@ -114,7 +73,7 @@ class _DeviceSettingsBody extends ConsumerWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _RemotePreferences(deviceId: deviceId),
+        _NotificationsEntry(deviceId: deviceId, deviceName: deviceName),
         const SizedBox(height: 16),
         _DoorCard(
           settings: settings,
@@ -139,315 +98,37 @@ class _DeviceSettingsBody extends ConsumerWidget {
   }
 }
 
-class _RemotePreferences extends ConsumerWidget {
-  const _RemotePreferences({required this.deviceId});
+/// Single navigable entry point to [NotificationPreferencesPage] — the
+/// remote alert/quiet-schedule preferences never load or render on the main
+/// settings screen, only a static summary, so opening this page is the only
+/// thing that triggers their GET.
+class _NotificationsEntry extends StatelessWidget {
+  const _NotificationsEntry({required this.deviceId, required this.deviceName});
 
   final String deviceId;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(deviceNotificationPreferencesProvider(deviceId));
-    final controller = ref.read(
-      deviceNotificationPreferencesProvider(deviceId).notifier,
-    );
-    if (state.draft == null) {
-      return _SettingsSection(
-        icon: Icons.notifications_outlined,
-        title: 'Alertas',
-        children: [
-          if (state.phase == NotificationPreferencesPhase.loading)
-            const Padding(
-              padding: EdgeInsets.all(24),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else ...[
-            ListTile(
-              title: const Text(
-                'Não foi possível carregar as preferências de alertas.',
-              ),
-              subtitle: Text(state.message ?? 'Tente novamente.'),
-            ),
-            TextButton(
-              onPressed: controller.load,
-              child: const Text('Tentar novamente'),
-            ),
-          ],
-        ],
-      );
-    }
-
-    final draft = state.draft!;
-    final saving = state.phase == NotificationPreferencesPhase.saving;
-    final resolving =
-        state.phase == NotificationPreferencesPhase.resolvingTimezone;
-    final enabled = state.canEdit;
-
-    void edit(DeviceNotificationPreferences value) {
-      controller.edit((_) => value);
-    }
-
-    return Column(
-      children: [
-        _AlertsCard(preferences: draft, enabled: enabled, onChanged: edit),
-        const SizedBox(height: 16),
-        _QuietScheduleCard(
-          schedule: draft.quietSchedule,
-          enabled: enabled,
-          resolvingTimezone: resolving,
-          timezoneError: state.timezoneError,
-          onEnabled: controller.enableSchedule,
-          onChanged: (schedule) =>
-              edit(draft.copyWith(quietSchedule: schedule)),
-        ),
-        if (state.message != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              state.message!,
-              style: TextStyle(
-                color: state.phase == NotificationPreferencesPhase.saved
-                    ? Theme.of(context).colorScheme.primary
-                    : Theme.of(context).colorScheme.error,
-              ),
-            ),
-          ),
-        if (state.phase == NotificationPreferencesPhase.conflict)
-          ListTile(
-            title: const Text(
-              'Recarregue os valores atuais antes de editar novamente.',
-            ),
-            trailing: TextButton(
-              onPressed: controller.load,
-              child: const Text('Recarregar'),
-            ),
-          ),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            TextButton(
-              onPressed: state.canDiscard ? controller.discard : null,
-              child: const Text('Descartar'),
-            ),
-            const SizedBox(width: 8),
-            FilledButton.icon(
-              onPressed: state.canSave ? controller.save : null,
-              icon: saving
-                  ? const SizedBox.square(
-                      dimension: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.save_outlined),
-              label: Text(saving ? 'Salvando...' : 'Salvar'),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _AlertsCard extends StatelessWidget {
-  const _AlertsCard({
-    required this.preferences,
-    required this.enabled,
-    required this.onChanged,
-  });
-
-  final DeviceNotificationPreferences preferences;
-  final bool enabled;
-  final ValueChanged<DeviceNotificationPreferences> onChanged;
+  final String deviceName;
 
   @override
   Widget build(BuildContext context) {
-    final mode = preferences.alertMode;
-
-    void change({bool? ring, bool? notification}) {
-      onChanged(
-        preferences.copyWith(
-          alertMode: AlertMode.from(
-            ring: ring ?? mode.includesRing,
-            notification: notification ?? mode.includesNotification,
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: ListTile(
+        leading: Icon(
+          Icons.notifications_outlined,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+        title: const Text('Notificações'),
+        subtitle: const Text('Ligação, notificações e horários'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => NotificationPreferencesPage(
+              deviceId: deviceId,
+              deviceName: deviceName,
+            ),
           ),
         ),
-      );
-    }
-
-    return _SettingsSection(
-      icon: Icons.notifications_outlined,
-      title: 'Alertas',
-      children: [
-        SwitchListTile(
-          title: const Text('Receber ligação'),
-          subtitle: const Text(
-            'Mostra a tela de chamada quando o interfone tocar.',
-          ),
-          value: mode.includesRing,
-          onChanged: enabled ? (value) => change(ring: value) : null,
-        ),
-        SwitchListTile(
-          title: const Text('Receber notificação'),
-          subtitle: const Text(
-            'Mostra uma notificação relacionada ao toque do interfone.',
-          ),
-          value: mode.includesNotification,
-          onChanged: enabled ? (value) => change(notification: value) : null,
-        ),
-        const Padding(
-          padding: EdgeInsets.fromLTRB(16, 4, 16, 12),
-          child: Text(
-            'As preferências já ficam salvas. Elas passarão a controlar os '
-            'alertas quando a integração de notificações for ativada.',
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-const _weekdayLabels = {
-  1: 'Seg',
-  2: 'Ter',
-  3: 'Qua',
-  4: 'Qui',
-  5: 'Sex',
-  6: 'Sáb',
-  7: 'Dom',
-};
-
-class _QuietScheduleCard extends StatelessWidget {
-  const _QuietScheduleCard({
-    required this.schedule,
-    required this.enabled,
-    required this.resolvingTimezone,
-    required this.timezoneError,
-    required this.onEnabled,
-    required this.onChanged,
-  });
-
-  final QuietSchedule schedule;
-  final bool enabled;
-  final bool resolvingTimezone;
-  final String? timezoneError;
-  final ValueChanged<bool> onEnabled;
-  final ValueChanged<QuietSchedule> onChanged;
-
-  Future<void> _pick(BuildContext context, bool start) async {
-    final value = start ? schedule.startTime : schedule.endTime;
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay(
-        hour: value?.hour ?? (start ? 22 : 7),
-        minute: value?.minute ?? 0,
       ),
-    );
-    if (picked == null) return;
-    final time = ClockTime(hour: picked.hour, minute: picked.minute);
-    onChanged(
-      start
-          ? schedule.copyWith(startTime: time)
-          : schedule.copyWith(endTime: time),
-    );
-  }
-
-  void _toggleDay(int day) {
-    final days = Set<int>.from(schedule.days);
-    if (!days.remove(day)) days.add(day);
-    onChanged(schedule.copyWith(days: days));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return _SettingsSection(
-      icon: Icons.schedule,
-      title: 'Horários sem ligação',
-      children: [
-        SwitchListTile(
-          title: const Text('Ativar horários sem ligação'),
-          value: schedule.enabled,
-          onChanged: enabled ? onEnabled : null,
-          secondary: resolvingTimezone
-              ? const SizedBox.square(
-                  dimension: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : null,
-        ),
-        if (timezoneError != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              timezoneError!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-          ),
-        if (schedule.enabled) ...[
-          ListTile(
-            title: const Text('Horário'),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextButton(
-                  onPressed: enabled ? () => _pick(context, true) : null,
-                  child: Text(schedule.startTime?.wireValue ?? '--:--'),
-                ),
-                const Text('—'),
-                TextButton(
-                  onPressed: enabled ? () => _pick(context, false) : null,
-                  child: Text(schedule.endTime?.wireValue ?? '--:--'),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Wrap(
-              spacing: 6,
-              children: _weekdayLabels.entries.map((day) {
-                return FilterChip(
-                  label: Text(day.value),
-                  selected: schedule.days.contains(day.key),
-                  onSelected: enabled ? (_) => _toggleDay(day.key) : null,
-                );
-              }).toList(),
-            ),
-          ),
-          ListTile(
-            title: const Text('Fuso horário'),
-            subtitle: Text(schedule.timezone ?? 'Indisponível'),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: SegmentedButton<QuietScheduleBehavior>(
-              segments: const [
-                ButtonSegment(
-                  value: QuietScheduleBehavior.notificationOnly,
-                  label: Text('Só notificação'),
-                ),
-                ButtonSegment(
-                  value: QuietScheduleBehavior.blockAll,
-                  label: Text('Bloquear tudo'),
-                ),
-              ],
-              selected: {schedule.behavior},
-              onSelectionChanged: enabled
-                  ? (value) =>
-                        onChanged(schedule.copyWith(behavior: value.first))
-                  : null,
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              schedule.behavior == QuietScheduleBehavior.notificationOnly
-                  ? 'Durante esse horário, o celular não tocará como ligação. '
-                        'A notificação continua disponível se estiver ativada '
-                        'em Alertas.'
-                  : 'Durante esse horário, ligações e notificações desse '
-                        'InterBridge não serão exibidas.',
-            ),
-          ),
-        ],
-      ],
     );
   }
 }
@@ -459,7 +140,7 @@ class _AccessCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _SettingsSection(
+    return SettingsSection(
       icon: Icons.group_outlined,
       title: 'Acesso e compartilhamento',
       children: [
@@ -498,46 +179,6 @@ String _sharingPermissionDescription(DeviceRole role) => switch (role) {
     'Você não tem permissão para compartilhar este dispositivo.',
 };
 
-class _SettingsSection extends StatelessWidget {
-  const _SettingsSection({
-    required this.icon,
-    required this.title,
-    required this.children,
-  });
-
-  final IconData icon;
-  final String title;
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
-            child: Row(
-              children: [
-                Icon(
-                  icon,
-                  size: 20,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-                const SizedBox(width: 8),
-                Text(title, style: Theme.of(context).textTheme.titleMedium),
-              ],
-            ),
-          ),
-          ...children,
-          const SizedBox(height: 4),
-        ],
-      ),
-    );
-  }
-}
-
 /// "Confirmar abertura" and "exigir autenticação" — both plain booleans
 /// since, unlike the call policy, there's no meaningful combination to model
 /// here. Device authentication is enforced by the door-open flow.
@@ -554,7 +195,7 @@ class _DoorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _SettingsSection(
+    return SettingsSection(
       icon: Icons.meeting_room_outlined,
       title: 'Porta',
       children: [
@@ -588,7 +229,7 @@ class _DeviceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _SettingsSection(
+    return SettingsSection(
       icon: Icons.router_outlined,
       title: 'Dispositivo',
       children: [
@@ -903,38 +544,10 @@ class _AdvancedCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final errorColor = Theme.of(context).colorScheme.error;
-    final remote = ref.watch(deviceNotificationPreferencesProvider(deviceId));
-    return _SettingsSection(
+    return SettingsSection(
       icon: Icons.warning_amber_outlined,
       title: 'Avançado',
       children: [
-        ListTile(
-          leading: Icon(Icons.restart_alt, color: errorColor),
-          title: Text(
-            'Redefinir preferências de alertas',
-            style: TextStyle(color: errorColor),
-          ),
-          subtitle: const Text(
-            'Restaura os padrões remotos; não altera porta ou hardware.',
-          ),
-          onTap: remote.canReset
-              ? () async {
-                  if (await _confirmReset(
-                    context,
-                    'Redefinir preferências de alertas?',
-                    'Os padrões serão salvos no servidor para "$deviceName".',
-                  )) {
-                    await ref
-                        .read(
-                          deviceNotificationPreferencesProvider(
-                            deviceId,
-                          ).notifier,
-                        )
-                        .resetRemote();
-                  }
-                }
-              : null,
-        ),
         ListTile(
           leading: Icon(Icons.settings_backup_restore, color: errorColor),
           title: Text(

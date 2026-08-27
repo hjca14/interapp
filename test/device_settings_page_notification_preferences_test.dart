@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:interapp/core/network/api_failure.dart';
 import 'package:interapp/features/devices/domain/entities/api_device.dart';
 import 'package:interapp/features/devices/domain/entities/device_notification_preferences.dart';
 import 'package:interapp/features/devices/domain/entities/device_settings.dart';
@@ -11,6 +10,7 @@ import 'package:interapp/features/devices/domain/repositories/device_notificatio
 import 'package:interapp/features/devices/domain/repositories/device_repository.dart';
 import 'package:interapp/features/devices/domain/repositories/device_settings_repository.dart';
 import 'package:interapp/features/devices/presentation/pages/device_settings_page.dart';
+import 'package:interapp/features/devices/presentation/pages/notification_preferences_page.dart';
 import 'package:interapp/features/devices/presentation/providers/devices_providers.dart';
 import 'package:interapp/features/sharing/domain/entities/device_access.dart';
 
@@ -20,7 +20,6 @@ class _RemoteRepository implements DeviceNotificationPreferencesRepository {
   DeviceNotificationPreferences value;
   Completer<DeviceNotificationPreferences>? pendingGet;
   Object? getError;
-  Completer<DeviceNotificationPreferences>? pendingPatch;
   int getCalls = 0;
   int patchCalls = 0;
 
@@ -38,7 +37,7 @@ class _RemoteRepository implements DeviceNotificationPreferencesRepository {
     DeviceNotificationPreferences draft,
   ) async {
     patchCalls++;
-    return pendingPatch?.future ?? draft;
+    return draft;
   }
 }
 
@@ -93,127 +92,61 @@ Widget _subject(_RemoteRepository remote, _LocalRepository local) {
 }
 
 void main() {
-  testWidgets('remote loading does not hide local cards', (tester) async {
-    final remote = _RemoteRepository(DeviceNotificationPreferences())
-      ..pendingGet = Completer<DeviceNotificationPreferences>();
-    await tester.pumpWidget(_subject(remote, _LocalRepository()));
-    await tester.pump();
+  testWidgets(
+    'the main settings screen offers only a "Notificações" entry, never the '
+    'alert cards, and never triggers the remote GET',
+    (tester) async {
+      final remote = _RemoteRepository(DeviceNotificationPreferences());
+      await tester.pumpWidget(_subject(remote, _LocalRepository()));
+      await tester.pumpAndSettle();
 
-    expect(find.text('Alertas'), findsOneWidget);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.text('Notificações'), findsOneWidget);
+      expect(find.text('Ligação, notificações e horários'), findsOneWidget);
+      expect(find.text('Alertas'), findsNothing);
+      expect(find.text('Horários sem ligação'), findsNothing);
+      expect(find.text('Receber ligação'), findsNothing);
+      expect(find.widgetWithText(FilledButton, 'Salvar'), findsNothing);
+      expect(find.text('Porta'), findsOneWidget);
+      expect(find.text('Acesso e compartilhamento'), findsOneWidget);
+      expect(find.text('Dispositivo'), findsOneWidget);
+      expect(
+        remote.getCalls,
+        0,
+        reason: 'opening the main settings page must never GET remote prefs',
+      );
+    },
+  );
+
+  testWidgets('local device settings render independently even when the remote '
+      'notification preferences API is unavailable', (tester) async {
+    final remote = _RemoteRepository(DeviceNotificationPreferences())
+      ..getError = Exception('backend down');
+    await tester.pumpWidget(_subject(remote, _LocalRepository()));
+    await tester.pumpAndSettle();
+
     expect(find.text('Porta'), findsOneWidget);
+    expect(find.text('Confirmar antes de abrir'), findsOneWidget);
     expect(find.text('Acesso e compartilhamento'), findsOneWidget);
     expect(find.text('Dispositivo'), findsOneWidget);
+    expect(remote.getCalls, 0);
   });
 
-  testWidgets('remote error keeps local cards and offers retry', (
-    tester,
-  ) async {
-    final remote = _RemoteRepository(DeviceNotificationPreferences())
-      ..getError = const ApiFailure(ApiFailureKind.offline, 'Sem conexão.');
-    await tester.pumpWidget(_subject(remote, _LocalRepository()));
-    await tester.pump();
-    await tester.pump();
-
-    expect(find.text('Porta'), findsOneWidget);
-    expect(find.text('Tentar novamente'), findsOneWidget);
-    remote.getError = null;
-    await tester.tap(find.text('Tentar novamente'));
-    await tester.pump();
-    await tester.pump();
-    expect(find.text('Receber ligação'), findsOneWidget);
-  });
-
-  testWidgets('alert switches edit draft and save only on explicit action', (
+  testWidgets('tapping the entry opens the dedicated Notificações page', (
     tester,
   ) async {
     final remote = _RemoteRepository(DeviceNotificationPreferences());
     await tester.pumpWidget(_subject(remote, _LocalRepository()));
-    await tester.pump();
-    await tester.pump();
+    await tester.pumpAndSettle();
 
-    final save = find.widgetWithText(FilledButton, 'Salvar');
-    expect(tester.widget<FilledButton>(save).onPressed, isNull);
-    await tester.tap(find.text('Receber ligação'));
-    await tester.pump();
-    expect(remote.patchCalls, 0);
-    expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
-    await tester.tap(save);
-    await tester.pump();
-    expect(remote.patchCalls, 1);
-  });
+    await tester.tap(find.text('Notificações'));
+    await tester.pumpAndSettle();
 
-  testWidgets('required wording is present and obsolete wording is absent', (
-    tester,
-  ) async {
-    final schedule = QuietSchedule(
-      enabled: true,
-      timezone: 'America/Recife',
-      days: const {1},
-      startTime: ClockTime(hour: 22, minute: 0),
-      endTime: ClockTime(hour: 7, minute: 0),
-    );
-    final remote = _RemoteRepository(
-      DeviceNotificationPreferences(quietSchedule: schedule),
-    );
-    await tester.pumpWidget(_subject(remote, _LocalRepository()));
-    await tester.pump();
-    await tester.pump();
-
-    expect(find.text('Horários sem ligação'), findsOneWidget);
-    expect(find.text('Só notificação'), findsOneWidget);
-    expect(find.text('Bloquear tudo'), findsOneWidget);
-    expect(find.text('America/Recife'), findsOneWidget);
-    expect(find.text('Presença'), findsNothing);
-    expect(find.text('Notificação sem som'), findsNothing);
-    expect(find.textContaining('rede local'), findsNothing);
-  });
-
-  testWidgets('saving disables controls and shows progress then success', (
-    tester,
-  ) async {
-    final pending = Completer<DeviceNotificationPreferences>();
-    final remote = _RemoteRepository(DeviceNotificationPreferences())
-      ..pendingPatch = pending;
-    await tester.pumpWidget(_subject(remote, _LocalRepository()));
-    await tester.pump();
-    await tester.pump();
-    await tester.tap(find.text('Receber ligação'));
-    await tester.pump();
-    await tester.tap(find.widgetWithText(FilledButton, 'Salvar'));
-    await tester.pump();
-
-    expect(find.text('Salvando...'), findsOneWidget);
+    expect(find.byType(NotificationPreferencesPage), findsOneWidget);
+    expect(find.widgetWithText(AppBar, 'Notificações'), findsOneWidget);
     expect(
-      tester
-          .widget<SwitchListTile>(
-            find.widgetWithText(SwitchListTile, 'Receber ligação'),
-          )
-          .onChanged,
-      isNull,
+      remote.getCalls,
+      1,
+      reason: 'opening the dedicated page is what triggers the GET',
     );
-    pending.complete(
-      DeviceNotificationPreferences(
-        alertMode: AlertMode.notificationOnly,
-        updatedAt: DateTime.utc(2026, 8, 27),
-      ),
-    );
-    await tester.pump();
-    await tester.pump();
-    expect(find.text('Preferências salvas.'), findsOneWidget);
-  });
-
-  testWidgets('back navigation confirms unsaved draft discard', (tester) async {
-    final remote = _RemoteRepository(DeviceNotificationPreferences());
-    await tester.pumpWidget(_subject(remote, _LocalRepository()));
-    await tester.pump();
-    await tester.pump();
-    await tester.tap(find.text('Receber ligação'));
-    await tester.pump();
-
-    await tester.binding.handlePopRoute();
-    await tester.pump();
-    expect(find.text('Descartar alterações?'), findsOneWidget);
-    expect(find.text('Continuar editando'), findsOneWidget);
   });
 }

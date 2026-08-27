@@ -9,12 +9,14 @@ import 'package:interapp/features/devices/data/repositories/local_device_backend
 import 'package:interapp/features/devices/data/repositories/local_device_connection_repository.dart';
 import 'package:interapp/features/devices/data/repositories/local_device_settings_repository.dart';
 import 'package:interapp/features/devices/data/repositories/local_devices_repository.dart';
+import 'package:interapp/features/devices/data/repositories/local_notification_preferences_outbox_repository.dart';
 import 'package:interapp/features/devices/data/services/incoming_call_notification_service.dart';
 import 'package:interapp/features/devices/domain/repositories/device_backend_repository.dart';
 import 'package:interapp/features/devices/domain/repositories/device_connection_repository.dart';
 import 'package:interapp/features/devices/domain/repositories/device_repository.dart';
 import 'package:interapp/features/devices/domain/repositories/device_settings_repository.dart';
 import 'package:interapp/features/devices/domain/repositories/device_notification_preferences_repository.dart';
+import 'package:interapp/features/devices/domain/repositories/notification_preferences_outbox_repository.dart';
 import 'package:interapp/features/favorites/data/repositories/local_favorites_repository.dart';
 import 'package:interapp/features/profile/data/repositories/local_profile_repository.dart';
 
@@ -75,6 +77,14 @@ final deviceNotificationPreferencesRepositoryProvider =
         ref.watch(apiClientProvider),
       );
     });
+
+/// Local sync-intent outbox for notification-preferences autosave — a cache
+/// of "what the user last chose but the server hasn't confirmed yet", never
+/// a source of truth. See [LocalNotificationPreferencesOutboxRepository].
+final notificationPreferencesOutboxRepositoryProvider =
+    Provider<NotificationPreferencesOutboxRepository>(
+      (_) => LocalNotificationPreferencesOutboxRepository(),
+    );
 
 final profileRepositoryProvider = Provider<LocalProfileRepository>(
   (_) => LocalProfileRepository(),
