@@ -35,11 +35,10 @@ class PushNotificationService {
 
   PushAuthorizationStatus? get authorizationStatus => _authorizationStatus;
 
-  /// The current FCM token, but only outside release/profile builds.
-  ///
-  /// Temporary diagnostic for the Fase 3B.4 manual Firebase Console test.
-  /// Remove once Fase 3B.5 registers tokens with the backend for real.
-  String? get debugOnlyToken => _debugMode ? _currentToken : null;
+  /// Whether an FCM token is currently held in memory. Only presence is
+  /// exposed — never the value. The token itself stays internal, ready for
+  /// Fase 3B.5 to register it with the backend from inside this service.
+  bool get hasToken => _currentToken != null;
 
   PushEventDiagnostic? get lastForegroundEvent => _lastForegroundEvent;
   PushEventDiagnostic? get lastOpenedAppEvent => _lastOpenedAppEvent;
@@ -81,7 +80,7 @@ class PushNotificationService {
   Future<void> _initializeToken() async {
     try {
       _currentToken = await _client.getToken();
-      _logToken('token_initial', _currentToken);
+      _logTokenPresence('token_initial');
     } on Object {
       // Sanitized on purpose. Message listeners below must still run even
       // without a token.
@@ -92,7 +91,7 @@ class PushNotificationService {
     try {
       _tokenRefreshSubscription = _client.onTokenRefresh.listen((token) {
         _currentToken = token;
-        _logToken('token_refresh', token);
+        _logTokenPresence('token_refresh');
       }, onError: (Object _) {});
 
       _foregroundSubscription = _client.onForegroundMessage.listen((message) {
@@ -125,11 +124,12 @@ class PushNotificationService {
     }
   }
 
-  void _logToken(String label, String? token) {
-    if (!_debugMode || token == null) {
+  /// Logs only whether a token is present — never its value.
+  void _logTokenPresence(String label) {
+    if (!_debugMode) {
       return;
     }
-    debugPrint('[FCM][DEBUG-ONLY] $label: $token');
+    debugPrint('[FCM][DEBUG-ONLY] $label present=$hasToken');
   }
 
   void _logEvent(String path, PushEventDiagnostic diagnostic) {

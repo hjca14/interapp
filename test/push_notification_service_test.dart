@@ -132,19 +132,19 @@ void main() {
       final tokenGate = Completer<void>();
       client.authorizationStatus = PushAuthorizationStatus.granted;
       client.tokenDelay = tokenGate.future;
-      final service = PushNotificationService(client, debugMode: true);
+      final service = PushNotificationService(client, debugMode: false);
 
       var reachedNextStatement = false;
       unawaited(service.initialize());
       reachedNextStatement = true;
 
       expect(reachedNextStatement, isTrue);
-      expect(service.debugOnlyToken, isNull);
+      expect(service.hasToken, isFalse);
 
       tokenGate.complete();
       await pumpEventQueue();
 
-      expect(service.debugOnlyToken, 'initial-token');
+      expect(service.hasToken, isTrue);
     });
 
     test(
@@ -165,12 +165,12 @@ void main() {
       () async {
         client.getAuthorizationStatusError = Exception('boom');
         client.token = 'token-despite-permission-failure';
-        final service = PushNotificationService(client, debugMode: true);
+        final service = PushNotificationService(client, debugMode: false);
 
         await service.initialize();
 
         expect(service.authorizationStatus, isNull);
-        expect(service.debugOnlyToken, 'token-despite-permission-failure');
+        expect(service.hasToken, isTrue);
         expect(client.tokenRefreshListenCount, 1);
         expect(client.foregroundListenCount, 1);
         expect(client.openedAppListenCount, 1);
@@ -185,6 +185,8 @@ void main() {
         client.getTokenError = Exception('boom');
         final service = PushNotificationService(client, debugMode: false);
         await service.initialize();
+
+        expect(service.hasToken, isFalse);
 
         client.emitForegroundMessage(
           const PushMessage(messageId: 'fg-after-token-failure', title: 'x'),
@@ -213,7 +215,7 @@ void main() {
       client.authorizationStatus = PushAuthorizationStatus.granted;
       client.token = 'token-despite-initial-message-failure';
       client.getInitialMessageError = Exception('boom');
-      final service = PushNotificationService(client, debugMode: true);
+      final service = PushNotificationService(client, debugMode: false);
       await service.initialize();
 
       client.emitForegroundMessage(
@@ -221,7 +223,7 @@ void main() {
       );
       await pumpEventQueue();
 
-      expect(service.debugOnlyToken, 'token-despite-initial-message-failure');
+      expect(service.hasToken, isTrue);
       expect(
         service.lastForegroundEvent?.messageId,
         'fg-after-initial-failure',
@@ -321,24 +323,24 @@ void main() {
     );
   });
 
-  group('token', () {
-    test('obtains the initial token', () async {
+  group('token stays internal', () {
+    test('hasToken becomes true once the initial token is obtained', () async {
       client.authorizationStatus = PushAuthorizationStatus.granted;
       client.token = 'token-abc';
-      final service = PushNotificationService(client, debugMode: true);
+      final service = PushNotificationService(client, debugMode: false);
 
       await service.initialize();
 
-      expect(service.debugOnlyToken, 'token-abc');
+      expect(service.hasToken, isTrue);
     });
 
-    test('handles a missing token without failing', () async {
+    test('hasToken stays false when there is no token', () async {
       client.authorizationStatus = PushAuthorizationStatus.granted;
       client.token = null;
-      final service = PushNotificationService(client, debugMode: true);
+      final service = PushNotificationService(client, debugMode: false);
 
       await expectLater(service.initialize(), completes);
-      expect(service.debugOnlyToken, isNull);
+      expect(service.hasToken, isFalse);
     });
 
     test('a token fetch failure does not throw', () async {
@@ -349,27 +351,35 @@ void main() {
       await expectLater(service.initialize(), completes);
     });
 
-    test('updates in-memory state when the token refreshes', () async {
-      client.authorizationStatus = PushAuthorizationStatus.granted;
-      client.token = 'old-token';
-      final service = PushNotificationService(client, debugMode: true);
-      await service.initialize();
+    test(
+      'the refreshed token is kept internally, in place of the old one',
+      () async {
+        client.authorizationStatus = PushAuthorizationStatus.granted;
+        client.token = null;
+        final service = PushNotificationService(client, debugMode: false);
+        await service.initialize();
+        expect(service.hasToken, isFalse);
 
-      client.emitTokenRefresh('new-token');
-      await pumpEventQueue();
+        client.emitTokenRefresh('new-token');
+        await pumpEventQueue();
 
-      expect(service.debugOnlyToken, 'new-token');
-    });
+        expect(service.hasToken, isTrue);
+      },
+    );
 
-    test('never exposes the token when not in debug mode', () async {
+    test('there is no public API that exposes the full token value', () async {
       client.authorizationStatus = PushAuthorizationStatus.granted;
       client.token = 'secret-ish-token';
-      final service = PushNotificationService(client, debugMode: false);
+      final service = PushNotificationService(client, debugMode: true);
       await service.initialize();
       client.emitTokenRefresh('refreshed-secret-ish-token');
       await pumpEventQueue();
 
-      expect(service.debugOnlyToken, isNull);
+      // PushNotificationService only exposes hasToken (a bool). There is
+      // no getter — in any build mode — that returns the token string
+      // itself; this test exists so the seam gets re-verified if one is
+      // ever added back.
+      expect(service.hasToken, isTrue);
     });
   });
 
@@ -440,7 +450,7 @@ void main() {
     test('cancels every subscription created during initialize', () async {
       client.authorizationStatus = PushAuthorizationStatus.granted;
       client.token = 'before-dispose';
-      final service = PushNotificationService(client, debugMode: true);
+      final service = PushNotificationService(client, debugMode: false);
       await service.initialize();
 
       await service.dispose();
@@ -452,51 +462,53 @@ void main() {
       await pumpEventQueue();
 
       expect(service.lastForegroundEvent, isNull);
-      expect(service.debugOnlyToken, 'before-dispose');
+      expect(service.hasToken, isTrue);
     });
   });
 
   group('diagnostic logging is sanitized', () {
-    test(
-      'never logs title, body, data payload, token, or a raw exception',
-      () async {
-        final logs = <String>[];
-        final originalDebugPrint = debugPrint;
-        debugPrint = (String? message, {int? wrapWidth}) {
-          logs.add(message ?? '');
-        };
-        addTearDown(() => debugPrint = originalDebugPrint);
+    test('never logs the token value, title, body, data payload, or a raw '
+        'exception — even in debug mode', () async {
+      final logs = <String>[];
+      final originalDebugPrint = debugPrint;
+      debugPrint = (String? message, {int? wrapWidth}) {
+        logs.add(message ?? '');
+      };
+      addTearDown(() => debugPrint = originalDebugPrint);
 
-        client.authorizationStatus = PushAuthorizationStatus.granted;
-        client.token = 'super-sensitive-token-value';
-        final service = PushNotificationService(client, debugMode: true);
-        await service.initialize();
+      client.authorizationStatus = PushAuthorizationStatus.granted;
+      client.token = 'super-sensitive-token-value';
+      final service = PushNotificationService(client, debugMode: true);
+      await service.initialize();
 
-        client.emitForegroundMessage(
-          const PushMessage(
-            messageId: 'msg-1',
-            title: 'titulo-secreto',
-            body: 'corpo-com-dados-sensiveis-do-morador',
-            data: {'chamador': 'joao'},
-          ),
-        );
-        await pumpEventQueue();
+      client.emitTokenRefresh('another-super-sensitive-token-value');
+      client.emitForegroundMessage(
+        const PushMessage(
+          messageId: 'msg-1',
+          title: 'titulo-secreto',
+          body: 'corpo-com-dados-sensiveis-do-morador',
+          data: {'chamador': 'joao'},
+        ),
+      );
+      await pumpEventQueue();
 
-        final joined = logs.join('\n');
-        expect(joined, isNot(contains('titulo-secreto')));
-        expect(joined, isNot(contains('corpo-com-dados-sensiveis')));
-        expect(joined, isNot(contains('joao')));
-        expect(joined, isNot(contains('Exception')));
-        expect(joined, contains('foreground'));
-        expect(joined, contains('msg-1'));
-        expect(joined, contains('hasTitle=true'));
-        expect(joined, contains('hasBody=true'));
-        // The token line is a deliberate exception (debug-only diagnostic
-        // token print, documented separately) — still present, but only
-        // because debugMode is true here.
-        expect(joined, contains('super-sensitive-token-value'));
-      },
-    );
+      final joined = logs.join('\n');
+      expect(joined, isNot(contains('super-sensitive-token-value')));
+      expect(joined, isNot(contains('another-super-sensitive')));
+      expect(joined, isNot(contains('titulo-secreto')));
+      expect(joined, isNot(contains('corpo-com-dados-sensiveis')));
+      expect(joined, isNot(contains('joao')));
+      expect(joined, isNot(contains('Exception')));
+
+      // Sanitized markers are still expected: presence-only for the token,
+      // messageId + booleans for the message paths.
+      expect(joined, contains('token_initial present=true'));
+      expect(joined, contains('token_refresh present=true'));
+      expect(joined, contains('foreground'));
+      expect(joined, contains('msg-1'));
+      expect(joined, contains('hasTitle=true'));
+      expect(joined, contains('hasBody=true'));
+    });
 
     test('logs nothing at all outside debug mode', () async {
       final logs = <String>[];
@@ -511,6 +523,7 @@ void main() {
       final service = PushNotificationService(client, debugMode: false);
       await service.initialize();
 
+      client.emitTokenRefresh('should-not-be-logged-either');
       client.emitForegroundMessage(
         const PushMessage(messageId: 'msg-1', title: 'x'),
       );
