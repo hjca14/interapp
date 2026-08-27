@@ -67,9 +67,6 @@ void main() {
     expect(googleServices, contains(officialId));
     expect(firebaseOptions, contains('interbridge-dev'));
     expect(firebaseOptions, contains('static const FirebaseOptions android'));
-    expect(
-      File('ios/Runner/GoogleService-Info.plist').existsSync(),
-      isFalse,
-    );
+    expect(File('ios/Runner/GoogleService-Info.plist').existsSync(), isFalse);
   });
 }

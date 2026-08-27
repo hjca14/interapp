@@ -53,6 +53,7 @@ class FirebaseMessagingClient implements PushMessagingClient {
 
   static PushMessage _toPushMessage(RemoteMessage message) {
     return PushMessage(
+      messageId: message.messageId,
       title: message.notification?.title,
       body: message.notification?.body,
       data: message.data,

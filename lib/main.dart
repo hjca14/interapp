@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -17,9 +19,15 @@ Future<void> main() async {
       overrides: [appConfigProvider.overrideWithValue(config)],
     );
     await container.read(incomingCallNotificationServiceProvider).initialize();
-    if (await FirebaseBootstrap.configure()) {
-      await container.read(pushNotificationServiceProvider).initialize();
-    }
+    // Firebase.initializeApp + registering the background handler is local
+    // plugin setup (no network, no permission prompt) and must complete
+    // before runApp per the plugin's own requirement. Requesting permission
+    // and fetching the token, however, can hit Play Services or the
+    // network, so that work is only kicked off here (fire-and-forget) and
+    // runs alongside the first frame instead of delaying it — see
+    // PushNotificationService.initialize's doc comment.
+    await FirebaseBootstrap.configure();
+    unawaited(container.read(pushNotificationServiceProvider).initialize());
     runApp(
       UncontrolledProviderScope(container: container, child: const InterApp()),
     );

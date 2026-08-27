@@ -5,12 +5,15 @@ import 'package:flutter/foundation.dart';
 import 'push_message.dart';
 import 'push_messaging_client.dart';
 
-/// App-facing seam for FCM: permission, token and message streams.
+/// App-facing seam for FCM: permission, token, and the foreground/tap/cold-
+/// start message paths.
 ///
 /// The UI and other features must go through this service instead of
 /// touching `FirebaseMessaging.instance` directly. No failure here is
 /// allowed to escape — a broken Firebase project must not block login,
-/// device listing, or anything else the app does.
+/// device listing, or anything else the app does. [initialize] does network
+/// and permission-prompt work, so callers must not await it before the
+/// first frame; call it after `runApp` instead.
 class PushNotificationService {
   PushNotificationService(this._client, {bool? debugMode})
     : _debugMode = debugMode ?? kDebugMode;
@@ -18,9 +21,17 @@ class PushNotificationService {
   final PushMessagingClient _client;
   final bool _debugMode;
 
+  Future<void>? _initialization;
+
   PushAuthorizationStatus? _authorizationStatus;
   String? _currentToken;
+  PushEventDiagnostic? _lastForegroundEvent;
+  PushEventDiagnostic? _lastOpenedAppEvent;
+  PushEventDiagnostic? _lastInitialMessageEvent;
+
   StreamSubscription<String>? _tokenRefreshSubscription;
+  StreamSubscription<PushMessage>? _foregroundSubscription;
+  StreamSubscription<PushMessage>? _openedAppSubscription;
 
   PushAuthorizationStatus? get authorizationStatus => _authorizationStatus;
 
@@ -30,49 +41,77 @@ class PushNotificationService {
   /// Remove once Fase 3B.5 registers tokens with the backend for real.
   String? get debugOnlyToken => _debugMode ? _currentToken : null;
 
-  Stream<PushMessage> get onForegroundMessage => _client.onForegroundMessage;
-
-  Stream<PushMessage> get onMessageOpenedApp => _client.onMessageOpenedApp;
+  PushEventDiagnostic? get lastForegroundEvent => _lastForegroundEvent;
+  PushEventDiagnostic? get lastOpenedAppEvent => _lastOpenedAppEvent;
+  PushEventDiagnostic? get lastInitialMessageEvent => _lastInitialMessageEvent;
 
   /// Requests permission only when it has not been decided yet, fetches the
-  /// initial token, and starts listening for token refreshes. Swallows any
-  /// failure so a broken Firebase setup never prevents the rest of the app
-  /// from starting.
-  Future<void> initialize() async {
+  /// initial token, subscribes once to token refresh/foreground/tap-to-open,
+  /// and consults the cold-start initial message once. Idempotent — a
+  /// second call returns the same in-flight/completed future instead of
+  /// creating duplicate subscriptions. Swallows any failure so a broken
+  /// Firebase setup never prevents the rest of the app from working.
+  Future<void> initialize() {
+    return _initialization ??= _initializeOnce();
+  }
+
+  Future<void> _initializeOnce() async {
     try {
       final status = await _client.getAuthorizationStatus();
       _authorizationStatus = status == PushAuthorizationStatus.notDetermined
           ? await _client.requestPermission()
           : status;
+
       _currentToken = await _client.getToken();
-      _logDebugToken('token inicial');
+      _logToken('token_initial', _currentToken);
+
       _tokenRefreshSubscription = _client.onTokenRefresh.listen((token) {
         _currentToken = token;
-        _logDebugToken('token renovado');
+        _logToken('token_refresh', token);
       }, onError: (Object _) {});
+
+      _foregroundSubscription = _client.onForegroundMessage.listen((message) {
+        _lastForegroundEvent = PushEventDiagnostic.fromMessage(message);
+        _logEvent('foreground', _lastForegroundEvent!);
+      }, onError: (Object _) {});
+
+      _openedAppSubscription = _client.onMessageOpenedApp.listen((message) {
+        _lastOpenedAppEvent = PushEventDiagnostic.fromMessage(message);
+        _logEvent('opened_app', _lastOpenedAppEvent!);
+      }, onError: (Object _) {});
+
+      final initialMessage = await _client.getInitialMessage();
+      if (initialMessage != null) {
+        _lastInitialMessageEvent = PushEventDiagnostic.fromMessage(
+          initialMessage,
+        );
+        _logEvent('initial_message', _lastInitialMessageEvent!);
+      }
     } on Object {
       // Sanitized on purpose: never let a raw Firebase/FCM error surface.
     }
   }
 
-  /// The message that opened the app from a fully terminated state, if any.
-  Future<PushMessage?> getInitialMessage() async {
-    try {
-      return await _client.getInitialMessage();
-    } on Object {
-      return null;
-    }
-  }
-
-  void _logDebugToken(String label) {
-    final token = debugOnlyToken;
-    if (token == null) {
+  void _logToken(String label, String? token) {
+    if (!_debugMode || token == null) {
       return;
     }
-    debugPrint('[FCM][DEBUG-ONLY][interbridge-dev] $label: $token');
+    debugPrint('[FCM][DEBUG-ONLY] $label: $token');
   }
 
-  void dispose() {
-    unawaited(_tokenRefreshSubscription?.cancel());
+  void _logEvent(String path, PushEventDiagnostic diagnostic) {
+    if (!_debugMode) {
+      return;
+    }
+    debugPrint(
+      '[FCM][DEBUG-ONLY] $path messageId=${diagnostic.messageId ?? '-'} '
+      'hasTitle=${diagnostic.hasTitle} hasBody=${diagnostic.hasBody}',
+    );
+  }
+
+  Future<void> dispose() async {
+    await _tokenRefreshSubscription?.cancel();
+    await _foregroundSubscription?.cancel();
+    await _openedAppSubscription?.cancel();
   }
 }

@@ -1,5 +1,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../firebase_options.dart';
 
@@ -7,10 +8,16 @@ import '../../firebase_options.dart';
 ///
 /// Must stay top-level so the Android engine can spawn it in a background
 /// isolate, which has no access to UI, providers, or `BuildContext` and
-/// re-initializes Firebase on its own.
+/// re-initializes Firebase on its own. Only emits a debug-only marker —
+/// nothing is persisted, no AWS call is made.
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  if (kDebugMode) {
+    debugPrint(
+      '[FCM][DEBUG-ONLY] background_handler messageId=${message.messageId ?? '-'}',
+    );
+  }
 }
 
 /// Initializes the Firebase app and wires the FCM background handler.
