@@ -53,13 +53,20 @@ void main() {
     expect(project, isNot(contains('com.example.interapp')));
   });
 
-  test('Phase 3B.1 has no Firebase mobile configuration or dependencies', () {
+  test('Phase 3B.3 configures Firebase for Android only', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
+    final googleServices = File(
+      'android/app/google-services.json',
+    ).readAsStringSync();
+    final firebaseOptions = File(
+      'lib/firebase_options.dart',
+    ).readAsStringSync();
 
-    expect(pubspec, isNot(contains('firebase_core')));
-    expect(pubspec, isNot(contains('firebase_messaging')));
-    expect(File('android/app/google-services.json').existsSync(), isFalse);
+    expect(pubspec, contains('firebase_core'));
+    expect(pubspec, contains('firebase_messaging'));
+    expect(googleServices, contains(officialId));
+    expect(firebaseOptions, contains('interbridge-dev'));
+    expect(firebaseOptions, contains('static const FirebaseOptions android'));
     expect(File('ios/Runner/GoogleService-Info.plist').existsSync(), isFalse);
-    expect(File('lib/firebase_options.dart').existsSync(), isFalse);
   });
 }

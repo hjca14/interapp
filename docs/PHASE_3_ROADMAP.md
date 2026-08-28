@@ -43,17 +43,49 @@ permanecem explicitamente pendentes.
   - manter Analytics inicialmente desativado;
   - não habilitar Firestore, Firebase Auth, Hosting ou Functions sem necessidade;
   - cadastrar inicialmente somente Android.
-- [ ] **3B.3 — FlutterFire e FCM no Android**
-  - `firebase_core`, `firebase_messaging` e `flutterfire configure`;
-  - inicialização segura e permissão de notificações;
-  - token inicial, renovação e handlers de foreground, background e app
-    encerrado;
-  - sem backend nesta subfase.
-- [ ] **3B.4 — Validação direta do FCM**
-  - enviar mensagem de teste pelo Firebase Console;
-  - validar Android em foreground, background e app encerrado;
-  - validar o toque na notificação;
-  - não concluir antes do teste real.
+- [x] **3B.3 — FlutterFire e FCM no Android**
+  - projeto Firebase DEV `interbridge-dev`, plano Spark, `firebase_core`
+    4.14.0, `firebase_messaging` 16.6.0 e `flutterfire configure` executado
+    somente para Android;
+  - `Firebase.initializeApp` isolado do bootstrap do Amplify/Cognito: uma
+    falha de Firebase/FCM é capturada de forma sanitizada e nunca impede
+    login, listagem de dispositivos ou o restante do app;
+  - abstração estreita (`lib/core/push`) entre o app e o `firebase_messaging`
+    — a UI não chama `FirebaseMessaging.instance` diretamente;
+  - permissão de notificação solicitada pela API oficial apenas quando ainda
+    não decidida, sem repetição, sem tratar recusa como erro fatal;
+  - token inicial e renovação mantidos em memória; caminhos de recebimento
+    em foreground, toque que abre o app em background e mensagem inicial
+    (app encerrado) implementados; handler de background como função
+    top-level com `@pragma('vm:entry-point')`, sem UI/provider/BuildContext
+    e sem operação AWS;
+  - token mantido somente em memória, internamente, nunca persistido nem
+    enviado a analytics/AWS; nenhum getter público expõe o valor completo —
+    o único diagnóstico de token em debug informa presença/ausência
+    (`token_initial present=…`, `token_refresh present=…`), nunca o valor;
+  - cadastro de token no backend continua fora do escopo desta subfase;
+  - validado via testes automatizados com fakes; o recebimento real de push
+    foi validado manualmente na Fase 3B.4.
+- [x] **3B.4 — Validação direta do FCM**
+  - validado em Android real com o projeto Firebase DEV `interbridge-dev` e
+    o package `com.interbridge.app`, usando pushes de teste enviados pelo
+    Firebase Console diretamente ao token FCM da instalação;
+  - app em segundo plano: notificação visual apareceu no Android, o
+    background handler executou, o toque na notificação abriu o app e
+    `opened_app` foi registrado;
+  - app em primeiro plano: `foreground` foi registrado com título e corpo
+    presentes; nenhuma notificação visual local foi criada, conforme
+    esperado nesta fase — a validação nesse caminho foi feita pelo
+    diagnóstico/handler, não por uma notificação do sistema;
+  - app encerrado: a mensagem foi recebida, o background handler executou,
+    o toque iniciou uma nova execução do app e `initial_message` foi
+    consumido;
+  - `messageId` esteve presente nos três testes; a obtenção do token inicial
+    funcionou;
+  - nenhuma navegação funcional específica e nenhuma tela de chamada foram
+    implementadas — fora de escopo desta subfase;
+  - nenhum token foi cadastrado na AWS e nenhum sender AWS foi implementado
+    — ambos continuam pendentes para as Fases 3B.5 e 3B.6.
 - [ ] **3B.5 — Registro de instalações e tokens**
   - contrato coordenado entre app e backend;
   - instalação por usuário autenticado e suporte a múltiplos celulares;
