@@ -15,11 +15,16 @@ import 'push_messaging_client.dart';
 /// and permission-prompt work, so callers must not await it before the
 /// first frame; call it after `runApp` instead.
 class PushNotificationService {
-  PushNotificationService(this._client, {bool? debugMode})
-    : _debugMode = debugMode ?? kDebugMode;
+  PushNotificationService(
+    this._client, {
+    void Function(String token)? tokenSink,
+    bool? debugMode,
+  }) : _tokenSink = tokenSink,
+       _debugMode = debugMode ?? kDebugMode;
 
   final PushMessagingClient _client;
   final bool _debugMode;
+  final void Function(String token)? _tokenSink;
 
   Future<void>? _initialization;
 
@@ -80,6 +85,8 @@ class PushNotificationService {
   Future<void> _initializeToken() async {
     try {
       _currentToken = await _client.getToken();
+      final token = _currentToken;
+      if (token != null) _deliverToken(token);
       _logTokenPresence('token_initial');
     } on Object {
       // Sanitized on purpose. Message listeners below must still run even
@@ -91,6 +98,7 @@ class PushNotificationService {
     try {
       _tokenRefreshSubscription = _client.onTokenRefresh.listen((token) {
         _currentToken = token;
+        _deliverToken(token);
         _logTokenPresence('token_refresh');
       }, onError: (Object _) {});
 
@@ -121,6 +129,14 @@ class PushNotificationService {
     } on Object {
       // Sanitized on purpose. The token and listeners set up above stay
       // active regardless.
+    }
+  }
+
+  void _deliverToken(String token) {
+    try {
+      _tokenSink?.call(token);
+    } on Object {
+      // A registration consumer must never break Firebase message streams.
     }
   }
 

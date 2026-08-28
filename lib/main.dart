@@ -31,6 +31,7 @@ Future<void> main() async {
     // show over), so this is fire-and-forget and only starts once the UI is
     // already up — see PushNotificationService.initialize's doc comment.
     unawaited(container.read(pushNotificationServiceProvider).initialize());
+    unawaited(initializePushInstallationIntegration(container));
   } on Object {
     runApp(const _ConfigurationErrorApp());
   }

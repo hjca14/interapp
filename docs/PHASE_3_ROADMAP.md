@@ -86,11 +86,19 @@ permanecem explicitamente pendentes.
     implementadas — fora de escopo desta subfase;
   - nenhum token foi cadastrado na AWS e nenhum sender AWS foi implementado
     — ambos continuam pendentes para as Fases 3B.5 e 3B.6.
-- [ ] **3B.5 — Registro de instalações e tokens**
-  - contrato coordenado entre app e backend;
-  - instalação por usuário autenticado e suporte a múltiplos celulares;
-  - renovação de token, logout e desregistro;
-  - nunca expor tokens em logs.
+- [ ] **3B.5 — Registro de instalações e tokens (integração implementada;
+  validação real pendente)**
+  - backend implementado no interBackend PR #23; integração do app implementada
+    nesta entrega, com `PUT`/`DELETE` autenticados e UUID v4 persistente por
+    instalação;
+  - token inicial, restauração/login e renovação convergem em um coordenador
+    single-flight; logout solicitado remove a instalação antes do sign-out;
+  - testes usam fakes e não acessam Firebase, Cognito ou AWS; token não é
+    persistido, exposto à UI ou incluído em logs/erros;
+  - deploy DEV e teste ponta a ponta real de PUT, renovação e DELETE ainda não
+    foram executados. Só marcar 3B.5 como concluída depois do merge, deploy e
+    dessa validação;
+  - sender FCM continua exclusivamente na 3B.6 e não houve mudança de firmware.
 - [ ] **3B.6 — Emissor FCM na AWS**
   - FCM HTTP v1 e credencial protegida no Secrets Manager;
   - nenhuma chave em repositório ou variável pública;

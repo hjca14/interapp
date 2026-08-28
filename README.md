@@ -24,7 +24,8 @@ A numeração, a ordem e os critérios de conclusão de 3A, 3B e 3C estão no
 [roadmap canônico da Fase 3](docs/PHASE_3_ROADMAP.md). A Fase 3A reúne nome
 pessoal/experiência do dispositivo, segurança da conta e preferências de
 alertas. A Fase 3B começa pela identidade móvel definitiva
-`com.interbridge.app`, antes de qualquer configuração Firebase/FCM. A Fase 3C
+`com.interbridge.app`; as subfases 3B.1–3B.4 já estão concluídas e a integração
+de registro da 3B.5 está implementada no app. A Fase 3C
 fica reservada ao onboarding BLE real.
 
 ## Gerenciamento de dispositivos: lista, detalhes e nome pessoal
@@ -69,8 +70,12 @@ item "Notificações" nas configurações do dispositivo, com o antigo botão
 "Salvar" substituído por salvamento automático (debounce + outbox local); a
 validação manual desse novo fluxo de autosave ainda depende do próximo
 `flutter run`. A identidade definitiva desta etapa se aplica aos alvos móveis
-Android e iOS; não é uma renomeação mecânica das plataformas desktop/web. FCM
-não foi configurado e o projeto Firebase ainda não foi criado. O BLE real não
+Android e iOS; não é uma renomeação mecânica das plataformas desktop/web. O
+Firebase DEV `interbridge-dev` e o FCM Android estão configurados. O app agora
+registra e remove a instalação autenticada pelas rotas da 3B.5 (backend no
+interBackend PR #23), mas deploy DEV e validação real de PUT, renovação e DELETE
+continuam pendentes; portanto a 3B.5 ainda não está concluída ponta a ponta. O
+sender FCM pertence exclusivamente à 3B.6. O BLE real não
 foi iniciado; há um Android físico antigo disponível para esse teste futuro.
 
 ## Alteração de senha nas configurações gerais da conta
