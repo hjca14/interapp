@@ -3,10 +3,14 @@ import 'package:interapp/core/push/installation_id_store.dart';
 
 class MemoryPreferences implements StringPreferenceStore {
   final values = <String, String>{};
+  bool persistSuccessfully = true;
   @override
   String? getString(String key) => values[key];
   @override
   Future<bool> setString(String key, String value) async {
+    if (!persistSuccessfully) {
+      return false;
+    }
     values[key] = value;
     return true;
   }
@@ -44,5 +48,25 @@ void main() {
       MemoryPreferences(),
     ).getOrCreate();
     expect(first, isNot(second));
+  });
+
+  test('failed persistence is sanitized and can be retried', () async {
+    final preferences = MemoryPreferences()..persistSuccessfully = false;
+    final store = SharedPreferencesInstallationIdStore(preferences);
+
+    await expectLater(
+      store.getOrCreate(),
+      throwsA(
+        isA<InstallationIdStoreFailure>().having(
+          (failure) => failure.toString(),
+          'safe message',
+          isNot(contains('SharedPreferences')),
+        ),
+      ),
+    );
+    expect(preferences.values, isEmpty);
+
+    preferences.persistSuccessfully = true;
+    expect(await store.getOrCreate(), matches(uuidV4));
   });
 }

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/network/api_failure.dart';
 import '../../../../core/push/push_providers.dart';
 import '../../../../core/push/safe_logout_service.dart';
+import '../../../auth/domain/repositories/auth_repository.dart';
 import '../../../auth/presentation/providers/auth_providers.dart';
 import '../../../auth/presentation/widgets/biometric_lock_gate.dart';
 import '../../../devices/domain/entities/api_device.dart';

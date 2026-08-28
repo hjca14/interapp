@@ -10,6 +10,13 @@ abstract interface class StringPreferenceStore {
   Future<bool> setString(String key, String value);
 }
 
+class InstallationIdStoreFailure implements Exception {
+  const InstallationIdStoreFailure();
+
+  @override
+  String toString() => 'Não foi possível salvar a identificação da instalação.';
+}
+
 class SharedPreferencesInstallationIdStore implements InstallationIdStore {
   SharedPreferencesInstallationIdStore(this._preferences, {Uuid? uuid})
     : _uuid = uuid ?? const Uuid();
@@ -25,13 +32,32 @@ class SharedPreferencesInstallationIdStore implements InstallationIdStore {
   );
 
   @override
-  Future<String> getOrCreate() => _value ??= _loadOrCreate();
+  Future<String> getOrCreate() async {
+    final existingAttempt = _value;
+    if (existingAttempt != null) {
+      return existingAttempt;
+    }
+
+    final attempt = _loadOrCreate();
+    _value = attempt;
+    try {
+      return await attempt;
+    } on Object {
+      if (identical(_value, attempt)) {
+        _value = null;
+      }
+      rethrow;
+    }
+  }
 
   Future<String> _loadOrCreate() async {
     final stored = _preferences.getString(preferenceKey);
     if (stored != null && _validUuidV4.hasMatch(stored)) return stored;
     final generated = _uuid.v4();
-    await _preferences.setString(preferenceKey, generated);
+    final persisted = await _preferences.setString(preferenceKey, generated);
+    if (!persisted) {
+      throw const InstallationIdStoreFailure();
+    }
     return generated;
   }
 }

@@ -33,7 +33,9 @@ class LogoutPushRepository implements PushInstallationRepository {
     required String installationId,
     required String token,
     required String appVersion,
-  }) async {}
+  }) async {
+    events.add('register');
+  }
 }
 
 class LogoutAuth implements AuthRepository {
@@ -41,12 +43,16 @@ class LogoutAuth implements AuthRepository {
   final List<String> events;
   bool signedIn;
   bool invalidated = false;
+  Object? signOutError;
   @override
   Future<AuthSession> get currentSession async =>
       AuthSession(isSignedIn: signedIn);
   @override
   Future<void> signOut() async {
     events.add('signOut');
+    if (signOutError != null) {
+      throw signOutError!;
+    }
     signedIn = false;
   }
 
@@ -102,5 +108,25 @@ void main() {
     );
     expect(auth.invalidated, isTrue);
     expect(events, isEmpty);
+  });
+
+  test('Cognito failure after DELETE restores and repairs registration', () async {
+    final events = <String>[];
+    final auth = LogoutAuth(events)..signOutError = StateError('provider');
+    final repository = LogoutPushRepository(events);
+    final coordinator = logoutCoordinator(repository)
+      ..setAuthenticated(true)
+      ..acceptToken('private-token');
+    await coordinator.idle;
+    events.clear();
+
+    await expectLater(
+      SafeLogoutService(coordinator, auth).signOut(),
+      throwsA(isA<StateError>()),
+    );
+    await coordinator.idle;
+
+    expect(events, ['delete', 'signOut', 'register']);
+    expect(auth.signedIn, isTrue);
   });
 }

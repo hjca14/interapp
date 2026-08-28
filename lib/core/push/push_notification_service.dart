@@ -16,11 +16,10 @@ import 'push_messaging_client.dart';
 /// first frame; call it after `runApp` instead.
 class PushNotificationService {
   PushNotificationService(
-    this._client, {
-    void Function(String token)? tokenSink,
+    this._client,
+    this._tokenSink, {
     bool? debugMode,
-  }) : _tokenSink = tokenSink,
-       _debugMode = debugMode ?? kDebugMode;
+  }) : _debugMode = debugMode ?? kDebugMode;
 
   final PushMessagingClient _client;
   final bool _debugMode;

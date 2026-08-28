@@ -21,6 +21,8 @@ class FakePushRepository implements PushInstallationRepository {
   final tokens = <String>[];
   final errors = <Object>[];
   Completer<void>? gate;
+  Object? deleteError;
+  int deletes = 0;
   int active = 0;
   int maxActive = 0;
   @override
@@ -40,7 +42,12 @@ class FakePushRepository implements PushInstallationRepository {
     }
   }
   @override
-  Future<void> deleteInstallation(String installationId) async {}
+  Future<void> deleteInstallation(String installationId) async {
+    deletes++;
+    if (deleteError != null) {
+      throw deleteError!;
+    }
+  }
 }
 
 PushInstallationCoordinator coordinator(FakePushRepository repository) =>
@@ -111,5 +118,45 @@ void main() {
       ..acceptToken('token');
     await second.idle;
     expect(permanent.tokens.length, 1);
+  });
+
+  test('logout waits for PUT and blocks refresh registration', () async {
+    final repository = FakePushRepository()..gate = Completer<void>();
+    final value = coordinator(repository)..setAuthenticated(true);
+    value.acceptToken('before-logout');
+    await Future<void>.delayed(Duration.zero);
+
+    final logout = value.deleteForLogout();
+    value.acceptToken('during-logout');
+    await Future<void>.delayed(Duration.zero);
+    expect(repository.deletes, 0, reason: 'DELETE must wait for the PUT');
+    expect(repository.tokens, ['before-logout']);
+
+    repository.gate!.complete();
+    await logout;
+    expect(repository.deletes, 1);
+    await Future<void>.delayed(Duration.zero);
+    expect(
+      repository.tokens,
+      ['before-logout'],
+      reason: 'no PUT may run after DELETE while logout is completing',
+    );
+    value.completeLogout();
+  });
+
+  test('DELETE failure removes barrier and permits later synchronization', () async {
+    final repository = FakePushRepository();
+    final value = coordinator(repository)
+      ..setAuthenticated(true)
+      ..acceptToken('initial');
+    await value.idle;
+    repository.deleteError = const ApiFailure(ApiFailureKind.offline, 'safe');
+
+    await expectLater(value.deleteForLogout(), throwsA(isA<ApiFailure>()));
+    repository.deleteError = null;
+    value.acceptToken('after-failure');
+    await value.idle;
+
+    expect(repository.tokens, ['initial', 'after-failure']);
   });
 }

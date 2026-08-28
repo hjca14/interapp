@@ -32,7 +32,7 @@ final pushNotificationServiceProvider = Provider<PushNotificationService>((
 ) {
   final service = PushNotificationService(
     FirebaseMessagingClient(),
-    tokenSink: (token) => unawaited(
+    (token) => unawaited(
       ref.read(pushInstallationCoordinatorProvider).then(
         (coordinator) => coordinator.acceptToken(token),
       ),
@@ -44,21 +44,28 @@ final pushNotificationServiceProvider = Provider<PushNotificationService>((
   return service;
 });
 
-/// Starts the auth/token rendezvous after the first frame. Failures are
-/// deliberately isolated from normal application startup.
-Future<void> initializePushInstallationIntegration(
-  ProviderContainer container,
-) async {
-  try {
-    final coordinator = await container.read(
-      pushInstallationCoordinatorProvider,
-    );
-    container.listen(authSessionProvider, (_, next) {
-      next.whenData(
-        (session) => coordinator.setAuthenticated(session.isSignedIn),
-      );
-    }, fireImmediately: true);
-  } on Object {
-    // Push registration is best effort and must not affect the app shell.
+/// Owns exactly one auth subscription. Riverpod closes it with the provider,
+/// so repeated reads are idempotent and disposed test/app containers cannot
+/// keep reacting to session changes.
+final pushInstallationIntegrationProvider = Provider<void>((ref) {
+  var disposed = false;
+  ref.onDispose(() => disposed = true);
+  final coordinator = ref.watch(pushInstallationCoordinatorProvider);
+
+  Future<void> updateAuthentication(bool isSignedIn) async {
+    try {
+      final value = await coordinator;
+      if (!disposed) {
+        value.setAuthenticated(isSignedIn);
+      }
+    } on Object {
+      // Push registration remains isolated from authentication and app use.
+    }
   }
-}
+
+  ref.listen(authSessionProvider, (_, next) {
+    next.whenData((session) {
+      unawaited(updateAuthentication(session.isSignedIn));
+    });
+  }, fireImmediately: true);
+});

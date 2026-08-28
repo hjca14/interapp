@@ -19,8 +19,9 @@ class SafeLogoutService {
     await _push.deleteForLogout();
     try {
       await _auth.signOut();
+      _push.completeLogout();
     } on Object {
-      _push.requestAuthenticatedRepair();
+      _push.restoreAfterLogoutFailure();
       rethrow;
     }
   }

@@ -7,18 +7,15 @@ typedef Delay = Future<void> Function(Duration duration);
 
 class PushInstallationCoordinator {
   PushInstallationCoordinator({
-    required InstallationIdStore installationIds,
-    required AppVersionProvider appVersions,
-    required PushInstallationRepository repository,
+    required this.installationIds,
+    required this.appVersions,
+    required this.repository,
     Delay? delay,
-  }) : _installationIds = installationIds,
-       _appVersions = appVersions,
-       _repository = repository,
-       _delay = delay ?? Future<void>.delayed;
+  }) : _delay = delay ?? Future<void>.delayed;
 
-  final InstallationIdStore _installationIds;
-  final AppVersionProvider _appVersions;
-  final PushInstallationRepository _repository;
+  final InstallationIdStore installationIds;
+  final AppVersionProvider appVersions;
+  final PushInstallationRepository repository;
   final Delay _delay;
   String? _pendingToken;
   String? _lastRegisteredToken;
@@ -26,7 +23,9 @@ class PushInstallationCoordinator {
   bool _authenticated = false;
   bool _running = false;
   bool _startupRepairNeeded = true;
+  bool _logoutInProgress = false;
   Future<void>? _work;
+  Future<void>? _logoutWork;
 
   void acceptToken(String token) {
     if (token.isEmpty) return;
@@ -52,6 +51,7 @@ class PushInstallationCoordinator {
 
   void _schedule() {
     if (!_authenticated ||
+        _logoutInProgress ||
         _pendingToken == null ||
         _pendingToken == _blockedToken ||
         _running) {
@@ -63,7 +63,7 @@ class PushInstallationCoordinator {
 
   Future<void> _drain() async {
     try {
-      while (_authenticated && _pendingToken != null) {
+      while (_authenticated && !_logoutInProgress && _pendingToken != null) {
         final token = _pendingToken!;
         if (token == _lastRegisteredToken && !_startupRepairNeeded) break;
         final succeeded = await _registerWithRetry(token);
@@ -92,10 +92,10 @@ class PushInstallationCoordinator {
   Future<bool> _registerWithRetry(String token) async {
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
-        await _repository.registerInstallation(
-          installationId: await _installationIds.getOrCreate(),
+        await repository.registerInstallation(
+          installationId: await installationIds.getOrCreate(),
           token: token,
-          appVersion: await _appVersions.load(),
+          appVersion: await appVersions.load(),
         );
         return true;
       } on ApiFailure catch (failure) {
@@ -103,6 +103,9 @@ class PushInstallationCoordinator {
         await _delay(
           failure.retryAfter ?? Duration(milliseconds: 200 * (1 << attempt)),
         );
+      } on InstallationIdStoreFailure {
+        if (attempt == 2) return false;
+        await _delay(Duration(milliseconds: 200 * (1 << attempt)));
       } on Object {
         return false;
       }
@@ -119,14 +122,42 @@ class PushInstallationCoordinator {
     ApiFailureKind.offline,
   }.contains(kind);
 
-  Future<void> deleteForLogout() async {
-    await _repository.deleteInstallation(await _installationIds.getOrCreate());
-    _lastRegisteredToken = null;
-    _startupRepairNeeded = true;
+  Future<void> deleteForLogout() {
+    return _logoutWork ??= _deleteForLogoutOnce();
+  }
+
+  Future<void> _deleteForLogoutOnce() async {
+    _logoutInProgress = true;
+    try {
+      final registrationInProgress = _work;
+      if (registrationInProgress != null) {
+        await registrationInProgress;
+      }
+      await repository.deleteInstallation(await installationIds.getOrCreate());
+      _lastRegisteredToken = null;
+      _startupRepairNeeded = true;
+    } on Object {
+      _logoutInProgress = false;
+      _logoutWork = null;
+      _blockedToken = null;
+      _schedule();
+      rethrow;
+    }
+  }
+
+  /// Completes the barrier after Cognito has ended the session.
+  void completeLogout() {
+    _authenticated = false;
+    _logoutInProgress = false;
+    _logoutWork = null;
+    _blockedToken = null;
   }
 
   /// Repairs the remote record if Cognito sign-out failed after DELETE.
-  void requestAuthenticatedRepair() {
+  void restoreAfterLogoutFailure() {
+    _authenticated = true;
+    _logoutInProgress = false;
+    _logoutWork = null;
     _startupRepairNeeded = true;
     _blockedToken = null;
     _schedule();
