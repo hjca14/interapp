@@ -85,12 +85,29 @@ permanecem explicitamente pendentes.
   - nenhuma navegação funcional específica e nenhuma tela de chamada foram
     implementadas — fora de escopo desta subfase;
   - nenhum token foi cadastrado na AWS e nenhum sender AWS foi implementado
-    — ambos continuam pendentes para as Fases 3B.5 e 3B.6.
-- [ ] **3B.5 — Registro de instalações e tokens**
-  - contrato coordenado entre app e backend;
-  - instalação por usuário autenticado e suporte a múltiplos celulares;
-  - renovação de token, logout e desregistro;
-  - nunca expor tokens em logs.
+    neste teste — o cadastro do token foi endereçado em seguida pela Fase
+    3B.5; o sender AWS continua pendente para a Fase 3B.6.
+- [x] **3B.5 — Registro de instalações e tokens**
+  - backend implementado no interBackend PR #23; integração do app implementada
+    com `PUT`/`DELETE` autenticados e UUID v4 persistente por instalação;
+  - token inicial, restauração/login e renovação convergem em um coordenador
+    single-flight; logout solicitado remove a instalação antes do sign-out;
+  - testes usam fakes e não acessam Firebase, Cognito ou AWS; token não é
+    persistido, exposto à UI ou incluído em logs/erros;
+  - validado ponta a ponta em DEV (`sa-east-1`), SHA
+    `62a5a4d68e06f565e0118a900763a18485692516` (CI Flutter #104 aprovada;
+    `dart format` com 9 arquivos ainda não formatados — checagem tolerante,
+    não bloqueia a CI; `flutter analyze` sem problemas; `flutter test`: 552
+    aprovados; build e instalação Android debug aprovados);
+  - evidência E2E (sanitizada, sem tokens, hashes completos, UUIDs completos
+    ou `user_id`): login autenticado gerou `PUT` e criou exatamente um item
+    autoritativo `INSTALLATION` e um `CLAIM`; o item apresentou `ANDROID`,
+    `FCM`, `com.interbridge.app` e `1.0.0+1`; um reinício completo do app
+    preservou o mesmo `installation_id` e `created_at`, avançou `updated_at`
+    e não criou duplicatas; o logout seguro removeu os dois itens (`DELETE`)
+    antes de encerrar a sessão; um novo login recriou instalação e claim
+    usando o mesmo `installation_id`;
+  - sender FCM continua exclusivamente na 3B.6 e não houve mudança de firmware.
 - [ ] **3B.6 — Emissor FCM na AWS**
   - FCM HTTP v1 e credencial protegida no Secrets Manager;
   - nenhuma chave em repositório ou variável pública;

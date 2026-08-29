@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/network/api_failure.dart';
+import '../../../../core/push/push_providers.dart';
+import '../../../../core/push/safe_logout_service.dart';
+import '../../../auth/domain/repositories/auth_repository.dart';
 import '../../../auth/presentation/providers/auth_providers.dart';
 import '../../../auth/presentation/widgets/biometric_lock_gate.dart';
 import '../../../devices/domain/entities/api_device.dart';
@@ -62,7 +66,41 @@ class _HomePageState extends ConsumerState<HomePage> {
         ],
       ),
     );
-    if (confirmed == true) await ref.read(authRepositoryProvider).signOut();
+    if (confirmed != true) return;
+    try {
+      final service = SafeLogoutService(
+        await ref.read(pushInstallationCoordinatorProvider),
+        ref.read(authRepositoryProvider),
+      );
+      await service.signOut();
+    } on ApiFailure catch (failure) {
+      if (!mounted) return;
+      final message = failure.kind == ApiFailureKind.unauthorized
+          ? 'Sua sessão expirou. Entre novamente.'
+          : 'Não foi possível sair com segurança. Tente novamente.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          action: SnackBarAction(label: 'Tentar', onPressed: _confirmLogout),
+        ),
+      );
+    } on AuthFailure catch (failure) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(failure.safeMessage)),
+        );
+      }
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Não foi possível sair com segurança. Tente novamente.',
+            ),
+          ),
+        );
+      }
+    }
   }
 
   @override

@@ -44,6 +44,8 @@ dependencies:
   local_auth: ^3.0.0
   firebase_core: ^4.14.0
   firebase_messaging: ^16.6.0
+  package_info_plus: ^10.2.1
+  uuid: ^4.6.0
 
 dev_dependencies:
   flutter_test:

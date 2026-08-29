@@ -113,7 +113,7 @@ void main() {
       final permissionGate = Completer<void>();
       client.authorizationStatus = PushAuthorizationStatus.notDetermined;
       client.permissionDelay = permissionGate.future;
-      final service = PushNotificationService(client, debugMode: false);
+      final service = PushNotificationService(client, null, debugMode: false);
 
       var reachedNextStatement = false;
       unawaited(service.initialize());
@@ -132,7 +132,7 @@ void main() {
       final tokenGate = Completer<void>();
       client.authorizationStatus = PushAuthorizationStatus.granted;
       client.tokenDelay = tokenGate.future;
-      final service = PushNotificationService(client, debugMode: false);
+      final service = PushNotificationService(client, null, debugMode: false);
 
       var reachedNextStatement = false;
       unawaited(service.initialize());
@@ -151,7 +151,7 @@ void main() {
       'a bootstrap failure does not throw and the app can proceed',
       () async {
         client.getAuthorizationStatusError = Exception('boom');
-        final service = PushNotificationService(client, debugMode: false);
+        final service = PushNotificationService(client, null, debugMode: false);
 
         await expectLater(service.initialize(), completes);
         expect(service.authorizationStatus, isNull);
@@ -165,7 +165,7 @@ void main() {
       () async {
         client.getAuthorizationStatusError = Exception('boom');
         client.token = 'token-despite-permission-failure';
-        final service = PushNotificationService(client, debugMode: false);
+        final service = PushNotificationService(client, null, debugMode: false);
 
         await service.initialize();
 
@@ -183,7 +183,7 @@ void main() {
       () async {
         client.authorizationStatus = PushAuthorizationStatus.granted;
         client.getTokenError = Exception('boom');
-        final service = PushNotificationService(client, debugMode: false);
+        final service = PushNotificationService(client, null, debugMode: false);
         await service.initialize();
 
         expect(service.hasToken, isFalse);
@@ -215,7 +215,7 @@ void main() {
       client.authorizationStatus = PushAuthorizationStatus.granted;
       client.token = 'token-despite-initial-message-failure';
       client.getInitialMessageError = Exception('boom');
-      final service = PushNotificationService(client, debugMode: false);
+      final service = PushNotificationService(client, null, debugMode: false);
       await service.initialize();
 
       client.emitForegroundMessage(
@@ -237,7 +237,7 @@ void main() {
         client.getAuthorizationStatusError = Exception('boom');
         client.getTokenError = Exception('boom');
         client.getInitialMessageError = Exception('boom');
-        final service = PushNotificationService(client, debugMode: false);
+        final service = PushNotificationService(client, null, debugMode: false);
 
         await service.initialize();
         await service.initialize();
@@ -255,7 +255,7 @@ void main() {
     test('requests permission when status is not yet determined', () async {
       client.authorizationStatus = PushAuthorizationStatus.notDetermined;
       client.requestPermissionResult = PushAuthorizationStatus.granted;
-      final service = PushNotificationService(client, debugMode: false);
+      final service = PushNotificationService(client, null, debugMode: false);
 
       await service.initialize();
 
@@ -265,7 +265,7 @@ void main() {
 
     test('does not re-request permission when already granted', () async {
       client.authorizationStatus = PushAuthorizationStatus.granted;
-      final service = PushNotificationService(client, debugMode: false);
+      final service = PushNotificationService(client, null, debugMode: false);
 
       await service.initialize();
 
@@ -275,7 +275,7 @@ void main() {
 
     test('does not re-request permission when already denied', () async {
       client.authorizationStatus = PushAuthorizationStatus.denied;
-      final service = PushNotificationService(client, debugMode: false);
+      final service = PushNotificationService(client, null, debugMode: false);
 
       await service.initialize();
 
@@ -285,7 +285,7 @@ void main() {
 
     test('a denied permission is not treated as a fatal error', () async {
       client.authorizationStatus = PushAuthorizationStatus.denied;
-      final service = PushNotificationService(client, debugMode: false);
+      final service = PushNotificationService(client, null, debugMode: false);
 
       await expectLater(service.initialize(), completes);
     });
@@ -294,7 +294,7 @@ void main() {
   group('idempotent initialization', () {
     test('a second initialize() call reuses the same future', () async {
       client.authorizationStatus = PushAuthorizationStatus.notDetermined;
-      final service = PushNotificationService(client, debugMode: false);
+      final service = PushNotificationService(client, null, debugMode: false);
 
       final first = service.initialize();
       final second = service.initialize();
@@ -311,7 +311,7 @@ void main() {
       'subscribes to each stream exactly once even across repeated calls',
       () async {
         client.authorizationStatus = PushAuthorizationStatus.granted;
-        final service = PushNotificationService(client, debugMode: false);
+        final service = PushNotificationService(client, null, debugMode: false);
 
         await service.initialize();
         await service.initialize();
@@ -327,7 +327,7 @@ void main() {
     test('hasToken becomes true once the initial token is obtained', () async {
       client.authorizationStatus = PushAuthorizationStatus.granted;
       client.token = 'token-abc';
-      final service = PushNotificationService(client, debugMode: false);
+      final service = PushNotificationService(client, null, debugMode: false);
 
       await service.initialize();
 
@@ -337,7 +337,7 @@ void main() {
     test('hasToken stays false when there is no token', () async {
       client.authorizationStatus = PushAuthorizationStatus.granted;
       client.token = null;
-      final service = PushNotificationService(client, debugMode: false);
+      final service = PushNotificationService(client, null, debugMode: false);
 
       await expectLater(service.initialize(), completes);
       expect(service.hasToken, isFalse);
@@ -346,7 +346,7 @@ void main() {
     test('a token fetch failure does not throw', () async {
       client.authorizationStatus = PushAuthorizationStatus.granted;
       client.getTokenError = Exception('boom');
-      final service = PushNotificationService(client, debugMode: false);
+      final service = PushNotificationService(client, null, debugMode: false);
 
       await expectLater(service.initialize(), completes);
     });
@@ -356,7 +356,7 @@ void main() {
       () async {
         client.authorizationStatus = PushAuthorizationStatus.granted;
         client.token = null;
-        final service = PushNotificationService(client, debugMode: false);
+        final service = PushNotificationService(client, null, debugMode: false);
         await service.initialize();
         expect(service.hasToken, isFalse);
 
@@ -370,7 +370,7 @@ void main() {
     test('there is no public API that exposes the full token value', () async {
       client.authorizationStatus = PushAuthorizationStatus.granted;
       client.token = 'secret-ish-token';
-      final service = PushNotificationService(client, debugMode: true);
+      final service = PushNotificationService(client, null, debugMode: true);
       await service.initialize();
       client.emitTokenRefresh('refreshed-secret-ish-token');
       await pumpEventQueue();
@@ -386,7 +386,7 @@ void main() {
   group('message events are consumed', () {
     test('a foreground message updates the last-event diagnostic', () async {
       client.authorizationStatus = PushAuthorizationStatus.granted;
-      final service = PushNotificationService(client, debugMode: false);
+      final service = PushNotificationService(client, null, debugMode: false);
       await service.initialize();
 
       client.emitForegroundMessage(
@@ -403,7 +403,7 @@ void main() {
       'a tap that opens the app from background updates the diagnostic',
       () async {
         client.authorizationStatus = PushAuthorizationStatus.granted;
-        final service = PushNotificationService(client, debugMode: false);
+        final service = PushNotificationService(client, null, debugMode: false);
         await service.initialize();
 
         client.emitMessageOpenedApp(
@@ -425,7 +425,7 @@ void main() {
           messageId: 'msg-cold',
           title: 'Inicial',
         );
-        final service = PushNotificationService(client, debugMode: false);
+        final service = PushNotificationService(client, null, debugMode: false);
 
         await service.initialize();
         await service.initialize();
@@ -439,7 +439,7 @@ void main() {
         'the diagnostic empty', () async {
       client.authorizationStatus = PushAuthorizationStatus.granted;
       client.getInitialMessageError = Exception('boom');
-      final service = PushNotificationService(client, debugMode: false);
+      final service = PushNotificationService(client, null, debugMode: false);
 
       await expectLater(service.initialize(), completes);
       expect(service.lastInitialMessageEvent, isNull);
@@ -450,7 +450,7 @@ void main() {
     test('cancels every subscription created during initialize', () async {
       client.authorizationStatus = PushAuthorizationStatus.granted;
       client.token = 'before-dispose';
-      final service = PushNotificationService(client, debugMode: false);
+      final service = PushNotificationService(client, null, debugMode: false);
       await service.initialize();
 
       await service.dispose();
@@ -478,7 +478,7 @@ void main() {
 
       client.authorizationStatus = PushAuthorizationStatus.granted;
       client.token = 'super-sensitive-token-value';
-      final service = PushNotificationService(client, debugMode: true);
+      final service = PushNotificationService(client, null, debugMode: true);
       await service.initialize();
 
       client.emitTokenRefresh('another-super-sensitive-token-value');
@@ -520,7 +520,7 @@ void main() {
 
       client.authorizationStatus = PushAuthorizationStatus.granted;
       client.token = 'should-not-be-logged';
-      final service = PushNotificationService(client, debugMode: false);
+      final service = PushNotificationService(client, null, debugMode: false);
       await service.initialize();
 
       client.emitTokenRefresh('should-not-be-logged-either');

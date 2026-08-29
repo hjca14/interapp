@@ -26,6 +26,72 @@ class InterBridgeApiClient {
   final http.Client _client;
   final Duration timeout;
 
+  /// Sends an authenticated JSON request whose successful response has no body.
+  Future<void> putEmpty(
+    String path, {
+    required Map<String, dynamic> body,
+    int expectedStatus = HttpStatus.noContent,
+  }) => _emptyRequest('PUT', path, body: body, expectedStatus: expectedStatus);
+
+  /// Sends an authenticated DELETE whose successful response has no body.
+  Future<void> deleteEmpty(
+    String path, {
+    int expectedStatus = HttpStatus.noContent,
+  }) => _emptyRequest('DELETE', path, expectedStatus: expectedStatus);
+
+  Future<void> _emptyRequest(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+    required int expectedStatus,
+  }) async {
+    var response = await _send(method, path, body: body);
+    if (response.statusCode == HttpStatus.unauthorized) {
+      response = await _send(method, path, body: body, forceRefresh: true);
+      if (response.statusCode == HttpStatus.unauthorized) {
+        await _auth.invalidateSession();
+        throw const ApiFailure(
+          ApiFailureKind.unauthorized,
+          'Sua sessão expirou. Entre novamente.',
+        );
+      }
+    }
+    if (response.statusCode != expectedStatus) {
+      throw _mapStatusFailure(response, response.headers['x-request-id']);
+    }
+  }
+
+  Future<http.Response> _send(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+    bool forceRefresh = false,
+  }) async {
+    final accessToken = await _auth.getValidAccessToken(
+      forceRefresh: forceRefresh,
+    );
+    try {
+      return await _client
+          .send(
+            http.Request(method, Uri.parse('$baseUrl$path'))
+              ..headers.addAll({
+                'Authorization': 'Bearer $accessToken',
+                'Accept': 'application/json',
+                if (body != null) 'Content-Type': 'application/json',
+              })
+              ..body = body == null ? '' : jsonEncode(body),
+          )
+          .then(http.Response.fromStream)
+          .timeout(timeout);
+    } on TimeoutException {
+      throw const ApiFailure(ApiFailureKind.timeout, 'O serviço demorou para responder.');
+    } on SocketException {
+      throw const ApiFailure(ApiFailureKind.offline, 'Sem conexão com o serviço.');
+    } on http.ClientException {
+      throw const ApiFailure(ApiFailureKind.offline, 'Sem conexão com o serviço.');
+    }
+  }
+
   /// Performs a GET and returns a JSON object response.
   Future<Map<String, dynamic>> get(
     String path, {
@@ -281,6 +347,7 @@ class InterBridgeApiClient {
         ApiFailureKind.conflict,
         'A tentativa conflita com uma solicitação anterior.',
         requestId: requestId,
+        retryAfter: _parseRetryAfter(response.headers['retry-after']),
       ),
       413 => ApiFailure(
         ApiFailureKind.payloadTooLarge,
@@ -297,11 +364,13 @@ class InterBridgeApiClient {
         ApiFailureKind.server,
         'O serviço encontrou um erro.',
         requestId: requestId,
+        retryAfter: _parseRetryAfter(response.headers['retry-after']),
       ),
       HttpStatus.serviceUnavailable => ApiFailure(
         ApiFailureKind.unavailable,
         'Serviço temporariamente indisponível.',
         requestId: requestId,
+        retryAfter: _parseRetryAfter(response.headers['retry-after']),
       ),
       _ => ApiFailure(
         ApiFailureKind.invalidResponse,

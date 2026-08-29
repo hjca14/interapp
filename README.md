@@ -24,7 +24,8 @@ A numeração, a ordem e os critérios de conclusão de 3A, 3B e 3C estão no
 [roadmap canônico da Fase 3](docs/PHASE_3_ROADMAP.md). A Fase 3A reúne nome
 pessoal/experiência do dispositivo, segurança da conta e preferências de
 alertas. A Fase 3B começa pela identidade móvel definitiva
-`com.interbridge.app`, antes de qualquer configuração Firebase/FCM. A Fase 3C
+`com.interbridge.app`; as subfases 3B.1–3B.5 já estão concluídas, com a 3B.5
+validada ponta a ponta em DEV. A Fase 3C
 fica reservada ao onboarding BLE real.
 
 ## Gerenciamento de dispositivos: lista, detalhes e nome pessoal
@@ -69,8 +70,17 @@ item "Notificações" nas configurações do dispositivo, com o antigo botão
 "Salvar" substituído por salvamento automático (debounce + outbox local); a
 validação manual desse novo fluxo de autosave ainda depende do próximo
 `flutter run`. A identidade definitiva desta etapa se aplica aos alvos móveis
-Android e iOS; não é uma renomeação mecânica das plataformas desktop/web. FCM
-não foi configurado e o projeto Firebase ainda não foi criado. O BLE real não
+Android e iOS; não é uma renomeação mecânica das plataformas desktop/web. O
+Firebase DEV `interbridge-dev` e o FCM Android estão configurados e validados
+(Fase 3B.4). O app registra e remove a instalação autenticada pelas rotas da
+3B.5 (backend no interBackend PR #23), e essa integração foi validada ponta a
+ponta em DEV (`sa-east-1`): o login autenticado gerou um `PUT` e criou
+exatamente um item autoritativo `INSTALLATION` e um `CLAIM` (`ANDROID`, `FCM`,
+`com.interbridge.app`, `1.0.0+1`); um reinício completo do app preservou o
+mesmo `installation_id`/`created_at`, avançou `updated_at` e não duplicou o
+item; o logout seguro removeu os dois itens antes de encerrar a sessão; e um
+novo login recriou instalação e claim com o mesmo `installation_id`. O
+sender FCM pertence exclusivamente à 3B.6. O BLE real não
 foi iniciado; há um Android físico antigo disponível para esse teste futuro.
 
 ## Alteração de senha nas configurações gerais da conta
