@@ -364,11 +364,15 @@ A reorganização entre Resumo, Diagnóstico e Configurações, a alteração de
 e as preferências reais de alertas compõem a Fase 3A. As preferências estão
 implantadas e validadas em DEV; somente a experiência reorganizada de autosave
 ainda aguarda repetição manual. A Fase 3B começa pela identidade definitiva
-`com.interbridge.app` para Android e iOS. As Fases 3B.1–3B.4 de Firebase/FCM
+`com.interbridge.app` para Android e iOS. As Fases 3B.1–3B.5 de Firebase/FCM
 foram concluídas. O backend da 3B.5 foi implementado no interBackend PR #23 e
-a integração do app está implementada, mas deploy DEV e validação ponta a ponta
-real de PUT, renovação e DELETE permanecem pendentes; o sender é exclusivo da
-3B.6 e nenhum firmware foi alterado. Os
+a integração do app foi validada ponta a ponta em DEV (`sa-east-1`): o login
+autenticado criou exatamente um item `INSTALLATION`/`CLAIM` (`ANDROID`, `FCM`,
+`com.interbridge.app`, `1.0.0+1`), um reinício completo preservou
+`installation_id`/`created_at` sem duplicar, o logout seguro removeu ambos os
+itens via `DELETE`, e um novo login recriou instalação/claim com o mesmo
+`installation_id`; o sender é exclusivo da 3B.6 e nenhum firmware foi
+alterado. Os
 modelos e mocks existentes de onboarding preservam decisões anteriores, mas
 não significam que a Fase 3C ou a implementação BLE real começou.
 
