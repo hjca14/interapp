@@ -108,29 +108,54 @@ permanecem explicitamente pendentes.
     antes de encerrar a sessão; um novo login recriou instalação e claim
     usando o mesmo `installation_id`;
   - sender FCM continua exclusivamente na 3B.6 e não houve mudança de firmware.
-- [ ] **3B.6 — Emissor FCM na AWS**
-  - FCM HTTP v1 e credencial protegida no Secrets Manager;
-  - nenhuma chave em repositório ou variável pública;
-  - remoção segura de tokens inválidos;
-  - mecanismo DEV controlado, sem rota pública improvisada para disparo.
-- [ ] **3B.7 — Aplicação das preferências**
-  - avaliar `alert_mode` e `quiet_schedule`;
-  - respeitar dias ISO, horários e timezone IANA;
-  - aplicar `NOTIFICATION_ONLY` e `BLOCK_ALL`;
-  - comportamento por rede local continua fora do escopo e reservado para uma
-    possível V2.
+- [x] **3B.6 — Emissor FCM na AWS**
+  - implantada e validada em DEV (`sa-east-1`): a cadeia
+    `telemetry_ingestion → push_sender → FCM HTTP v1` executou com sucesso
+    em teste real, com o sender registrando `membership_count=1`,
+    `installation_count=1`, `sent_count=1`, `suppressed_count=0`,
+    `invalid_token_count=0`, `temporary_failure_count=0`,
+    `permanent_failure_count=0`, `auth_config_failure_count=0`; o FCM
+    aceitou as mensagens;
+  - o backend envia deliberadamente um payload `data-only` (sem bloco
+    `notification`) com o contrato `push_contract_version`, `event_id`,
+    `device_id`, `event`, `presentation_intent`, `occurred_at` — a
+    apresentação local desse contrato é a entrega mínima da 3B.9 abaixo.
+- [x] **3B.7 — Aplicação das preferências**
+  - o backend já aplica `alert_mode` e `quiet_schedule` na decisão de
+    enviar ou suprimir um evento; eventos suprimidos não são enviados ao
+    FCM;
+  - comportamento por rede local continua fora do escopo e reservado para
+    uma possível V2.
 - [ ] **3B.8 — Simulador físico de toque no firmware**
   - botão/switch físico no ESP32;
   - publicar o evento definitivo (`RING_DETECTED` ou nome contratual
     equivalente), com `event_id` estável e fluxo MQTT real;
   - não criar atalho descartável fora do protocolo;
   - substituir futuramente o botão pelo detector real do interfone.
-- [ ] **3B.9 — Experiência de chamada no Android**
-  - evento remoto acorda o app;
-  - notificação comum ou experiência de ligação conforme configuração;
-  - respeitar filtros, abertura pelo toque e estados de
-    foreground/background/encerrado;
-  - não confundir recebimento de push com áudio bidirecional.
+- [ ] **3B.9 — Experiência de chamada no Android (antecipação mínima
+  entregue; fase continua aberta)**
+  - entrega mínima e isolada: reconhece e valida o payload `data-only`
+    versão 1 do contrato `RING_DETECTED` (`lib/core/push/ring_detected_push_parser.dart`),
+    deduplica por `event_id` (`ring_event_deduplicator.dart`, janela local
+    de 60s, best-effort, não é fonte de verdade), e apresenta uma
+    notificação local Android genérica ("Interfone tocando" / "Alguém
+    chamou no interfone.") em foreground e background, aplicando
+    `presentation_intent` (`RING_ONLY`/`RING_AND_NOTIFICATION` com som,
+    canal `incoming_call`; `NOTIFICATION_ONLY` silenciosa, canal
+    `ring_notification_silent`); reaproveita `IncomingCallNotificationService`,
+    `PushNotificationService` e o background handler existentes — nenhuma
+    arquitetura paralela;
+  - payloads inválidos ou não suportados são rejeitados silenciosamente,
+    sem apresentar notificação; diagnóstico debug sanitizado (`event_id`
+    mascarado, contrato válido/inválido, `event`, `presentation_intent`,
+    apresentado sim/não, motivo) — nunca título, corpo, `data`, token ou
+    IDs completos;
+  - **continua aberta**: nenhuma tela de chamada, full-screen intent,
+    CallKit/ConnectionService, ações atender/recusar, áudio bidirecional
+    ou navegação funcional ao tocar foram implementados; iOS/APNs e
+    consulta à API para nome do dispositivo também não. A experiência real
+    de chamada, as ações, a tela e a integração Android apropriada
+    permanecem como o trabalho real desta subfase.
 - [ ] **3B.10 — iOS, APNs e chamada**
   - cadastrar o app iOS no Firebase e configurar APNs;
   - capabilities, background modes e validação em aparelho físico;

@@ -1,21 +1,30 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
-/// Shows a local notification when an InterBridge device reports an
-/// incoming call.
+import '../../../../core/push/ring_detected_event.dart';
+import '../../../../core/push/ring_detected_presenter.dart';
+
+/// Shows local notifications for InterBridge calling activity: the
+/// device-status-polling "incoming call" experience below, and — via
+/// [present] — a validated `RING_DETECTED` push (Fase 3B.9's minimal
+/// slice).
 ///
-/// This only works while the app process is alive (foreground or
-/// backgrounded). Waking the app from a fully closed state requires a
-/// remote push sent by a backend, which does not exist yet (Fase 4 do
-/// roadmap). A future push-based implementation can reuse this service to
-/// render the notification once the payload arrives.
-class IncomingCallNotificationService {
+/// The polling-based [showIncomingCall] only works while the app process is
+/// alive (foreground or backgrounded); [present] additionally works from a
+/// fully closed app through the FCM background isolate handler, since it is
+/// also instantiated there — see `firebaseMessagingBackgroundHandler`.
+class IncomingCallNotificationService implements RingNotificationPresenter {
   IncomingCallNotificationService(this._plugin);
 
   final FlutterLocalNotificationsPlugin _plugin;
 
   // High importance/priority so Android shows this as a heads-up
   // notification (pops on screen) instead of sitting silently in the tray.
-  static const _androidDetails = AndroidNotificationDetails(
+  // Reused for RING_ONLY/RING_AND_NOTIFICATION: at this stage both are
+  // presented identically (a ringing-style local notification with sound);
+  // differentiating them further belongs to the real call experience in
+  // Fase 3B.9.
+  static const _callChannel = AndroidNotificationDetails(
     'incoming_call',
     'Chamadas do interfone',
     channelDescription: 'Avisos de chamada recebida no InterBridge',
@@ -23,10 +32,49 @@ class IncomingCallNotificationService {
     priority: Priority.high,
   );
 
+  // Separate channel for NOTIFICATION_ONLY: Android bakes sound/vibration
+  // into the channel itself once created, so a silent presentation needs
+  // its own channel rather than per-call flags on the shared one above.
+  static const _silentChannel = AndroidNotificationDetails(
+    'ring_notification_silent',
+    'Notificações silenciosas do interfone',
+    channelDescription: 'Avisos do interfone sem som nem vibração de chamada',
+    importance: Importance.high,
+    priority: Priority.high,
+    playSound: false,
+    enableVibration: false,
+  );
+
+  static const _ringDetectedNotificationTitle = 'Interfone tocando';
+  static const _ringDetectedNotificationBody = 'Alguém chamou no interfone.';
+
+  /// Exposes the channel [present] would use for [intent], so tests can
+  /// assert on sound/vibration without touching the plugin (channel
+  /// objects are plain values — no platform channel involved).
+  @visibleForTesting
+  static AndroidNotificationDetails androidChannelFor(
+    RingPresentationIntent intent,
+  ) => intent == RingPresentationIntent.notificationOnly
+      ? _silentChannel
+      : _callChannel;
+
   /// Registers the notification channel/settings and asks the OS for
-  /// permission to show notifications. Must run once before [showIncomingCall]
-  /// — called from `main()` before the app's first frame.
+  /// permission to show notifications. Must run once before
+  /// [showIncomingCall]/[present] — called from `main()` before the app's
+  /// first frame.
   Future<void> initialize() async {
+    await _initializePlatformSettings();
+    await _requestPermissions();
+  }
+
+  /// Channel/plugin setup only, without requesting permission — safe to
+  /// call from the FCM background isolate, which has no UI to show a
+  /// system permission prompt over and should not need to (permission is
+  /// already requested from the main isolate's [initialize]).
+  Future<void> initializeForBackgroundIsolate() =>
+      _initializePlatformSettings();
+
+  Future<void> _initializePlatformSettings() async {
     const androidSettings = AndroidInitializationSettings(
       '@mipmap/ic_launcher',
     );
@@ -37,6 +85,9 @@ class IncomingCallNotificationService {
         iOS: iosSettings,
       ),
     );
+  }
+
+  Future<void> _requestPermissions() async {
     await _plugin
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
@@ -49,6 +100,25 @@ class IncomingCallNotificationService {
         ?.requestPermissions(alert: true, sound: true);
   }
 
+  /// Presents a validated `RING_DETECTED` event per its
+  /// `presentation_intent`. Generic text on purpose — the push contract
+  /// does not yet carry a trustworthy device display name, and [event]'s
+  /// `deviceId` must never be shown as one.
+  @override
+  Future<void> present(RingDetectedEvent event) {
+    final silent =
+        event.presentationIntent == RingPresentationIntent.notificationOnly;
+    return _plugin.show(
+      id: event.eventId.hashCode,
+      title: _ringDetectedNotificationTitle,
+      body: _ringDetectedNotificationBody,
+      notificationDetails: NotificationDetails(
+        android: androidChannelFor(event.presentationIntent),
+        iOS: DarwinNotificationDetails(presentSound: !silent),
+      ),
+    );
+  }
+
   /// Shows the "device X is calling" notification. [deviceId]'s hash code is
   /// used as the notification id so a second call for the same device
   /// replaces (rather than stacks) the first, and [cancelIncomingCall] can
@@ -59,7 +129,7 @@ class IncomingCallNotificationService {
       title: 'Chamada recebida',
       body: '$deviceName está chamando pelo interfone.',
       notificationDetails: const NotificationDetails(
-        android: _androidDetails,
+        android: _callChannel,
         iOS: DarwinNotificationDetails(presentSound: true),
       ),
     );
