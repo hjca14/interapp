@@ -18,15 +18,26 @@ class FakeRingNotificationPresenter implements RingNotificationPresenter {
 }
 
 class FakeRingEventDeduplicator implements RingEventDeduplicator {
-  final Set<String> seen = {};
-  Object? shouldPresentError;
+  final Set<String> reserved = {};
+  final List<String> released = [];
+  Object? reserveError;
+  Object? releaseError;
 
   @override
-  Future<bool> shouldPresent(String eventId) async {
-    if (shouldPresentError != null) {
-      throw shouldPresentError!;
+  Future<bool> reserve(String eventId) async {
+    if (reserveError != null) {
+      throw reserveError!;
     }
-    return seen.add(eventId);
+    return reserved.add(eventId);
+  }
+
+  @override
+  Future<void> release(String eventId) async {
+    if (releaseError != null) {
+      throw releaseError!;
+    }
+    reserved.remove(eventId);
+    released.add(eventId);
   }
 }
 
@@ -103,25 +114,81 @@ void main() {
     );
   });
 
-  test('the same event_id is never presented twice', () async {
-    final payload = _validPayload();
+  group('deduplication', () {
+    test('the same event_id is never presented twice', () async {
+      final payload = _validPayload();
 
-    await run(payload);
-    await run(payload);
+      await run(payload);
+      await run(payload);
 
-    expect(presenter.presented, hasLength(1));
-    expect(diagnostics.last.reason, 'duplicate_event_id');
-    expect(diagnostics.last.presented, isFalse);
-  });
+      expect(presenter.presented, hasLength(1));
+      expect(diagnostics.last.reason, 'duplicate_event_id');
+      expect(diagnostics.last.presented, isFalse);
+    });
 
-  test('a duplicate is detected across two independent calls sharing the '
-      'deduplicator, simulating foreground + background_handler', () async {
-    final payload = _validPayload();
+    test('a duplicate is detected across two independent calls sharing the '
+        'deduplicator, simulating foreground + background_handler', () async {
+      final payload = _validPayload();
 
-    await run(payload, path: 'foreground');
-    await run(payload, path: 'background_handler');
+      await run(payload, path: 'foreground');
+      await run(payload, path: 'background_handler');
 
-    expect(presenter.presented, hasLength(1));
+      expect(presenter.presented, hasLength(1));
+    });
+
+    test('a successful presentation marks the event_id as seen (no release '
+        'call)', () async {
+      await run(_validPayload());
+
+      expect(deduplicator.released, isEmpty);
+      expect(
+        deduplicator.reserved,
+        contains('evt-0123456789abcdef0123456789abcdef'),
+      );
+    });
+
+    test('a presenter failure releases the reservation instead of leaving '
+        'the event_id stuck as "seen"', () async {
+      presenter.presentError = Exception('plugin exploded');
+
+      await run(_validPayload());
+
+      expect(deduplicator.released, ['evt-0123456789abcdef0123456789abcdef']);
+      expect(
+        deduplicator.reserved,
+        isNot(contains('evt-0123456789abcdef0123456789abcdef')),
+      );
+    });
+
+    test('after a presenter failure, a retry of the same event_id can be '
+        'presented', () async {
+      presenter.presentError = Exception('plugin exploded');
+      await run(_validPayload());
+      expect(presenter.presented, isEmpty);
+
+      presenter.presentError = null;
+      await run(_validPayload());
+
+      expect(presenter.presented, hasLength(1));
+    });
+
+    test('a reservation failure (dedup storage broken) does not throw and '
+        'never reaches the presenter', () async {
+      deduplicator.reserveError = Exception('storage exploded');
+
+      await expectLater(run(_validPayload()), completes);
+      expect(presenter.presented, isEmpty);
+    });
+
+    test(
+      'a release failure after a presenter failure does not throw',
+      () async {
+        presenter.presentError = Exception('plugin exploded');
+        deduplicator.releaseError = Exception('release storage exploded');
+
+        await expectLater(run(_validPayload()), completes);
+      },
+    );
   });
 
   test(
@@ -141,7 +208,7 @@ void main() {
   );
 
   test('a deduplicator failure does not throw', () async {
-    deduplicator.shouldPresentError = Exception('storage exploded');
+    deduplicator.reserveError = Exception('storage exploded');
 
     await expectLater(run(_validPayload()), completes);
     expect(presenter.presented, isEmpty);
@@ -156,4 +223,18 @@ void main() {
     expect(line, isNot(contains('fedcba9876543210fedcba9876543210')));
     expect(line, contains('event_id=')); // masked form is present
   });
+
+  test(
+    'diagnostics stay sanitized even after a presenter failure and release',
+    () async {
+      presenter.presentError = Exception('plugin exploded with secret data');
+
+      await run(_validPayload());
+
+      final line = diagnostics.single.toLogLine();
+      expect(line, isNot(contains('0123456789abcdef0123456789abcdef')));
+      expect(line, isNot(contains('secret')));
+      expect(line, contains('motivo=presentation_failed'));
+    },
+  );
 }

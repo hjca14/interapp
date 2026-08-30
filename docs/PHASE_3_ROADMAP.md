@@ -150,6 +150,15 @@ permanecem explicitamente pendentes.
     mascarado, contrato válido/inválido, `event`, `presentation_intent`,
     apresentado sim/não, motivo) — nunca título, corpo, `data`, token ou
     IDs completos;
+  - "app encerrado" não é um cenário único: remover o app da lista de
+    recentes (swipe) mantém o processo elegível para o Android acordar o
+    background handler normalmente, e é o cenário validável por este
+    trabalho. Forçar parada real (Configurações → Apps → Forçar parada, ou
+    `adb shell am force-stop`) é diferente — o Android pode bloquear
+    mensagens em segundo plano para o app até que o usuário o abra
+    manualmente de novo; esse não é um cenário de entrega garantida e não
+    deve ser tratado como equivalente ao swipe nem cobrado como validado
+    aqui;
   - **continua aberta**: nenhuma tela de chamada, full-screen intent,
     CallKit/ConnectionService, ações atender/recusar, áudio bidirecional
     ou navegação funcional ao tocar foram implementados; iOS/APNs e

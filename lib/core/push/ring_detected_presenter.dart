@@ -38,7 +38,7 @@ Future<void> presentRingDetectedPush({
         onDiagnostic(RingPushDiagnostic.rejected(path, reason));
         return;
       case RingPushParsed(:final event):
-        final isNew = await deduplicator.shouldPresent(event.eventId);
+        final isNew = await deduplicator.reserve(event.eventId);
         if (!isNew) {
           onDiagnostic(RingPushDiagnostic.duplicate(path, event));
           return;
@@ -47,6 +47,10 @@ Future<void> presentRingDetectedPush({
           await presenter.present(event);
           onDiagnostic(RingPushDiagnostic.presented(path, event));
         } on Object {
+          // The reservation above must not outlive a failed presentation —
+          // nothing was actually shown, so a legitimate retry within the
+          // window must still be allowed through.
+          await deduplicator.release(event.eventId);
           onDiagnostic(RingPushDiagnostic.presentationFailed(path, event));
         }
     }
