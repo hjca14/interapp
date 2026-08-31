@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import '../../../../core/push/full_screen_intent_access.dart';
 import '../../../../core/push/ring_detected_event.dart';
 import '../../../../core/push/ring_detected_presenter.dart';
 import '../../../../core/push/ring_call_intent.dart';
@@ -15,17 +16,25 @@ import '../../../../core/push/ring_call_intent.dart';
 /// fully closed app through the FCM background isolate handler, since it is
 /// also instantiated there — see `firebaseMessagingBackgroundHandler`.
 class IncomingCallNotificationService implements RingNotificationPresenter {
-  IncomingCallNotificationService(this._plugin, {this.onRingNotificationTap});
+  IncomingCallNotificationService(
+    this._plugin, {
+    this.onRingNotificationTap,
+    FullScreenIntentChecker? fullScreenIntentChecker,
+  }) : _fullScreenIntentChecker =
+           fullScreenIntentChecker ?? checkFullScreenIntentAccess;
 
   final FlutterLocalNotificationsPlugin _plugin;
   final void Function(String? payload)? onRingNotificationTap;
+  final FullScreenIntentChecker _fullScreenIntentChecker;
 
   // High importance/priority so Android shows this as a heads-up
   // notification (pops on screen) instead of sitting silently in the tray.
-  // Reused for RING_ONLY/RING_AND_NOTIFICATION: at this stage both are
-  // presented identically (a ringing-style local notification with sound);
-  // differentiating them further belongs to the real call experience in
-  // Fase 3B.9.
+  // Reused for RING_ONLY/RING_AND_NOTIFICATION, differentiated only by the
+  // per-notification `category`/`fullScreenIntent` added in
+  // [androidChannelFor] — both stay on this same channel id, since neither
+  // property is a channel-level setting Android would otherwise freeze at
+  // creation (unlike importance/sound, which is why NOTIFICATION_ONLY still
+  // needs its own channel below).
   static const _callChannel = AndroidNotificationDetails(
     'incoming_call',
     'Chamadas do interfone',
@@ -37,6 +46,7 @@ class IncomingCallNotificationService implements RingNotificationPresenter {
   // Separate channel for NOTIFICATION_ONLY: Android bakes sound/vibration
   // into the channel itself once created, so a silent presentation needs
   // its own channel rather than per-call flags on the shared one above.
+  // Never gets a `category`/`fullScreenIntent` — see [androidChannelFor].
   static const _silentChannel = AndroidNotificationDetails(
     'ring_notification_silent',
     'Notificações silenciosas do interfone',
@@ -51,14 +61,39 @@ class IncomingCallNotificationService implements RingNotificationPresenter {
   static const _ringDetectedNotificationBody = 'Alguém chamou no interfone.';
 
   /// Exposes the channel [present] would use for [intent], so tests can
-  /// assert on sound/vibration without touching the plugin (channel
-  /// objects are plain values — no platform channel involved).
+  /// assert on sound/vibration/category/full-screen without touching the
+  /// plugin (channel objects are plain values — no platform channel
+  /// involved).
+  ///
+  /// [fullScreenAllowed] must only ever be true when the OS has confirmed
+  /// `USE_FULL_SCREEN_INTENT` access (see [checkFullScreenIntentAccess]);
+  /// when false, or for NOTIFICATION_ONLY, the notification is still a
+  /// fully functional heads-up alert — Android's own full-screen-intent
+  /// fallback would already do this automatically, but deciding it here
+  /// keeps the behavior explicit and unit-testable without a device. No
+  /// [AndroidNotificationAction] is ever attached: "Atender"/"Dispensar"
+  /// live only in `IncomingCallPage`, reached through the same tap/
+  /// full-screen `PendingIntent` and [RingCallNavigationCoordinator] as
+  /// every other path — never a background-isolate action shortcut.
   @visibleForTesting
   static AndroidNotificationDetails androidChannelFor(
-    RingPresentationIntent intent,
-  ) => intent == RingPresentationIntent.notificationOnly
-      ? _silentChannel
-      : _callChannel;
+    RingPresentationIntent intent, {
+    bool fullScreenAllowed = false,
+  }) {
+    if (intent == RingPresentationIntent.notificationOnly) {
+      return _silentChannel;
+    }
+    return AndroidNotificationDetails(
+      _callChannel.channelId,
+      _callChannel.channelName,
+      channelDescription: _callChannel.channelDescription,
+      importance: _callChannel.importance,
+      priority: _callChannel.priority,
+      category: AndroidNotificationCategory.call,
+      fullScreenIntent: fullScreenAllowed,
+      visibility: NotificationVisibility.public,
+    );
+  }
 
   /// Registers the notification channel/settings and asks the OS for
   /// permission to show notifications. Must run once before
@@ -120,19 +155,45 @@ class IncomingCallNotificationService implements RingNotificationPresenter {
   /// does not yet carry a trustworthy device display name, and [event]'s
   /// `deviceId` must never be shown as one.
   @override
-  Future<void> present(RingDetectedEvent event) {
+  Future<void> present(RingDetectedEvent event) async {
     final silent =
         event.presentationIntent == RingPresentationIntent.notificationOnly;
+    // NOTIFICATION_ONLY never needs the OS check: it must never request
+    // full-screen regardless of what access the app currently holds.
+    final fullScreenAllowed = silent ? false : await _fullScreenIntentChecker();
     return _plugin.show(
       id: ringNotificationId(event.eventId),
       title: _ringDetectedNotificationTitle,
       body: _ringDetectedNotificationBody,
       payload: RingCallIntent.fromEvent(event).serialize(),
       notificationDetails: NotificationDetails(
-        android: androidChannelFor(event.presentationIntent),
+        android: androidChannelFor(
+          event.presentationIntent,
+          fullScreenAllowed: fullScreenAllowed,
+        ),
         iOS: DarwinNotificationDetails(presentSound: !silent),
       ),
     );
+  }
+
+  /// Read-only status for `SecuritySettingsPage` to render — never
+  /// navigates, unlike [requestFullScreenIntentAccess].
+  Future<bool> hasFullScreenIntentAccess() => _fullScreenIntentChecker();
+
+  /// Voluntary, user-initiated only — never call this from `main()`, login,
+  /// or push receipt. On Android <14 always resolves `true` immediately
+  /// with no navigation; on 14+, resolves `true` immediately if access is
+  /// already held, otherwise opens the official
+  /// `ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT` Settings screen and
+  /// resolves once the user returns. See `SecuritySettingsPage`, the only
+  /// caller.
+  Future<bool> requestFullScreenIntentAccess() async {
+    final granted = await _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.requestFullScreenIntentPermission();
+    return granted ?? false;
   }
 
   Future<void> cancelRing(String eventId) {

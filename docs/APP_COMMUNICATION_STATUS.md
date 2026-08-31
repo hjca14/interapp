@@ -5,8 +5,21 @@
 A antecipação 3B.9a do PR #22 foi validada por um `RING_DETECTED` real. A
 3B.9b acrescenta a experiência interna acionada pelo toque, com dispensa
 local, placeholder explícito de áudio indisponível e reutilização do fluxo
-existente de `OPEN_DOOR`. Full-screen/integração nativa de chamada e áudio
-bidirecional continuam pendentes.
+existente de `OPEN_DOOR`. A 3B.9c acrescenta full-screen intent e
+comportamento sobre lock screen para `RING_ONLY`/`RING_AND_NOTIFICATION`
+(categoria `CATEGORY_CALL`, checagem própria de
+`NotificationManager#canUseFullScreenIntent()`, fallback automático para
+heads-up quando o acesso especial não está concedido ou o Android decide não
+abrir a tela, e uma seção voluntária em `SecuritySettingsPage` para o usuário
+conceder o acesso quando quiser) — implementação completa, `flutter analyze`
+e `flutter test` (645 testes) verdes nesta branch, mas a validação manual
+física sobre tela bloqueada real (Android 13 e 14+ em aparelho, e o cenário de
+força-encerramento) não foi executada neste ambiente de desenvolvimento e
+permanece pendente. Integração Android de chamada via `ConnectionService`/
+`TelecomManager` foi avaliada e deliberadamente adiada para quando existir uma
+sessão de áudio/chamada real a registrar — ver o roadmap para o raciocínio
+completo. Áudio bidirecional continua pendente, frente própria ainda não
+iniciada.
 
 O detalhamento e os critérios de conclusão estão no
 [roadmap canônico da Fase 3](PHASE_3_ROADMAP.md). A Fase 3A reúne os fundamentos

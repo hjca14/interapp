@@ -122,3 +122,12 @@ final ringCallNavigationCoordinatorProvider =
       ref.onDispose(coordinator.dispose);
       return coordinator;
     });
+
+/// Read-only status for `SecuritySettingsPage`. `ref.invalidate` this after
+/// [requestFullScreenIntentAccess] resolves to reflect a just-granted (or
+/// still-denied) result — never polled or refreshed on any timer.
+final fullScreenIntentAccessProvider = FutureProvider<bool>(
+  (ref) => ref
+      .read(incomingCallNotificationServiceProvider)
+      .hasFullScreenIntentAccess(),
+);

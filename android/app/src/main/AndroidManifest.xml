@@ -2,6 +2,13 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Distinct from POST_NOTIFICATIONS: this is what lets the incoming-call
+         notification launch its full-screen intent. On Android 14+ it is a
+         special access the OS may revoke/require the user to grant via
+         Settings (see SecuritySettingsPage) instead of a normal install-time
+         grant; the notification still degrades to a heads-up alert when it
+         is not held — see IncomingCallNotificationService. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
     <application
         android:label="InterBridge"
         android:name="${applicationName}"
