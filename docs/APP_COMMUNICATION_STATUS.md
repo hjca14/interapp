@@ -2,6 +2,12 @@
 
 ## Fase 3 — experiência do dispositivo e do usuário
 
+A antecipação 3B.9a do PR #22 foi validada por um `RING_DETECTED` real. A
+3B.9b acrescenta a experiência interna acionada pelo toque, com dispensa
+local, placeholder explícito de áudio indisponível e reutilização do fluxo
+existente de `OPEN_DOOR`. Full-screen/integração nativa de chamada e áudio
+bidirecional continuam pendentes.
+
 O detalhamento e os critérios de conclusão estão no
 [roadmap canônico da Fase 3](PHASE_3_ROADMAP.md). A Fase 3A reúne os fundamentos
 já implementados; a 3B começa pela identidade móvel definitiva

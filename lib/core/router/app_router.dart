@@ -8,6 +8,8 @@ import '../../features/auth/presentation/pages/security_settings_page.dart';
 import '../../features/auth/presentation/providers/auth_providers.dart';
 import '../../features/auth/domain/entities/auth_session.dart';
 import '../../features/devices/presentation/pages/api_device_detail_page.dart';
+import '../../features/devices/presentation/pages/incoming_call_page.dart';
+import '../../features/devices/presentation/providers/devices_providers.dart';
 import '../../features/home/presentation/pages/home_page.dart';
 import '../../features/pairing/presentation/pages/add_interbridge_page.dart';
 
@@ -22,10 +24,23 @@ const _authenticationPaths = {
 /// Application router driven by the provider-independent auth session.
 final appRouterProvider = Provider<GoRouter>((ref) {
   final session = ref.watch(authSessionProvider);
+  final ringNavigation = ref.watch(ringCallNavigationCoordinatorProvider);
   return GoRouter(
     initialLocation: '/',
+    refreshListenable: ringNavigation,
     observers: [deviceDetailRouteObserver],
-    redirect: (_, state) => _redirectForSession(session, state),
+    redirect: (_, state) {
+      final authRedirect = _redirectForSession(session, state);
+      if (authRedirect != null) return authRedirect;
+      final signedIn = session.value?.isSignedIn == true;
+      if (signedIn && ringNavigation.shouldOpen) {
+        return state.matchedLocation == '/incoming-call'
+            ? null
+            : '/incoming-call';
+      }
+      if (state.matchedLocation == '/incoming-call') return '/';
+      return null;
+    },
     routes: [
       GoRoute(path: '/splash', builder: (_, _) => const _BootstrapPage()),
       GoRoute(path: '/login', builder: (_, _) => const LoginPage()),
@@ -64,6 +79,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             deviceId: state.pathParameters['deviceId']!,
           );
         },
+      ),
+      GoRoute(
+        path: '/incoming-call',
+        builder: (_, _) => IncomingCallPage(
+          intent: ringNavigation.active!,
+          onDismiss: ringNavigation.consumed,
+        ),
       ),
     ],
   );

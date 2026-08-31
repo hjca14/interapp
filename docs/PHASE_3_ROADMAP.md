@@ -126,14 +126,21 @@ permanecem explicitamente pendentes.
     FCM;
   - comportamento por rede local continua fora do escopo e reservado para
     uma possível V2.
-- [ ] **3B.8 — Simulador físico de toque no firmware**
+- [x] **3B.8 — Simulador físico de toque no firmware**
   - botão/switch físico no ESP32;
   - publicar o evento definitivo (`RING_DETECTED` ou nome contratual
     equivalente), com `event_id` estável e fluxo MQTT real;
   - não criar atalho descartável fora do protocolo;
   - substituir futuramente o botão pelo detector real do interfone.
+  - validada ponta a ponta em ESP32-C3 real até uma notificação Android: o
+    teste final usou pull-down externo de aproximadamente 10 kΩ para GND e
+    jumper momentâneo de 3V3 no GPIO4, não o Linker Button. O GPIO4 continua
+    provisório e não constitui decisão de hardware de produção.
 - [ ] **3B.9 — Experiência de chamada no Android (antecipação mínima
   entregue; fase continua aberta)**
+  - **3B.9a — notificação mínima (PR #22):** parser estrito, deduplicação,
+    apresentação local e diagnósticos sanitizados implementados e validados
+    por uma notificação `RING_DETECTED` real na cadeia ponta a ponta;
   - entrega mínima e isolada: reconhece e valida o payload `data-only`
     versão 1 do contrato `RING_DETECTED` (`lib/core/push/ring_detected_push_parser.dart`),
     deduplica por `event_id` (`ring_event_deduplicator.dart`, janela local
@@ -159,12 +166,20 @@ permanecem explicitamente pendentes.
     manualmente de novo; esse não é um cenário de entrega garantida e não
     deve ser tratado como equivalente ao swipe nem cobrado como validado
     aqui;
-  - **continua aberta**: nenhuma tela de chamada, full-screen intent,
-    CallKit/ConnectionService, ações atender/recusar, áudio bidirecional
-    ou navegação funcional ao tocar foram implementados; iOS/APNs e
-    consulta à API para nome do dispositivo também não. A experiência real
-    de chamada, as ações, a tela e a integração Android apropriada
-    permanecem como o trabalho real desta subfase.
+  - **3B.9b — tela interna e ações disponíveis:** o toque na notificação
+    local preserva apenas uma intenção mínima validada, aguarda sessão válida
+    e autorização do dispositivo, e então abre a rota interna. A tela carrega
+    o nome pelo repositório autenticado, permite dispensar localmente e
+    reutiliza integralmente o fluxo `OPEN_DOOR` quando disponível e habilitado
+    por preferência local opt-in do dispositivo (desativada por padrão).
+    Essa preferência controla somente a visibilidade no app e não concede
+    autorização nem desabilita fisicamente o relé. “Atender”
+    informa honestamente que o áudio ainda não está disponível e não envia
+    comando nem cria uma chamada ativa;
+  - **continua aberta:** full-screen intent, integração Android de chamada
+    (ConnectionService ou equivalente) e comportamento sobre lock screen
+    permanecem no restante da 3B.9. Áudio bidirecional é uma frente separada,
+    ainda não iniciada; iOS/APNs permanece na 3B.10.
 - [ ] **3B.10 — iOS, APNs e chamada**
   - cadastrar o app iOS no Firebase e configurar APNs;
   - capabilities, background modes e validação em aparelho físico;

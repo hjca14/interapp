@@ -13,6 +13,7 @@ import 'push_installation_coordinator.dart';
 import 'push_installation_repository.dart';
 import 'push_message.dart';
 import 'push_notification_service.dart';
+import 'ring_call_navigation.dart';
 import 'ring_detected_presenter.dart';
 import 'ring_event_deduplicator.dart';
 
@@ -109,5 +110,17 @@ final pushInstallationIntegrationProvider = Provider<void>((ref) {
     next.whenData((session) {
       unawaited(updateAuthentication(session.isSignedIn));
     });
+  }, fireImmediately: true);
+});
+
+/// Delivers authentication readiness to the pending local-notification
+/// intent. Authorization of the referenced device is still performed by
+/// [RingCallNavigationCoordinator] before the router is notified.
+final ringCallNavigationIntegrationProvider = Provider<void>((ref) {
+  final coordinator = ref.watch(ringCallNavigationCoordinatorProvider);
+  ref.listen(authSessionProvider, (_, next) {
+    next.whenData(
+      (session) => coordinator.setAuthenticated(session.isSignedIn),
+    );
   }, fireImmediately: true);
 });

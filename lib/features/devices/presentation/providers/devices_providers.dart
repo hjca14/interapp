@@ -2,6 +2,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:interapp/core/config/app_environment.dart';
 import 'package:interapp/core/network/interbridge_api_client.dart';
+import 'package:interapp/core/push/ring_call_navigation.dart';
 import 'package:interapp/features/auth/presentation/providers/auth_providers.dart';
 import 'package:interapp/features/devices/data/repositories/http_device_repository.dart';
 import 'package:interapp/features/devices/data/repositories/http_device_notification_preferences_repository.dart';
@@ -104,5 +105,20 @@ final deviceBackendRepositoryProvider = Provider<DeviceBackendRepository>(
 /// `.initialize()` on it before it's usable.
 final incomingCallNotificationServiceProvider =
     Provider<IncomingCallNotificationService>(
-      (_) => IncomingCallNotificationService(FlutterLocalNotificationsPlugin()),
+      (ref) => IncomingCallNotificationService(
+        FlutterLocalNotificationsPlugin(),
+        onRingNotificationTap: ref
+            .read(ringCallNavigationCoordinatorProvider)
+            .acceptSerialized,
+      ),
     );
+
+final ringCallNavigationCoordinatorProvider =
+    Provider<RingCallNavigationCoordinator>((ref) {
+      final coordinator = RingCallNavigationCoordinator((deviceId) async {
+        await ref.read(deviceRepositoryProvider).getDeviceDetails(deviceId);
+        return true;
+      });
+      ref.onDispose(coordinator.dispose);
+      return coordinator;
+    });
