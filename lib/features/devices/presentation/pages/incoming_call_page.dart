@@ -25,9 +25,7 @@ class IncomingCallPage extends ConsumerWidget {
 
   void _answer(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Áudio ainda não disponível nesta versão.'),
-      ),
+      const SnackBar(content: Text('Áudio ainda não disponível nesta versão.')),
     );
   }
 

@@ -98,9 +98,8 @@ class _DeviceSettingsBody extends ConsumerWidget {
           ),
           onAuthChanged: (value) => _apply(
             ref,
-            (settings) => settings.copyWith(
-              requireDeviceAuthenticationToOpenDoor: value,
-            ),
+            (settings) =>
+                settings.copyWith(requireDeviceAuthenticationToOpenDoor: value),
           ),
         ),
         const SizedBox(height: 16),

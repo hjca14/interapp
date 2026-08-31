@@ -46,14 +46,18 @@ final class RingCallIntent {
           decoded['v'] != 1) {
         return null;
       }
-      final result = parseRingDetectedPush({
-        'push_contract_version': '1',
-        'event_id': decoded['event_id'],
-        'device_id': decoded['device_id'],
-        'event': 'RING_DETECTED',
-        'presentation_intent': 'NOTIFICATION_ONLY',
-        'occurred_at': decoded['occurred_at'],
-      }, now: now, maxAge: maxAge);
+      final result = parseRingDetectedPush(
+        {
+          'push_contract_version': '1',
+          'event_id': decoded['event_id'],
+          'device_id': decoded['device_id'],
+          'event': 'RING_DETECTED',
+          'presentation_intent': 'NOTIFICATION_ONLY',
+          'occurred_at': decoded['occurred_at'],
+        },
+        now: now,
+        maxAge: maxAge,
+      );
       return switch (result) {
         RingPushParsed(:final event) => RingCallIntent.fromEvent(event),
         RingPushRejected() => null,

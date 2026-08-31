@@ -73,8 +73,9 @@ class _DoorCommandCardState extends ConsumerState<DoorCommandCard>
             DoorCommandPhase.sending => 'Enviando solicitação…',
             DoorCommandPhase.waiting => 'Aguardando resposta do dispositivo…',
             DoorCommandPhase.cancelled => 'Solicitação interrompida.',
-            _ => command.message ??
-                'A abertura só será confirmada após a resposta do aparelho.',
+            _ =>
+              command.message ??
+                  'A abertura só será confirmada após a resposta do aparelho.',
           };
 
     return Card(

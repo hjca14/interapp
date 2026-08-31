@@ -291,9 +291,7 @@ void main() {
         deviceSettingsRepositoryProvider.overrideWithValue(
           _SettingsRepository(
             settings ??
-                Future.value(
-                  const DeviceSettings(doorOpeningEnabled: true),
-                ),
+                Future.value(const DeviceSettings(doorOpeningEnabled: true)),
           ),
         ),
         deviceNotificationPreferencesRepositoryProvider.overrideWithValue(
@@ -880,7 +878,10 @@ void main() {
       subject(
         commands: commands,
         settings: Future.value(
-          const DeviceSettings(confirmBeforeOpeningDoor: false),
+          const DeviceSettings(
+            doorOpeningEnabled: true,
+            confirmBeforeOpeningDoor: false,
+          ),
         ),
       ),
     );
@@ -995,12 +996,7 @@ void main() {
       subject(commands: commands, settings: pending.future),
     );
     await tester.pump();
-    expect(
-      tester
-          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Abrir'))
-          .onPressed,
-      isNull,
-    );
+    expect(find.byType(DoorCommandCard), findsNothing);
 
     await tester.pumpWidget(const MaterialApp(home: SizedBox()));
     await tester.pump();
@@ -1011,12 +1007,7 @@ void main() {
     await tester.pump();
     failed.completeError(StateError('safe fake'));
     await tester.pump();
-    expect(
-      tester
-          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Abrir'))
-          .onPressed,
-      isNull,
-    );
+    expect(find.byType(DoorCommandCard), findsNothing);
     expect(commands.createCalls, 0);
   });
 

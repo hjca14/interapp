@@ -61,14 +61,13 @@ void main() {
     ),
   );
 
-  testWidgets(
-    'hides door action when local opt-in is disabled',
-    (tester) async {
-      await tester.pumpWidget(subject(const DeviceSettings()));
-      await tester.pumpAndSettle();
+  testWidgets('hides door action when local opt-in is disabled', (
+    tester,
+  ) async {
+    await tester.pumpWidget(subject(const DeviceSettings()));
+    await tester.pumpAndSettle();
 
-      expect(find.byType(DoorCommandCard), findsNothing);
-      expect(find.text('Abrir porta'), findsNothing);
-    },
-  );
+    expect(find.byType(DoorCommandCard), findsNothing);
+    expect(find.text('Abrir porta'), findsNothing);
+  });
 }

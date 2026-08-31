@@ -132,37 +132,38 @@ void main() {
     expect(remote.getCalls, 0);
   });
 
-  testWidgets('door settings expand only after local opt-in and retain values', (
-    tester,
-  ) async {
-    final local = _LocalRepository(
-      const DeviceSettings(
-        confirmBeforeOpeningDoor: false,
-        requireDeviceAuthenticationToOpenDoor: true,
-      ),
-    );
-    await tester.pumpWidget(
-      _subject(_RemoteRepository(DeviceNotificationPreferences()), local),
-    );
-    await tester.pumpAndSettle();
+  testWidgets(
+    'door settings expand only after local opt-in and retain values',
+    (tester) async {
+      final local = _LocalRepository(
+        const DeviceSettings(
+          confirmBeforeOpeningDoor: false,
+          requireDeviceAuthenticationToOpenDoor: true,
+        ),
+      );
+      await tester.pumpWidget(
+        _subject(_RemoteRepository(DeviceNotificationPreferences()), local),
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.text('Confirmar antes de abrir'), findsNothing);
-    expect(find.text('Exigir autenticação do aparelho'), findsNothing);
+      expect(find.text('Confirmar antes de abrir'), findsNothing);
+      expect(find.text('Exigir autenticação do aparelho'), findsNothing);
 
-    await tester.tap(find.text('Ativar abertura de porta'));
-    await tester.pumpAndSettle();
-    expect(find.text('Confirmar antes de abrir'), findsOneWidget);
-    expect(find.text('Exigir autenticação do aparelho'), findsOneWidget);
-    expect(local.value.confirmBeforeOpeningDoor, isFalse);
-    expect(local.value.requireDeviceAuthenticationToOpenDoor, isTrue);
+      await tester.tap(find.text('Ativar abertura de porta'));
+      await tester.pumpAndSettle();
+      expect(find.text('Confirmar antes de abrir'), findsOneWidget);
+      expect(find.text('Exigir autenticação do aparelho'), findsOneWidget);
+      expect(local.value.confirmBeforeOpeningDoor, isFalse);
+      expect(local.value.requireDeviceAuthenticationToOpenDoor, isTrue);
 
-    await tester.tap(find.text('Ativar abertura de porta'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Ativar abertura de porta'));
-    await tester.pumpAndSettle();
-    expect(local.value.confirmBeforeOpeningDoor, isFalse);
-    expect(local.value.requireDeviceAuthenticationToOpenDoor, isTrue);
-  });
+      await tester.tap(find.text('Ativar abertura de porta'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Ativar abertura de porta'));
+      await tester.pumpAndSettle();
+      expect(local.value.confirmBeforeOpeningDoor, isFalse);
+      expect(local.value.requireDeviceAuthenticationToOpenDoor, isTrue);
+    },
+  );
 
   testWidgets('tapping the entry opens the dedicated Notificações page', (
     tester,

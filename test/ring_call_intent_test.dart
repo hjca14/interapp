@@ -38,7 +38,10 @@ void main() {
   });
 
   test('notification id is stable and non-negative', () {
-    expect(ringNotificationId(intent.eventId), ringNotificationId(intent.eventId));
+    expect(
+      ringNotificationId(intent.eventId),
+      ringNotificationId(intent.eventId),
+    );
     expect(ringNotificationId(intent.eventId), isNonNegative);
   });
 }

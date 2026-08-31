@@ -15,13 +15,10 @@ void main() {
   test('logged-out tap opens after authorized login within maxAge', () async {
     var now = occurredAt;
     var authorizationCalls = 0;
-    final coordinator = RingCallNavigationCoordinator(
-      (_) async {
-        authorizationCalls++;
-        return true;
-      },
-      now: () => now,
-    );
+    final coordinator = RingCallNavigationCoordinator((_) async {
+      authorizationCalls++;
+      return true;
+    }, now: () => now);
 
     coordinator.acceptSerialized(payload);
     expect(coordinator.hasPending, isTrue);
@@ -40,13 +37,10 @@ void main() {
   test('logged-out tap is discarded when login happens after maxAge', () async {
     var now = occurredAt;
     var authorizationCalls = 0;
-    final coordinator = RingCallNavigationCoordinator(
-      (_) async {
-        authorizationCalls++;
-        return true;
-      },
-      now: () => now,
-    );
+    final coordinator = RingCallNavigationCoordinator((_) async {
+      authorizationCalls++;
+      return true;
+    }, now: () => now);
 
     coordinator.acceptSerialized(payload);
     now = occurredAt.add(const Duration(minutes: 16));
@@ -61,13 +55,10 @@ void main() {
   test('expired pending intent does not perform authorization', () async {
     var now = occurredAt;
     var authorizationCalls = 0;
-    final coordinator = RingCallNavigationCoordinator(
-      (_) async {
-        authorizationCalls++;
-        return true;
-      },
-      now: () => now,
-    );
+    final coordinator = RingCallNavigationCoordinator((_) async {
+      authorizationCalls++;
+      return true;
+    }, now: () => now);
 
     coordinator.acceptSerialized(payload);
     now = occurredAt.add(const Duration(hours: 1));
@@ -80,13 +71,10 @@ void main() {
   test('discarded intent does not reopen on later auth changes', () async {
     var now = occurredAt;
     var authorizationCalls = 0;
-    final coordinator = RingCallNavigationCoordinator(
-      (_) async {
-        authorizationCalls++;
-        return true;
-      },
-      now: () => now,
-    );
+    final coordinator = RingCallNavigationCoordinator((_) async {
+      authorizationCalls++;
+      return true;
+    }, now: () => now);
 
     coordinator.acceptSerialized(payload);
     now = occurredAt.add(const Duration(minutes: 16));
