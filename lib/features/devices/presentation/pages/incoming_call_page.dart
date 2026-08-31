@@ -1,143 +1,111 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// Full-screen "ringing" UI shown while the app is open and the device
-/// reports an incoming call.
-///
-/// There is no real audio/call channel yet (Fase 3 do roadmap), so both
-/// actions only dismiss the ringing state for now.
-class IncomingCallPage extends StatefulWidget {
+import '../../../../core/push/ring_call_intent.dart';
+import '../../../sharing/domain/entities/device_access.dart';
+import '../../domain/entities/api_device.dart';
+import '../providers/api_devices_provider.dart';
+import '../providers/devices_providers.dart';
+import '../widgets/door_command_card.dart';
+
+/// Honest in-app destination for a validated local RING_DETECTED notification.
+/// It does not create an audio session or send answer/reject commands.
+class IncomingCallPage extends ConsumerWidget {
   const IncomingCallPage({
     super.key,
-    required this.deviceName,
+    required this.intent,
     required this.onDismiss,
   });
 
-  final String deviceName;
+  final RingCallIntent intent;
   final VoidCallback onDismiss;
 
-  @override
-  State<IncomingCallPage> createState() => _IncomingCallPageState();
-}
-
-class _IncomingCallPageState extends State<IncomingCallPage> {
-  Timer? _ringTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _ring();
-    // Repeats every 2s for as long as this page is on screen, simulating a
-    // ringing phone without needing a bundled audio asset.
-    _ringTimer = Timer.periodic(const Duration(seconds: 2), (_) => _ring());
-  }
-
-  void _ring() {
-    SystemSound.play(SystemSoundType.alert);
-    HapticFeedback.vibrate();
-  }
-
-  @override
-  void dispose() {
-    _ringTimer?.cancel();
-    super.dispose();
-  }
-
-  /// Runs for both Atender and Recusar today — there's no real call to
-  /// accept/decline yet, so both just stop the ringing and close the page.
-  /// [IncomingCallListener] is the one that gets notified via [onDismiss].
-  void _dismiss() {
-    widget.onDismiss();
-    Navigator.of(context).pop();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return PopScope(
-      // Block the system back gesture/button — the ringing state should
-      // only be dismissed through Atender/Recusar, like a real call screen.
-      canPop: false,
-      child: Scaffold(
-        backgroundColor: const Color(0xFF1246A8),
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
-            child: Column(
-              children: [
-                const Spacer(),
-                const Icon(Icons.speaker_phone, color: Colors.white, size: 72),
-                const SizedBox(height: 24),
-                Text(
-                  'Chamada recebida',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.headlineSmall?.copyWith(color: Colors.white),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  widget.deviceName,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleMedium?.copyWith(color: Colors.white70),
-                ),
-                const Spacer(),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _CallAction(
-                      icon: Icons.call_end,
-                      color: Colors.red,
-                      label: 'Recusar',
-                      onPressed: _dismiss,
-                    ),
-                    _CallAction(
-                      icon: Icons.call,
-                      color: Colors.green,
-                      label: 'Atender',
-                      onPressed: _dismiss,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-              ],
-            ),
-          ),
-        ),
+  void _answer(BuildContext context) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Áudio ainda não disponível nesta versão.'),
       ),
     );
   }
-}
 
-/// One round action button + label, e.g. the red "Recusar" or green
-/// "Atender" button.
-class _CallAction extends StatelessWidget {
-  const _CallAction({
-    required this.icon,
-    required this.color,
-    required this.label,
-    required this.onPressed,
-  });
-
-  final IconData icon;
-  final Color color;
-  final String label;
-  final VoidCallback onPressed;
+  void _dismiss(WidgetRef ref) {
+    unawaited(
+      ref
+          .read(incomingCallNotificationServiceProvider)
+          .cancelRing(intent.eventId),
+    );
+    onDismiss();
+  }
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        FloatingActionButton(
-          heroTag: label,
-          backgroundColor: color,
-          onPressed: onPressed,
-          child: Icon(icon, color: Colors.white),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final detail = ref.watch(apiDeviceDetailProvider(intent.deviceId));
+    final knownName = knownDeviceName(
+      ref.watch(apiDevicesProvider),
+      intent.deviceId,
+    );
+    final name = resolveKnownDeviceName(
+      detailLoaded: detail.hasValue,
+      confirmedDisplayName: detail.value?.displayName,
+      knownName: knownName,
+    );
+    final canOpenDoor = detail.value?.role == DeviceRole.owner;
+
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Chamada recebida')),
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(24),
+            children: [
+              const SizedBox(height: 32),
+              Icon(
+                Icons.speaker_phone,
+                size: 80,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Interfone tocando',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                name ?? 'Carregando dispositivo…',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              if (detail.hasError) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  'Não foi possível carregar o nome do dispositivo.',
+                  textAlign: TextAlign.center,
+                ),
+              ],
+              const SizedBox(height: 40),
+              FilledButton.icon(
+                onPressed: () => _answer(context),
+                icon: const Icon(Icons.call),
+                label: const Text('Atender'),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () => _dismiss(ref),
+                icon: const Icon(Icons.call_end),
+                label: const Text('Dispensar'),
+              ),
+              if (canOpenDoor) ...[
+                const SizedBox(height: 24),
+                DoorCommandCard(deviceId: intent.deviceId, detail: detail),
+              ],
+            ],
+          ),
         ),
-        const SizedBox(height: 8),
-        Text(label, style: const TextStyle(color: Colors.white)),
-      ],
+      ),
     );
   }
 }

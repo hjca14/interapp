@@ -3,6 +3,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import '../../../../core/push/ring_detected_event.dart';
 import '../../../../core/push/ring_detected_presenter.dart';
+import '../../../../core/push/ring_call_intent.dart';
 
 /// Shows local notifications for InterBridge calling activity: the
 /// device-status-polling "incoming call" experience below, and — via
@@ -14,9 +15,10 @@ import '../../../../core/push/ring_detected_presenter.dart';
 /// fully closed app through the FCM background isolate handler, since it is
 /// also instantiated there — see `firebaseMessagingBackgroundHandler`.
 class IncomingCallNotificationService implements RingNotificationPresenter {
-  IncomingCallNotificationService(this._plugin);
+  IncomingCallNotificationService(this._plugin, {this.onRingNotificationTap});
 
   final FlutterLocalNotificationsPlugin _plugin;
+  final void Function(String? payload)? onRingNotificationTap;
 
   // High importance/priority so Android shows this as a heads-up
   // notification (pops on screen) instead of sitting silently in the tray.
@@ -84,7 +86,20 @@ class IncomingCallNotificationService implements RingNotificationPresenter {
         android: androidSettings,
         iOS: iosSettings,
       ),
+      onDidReceiveNotificationResponse: (response) {
+        onRingNotificationTap?.call(response.payload);
+      },
     );
+  }
+
+  /// Consumes a local-notification cold start after plugin setup. Kept
+  /// separate from the callback because Android reports this path through
+  /// launch details rather than [onDidReceiveNotificationResponse].
+  Future<void> consumeInitialNotificationLaunch() async {
+    final details = await _plugin.getNotificationAppLaunchDetails();
+    if (details?.didNotificationLaunchApp == true) {
+      onRingNotificationTap?.call(details?.notificationResponse?.payload);
+    }
   }
 
   Future<void> _requestPermissions() async {
@@ -109,14 +124,19 @@ class IncomingCallNotificationService implements RingNotificationPresenter {
     final silent =
         event.presentationIntent == RingPresentationIntent.notificationOnly;
     return _plugin.show(
-      id: event.eventId.hashCode,
+      id: ringNotificationId(event.eventId),
       title: _ringDetectedNotificationTitle,
       body: _ringDetectedNotificationBody,
+      payload: RingCallIntent.fromEvent(event).serialize(),
       notificationDetails: NotificationDetails(
         android: androidChannelFor(event.presentationIntent),
         iOS: DarwinNotificationDetails(presentSound: !silent),
       ),
     );
+  }
+
+  Future<void> cancelRing(String eventId) {
+    return _plugin.cancel(id: ringNotificationId(eventId));
   }
 
   /// Shows the "device X is calling" notification. [deviceId]'s hash code is

@@ -18,7 +18,11 @@ Future<void> main() async {
     final container = ProviderContainer(
       overrides: [appConfigProvider.overrideWithValue(config)],
     );
-    await container.read(incomingCallNotificationServiceProvider).initialize();
+    final notificationService = container.read(
+      incomingCallNotificationServiceProvider,
+    );
+    await notificationService.initialize();
+    await notificationService.consumeInitialNotificationLaunch();
     // Firebase.initializeApp + registering the background handler is local
     // plugin setup (no network, no permission prompt) and must complete
     // before runApp per the plugin's own requirement.
@@ -32,6 +36,7 @@ Future<void> main() async {
     // already up — see PushNotificationService.initialize's doc comment.
     unawaited(container.read(pushNotificationServiceProvider).initialize());
     container.read(pushInstallationIntegrationProvider);
+    container.read(ringCallNavigationIntegrationProvider);
   } on Object {
     runApp(const _ConfigurationErrorApp());
   }
