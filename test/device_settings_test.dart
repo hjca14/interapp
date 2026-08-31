@@ -11,9 +11,11 @@ void main() {
 
   test('defaults and serialization contain only local door preferences', () {
     const settings = DeviceSettings();
+    expect(settings.doorOpeningEnabled, isFalse);
     expect(settings.confirmBeforeOpeningDoor, isTrue);
     expect(settings.requireDeviceAuthenticationToOpenDoor, isFalse);
     expect(settings.toMap().keys, {
+      'doorOpeningEnabled',
       'confirmBeforeOpeningDoor',
       'requireDeviceAuthenticationToOpenDoor',
     });
@@ -30,6 +32,22 @@ void main() {
     );
   });
 
+  test(
+    'local opt-in toggles without resetting confirmation or authentication',
+    () {
+      const original = DeviceSettings(
+        confirmBeforeOpeningDoor: false,
+        requireDeviceAuthenticationToOpenDoor: true,
+      );
+      final enabled = original.copyWith(doorOpeningEnabled: true);
+      final disabledAgain = enabled.copyWith(doorOpeningEnabled: false);
+
+      expect(disabledAgain.doorOpeningEnabled, isFalse);
+      expect(disabledAgain.confirmBeforeOpeningDoor, isFalse);
+      expect(disabledAgain.requireDeviceAuthenticationToOpenDoor, isTrue);
+    },
+  );
+
   test('legacy notification fields are ignored while door values survive', () {
     final settings = DeviceSettings.fromMap({
       'calls': {'localNetworkAlertMode': 'none'},
@@ -39,6 +57,7 @@ void main() {
       'requireDeviceAuthenticationToOpenDoor': true,
     });
     expect(settings.confirmBeforeOpeningDoor, isFalse);
+    expect(settings.doorOpeningEnabled, isFalse);
     expect(settings.requireDeviceAuthenticationToOpenDoor, isTrue);
     expect(settings.toMap(), isNot(contains('calls')));
     expect(settings.toMap(), isNot(contains('quietHours')));
@@ -48,7 +67,9 @@ void main() {
     final settings = DeviceSettings.fromMap({
       'confirmBeforeOpeningDoor': 'false',
       'requireDeviceAuthenticationToOpenDoor': 1,
+      'doorOpeningEnabled': 'true',
     });
+    expect(settings.doorOpeningEnabled, isFalse);
     expect(settings.confirmBeforeOpeningDoor, isTrue);
     expect(settings.requireDeviceAuthenticationToOpenDoor, isFalse);
   });
@@ -75,8 +96,12 @@ void main() {
       final repository = LocalDeviceSettingsRepository();
       await repository.save(
         'a',
-        const DeviceSettings(confirmBeforeOpeningDoor: false),
+        const DeviceSettings(
+          doorOpeningEnabled: true,
+          confirmBeforeOpeningDoor: false,
+        ),
       );
+      expect((await repository.get('a')).doorOpeningEnabled, isTrue);
       expect((await repository.get('a')).confirmBeforeOpeningDoor, isFalse);
       expect((await repository.get('b')).confirmBeforeOpeningDoor, isTrue);
 
@@ -85,6 +110,7 @@ void main() {
         const DeviceSettings(requireDeviceAuthenticationToOpenDoor: true),
       );
       final overwritten = await repository.get('a');
+      expect(overwritten.doorOpeningEnabled, isFalse);
       expect(overwritten.confirmBeforeOpeningDoor, isTrue);
       expect(overwritten.requireDeviceAuthenticationToOpenDoor, isTrue);
     },
@@ -108,6 +134,7 @@ void main() {
       expect(stored, isNot(contains('calls')));
       expect(stored, isNot(contains('quietHours')));
       expect(settings.confirmBeforeOpeningDoor, isFalse);
+      expect(settings.doorOpeningEnabled, isFalse);
     },
   );
 }

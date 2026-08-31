@@ -8,6 +8,7 @@ import '../../../sharing/domain/entities/device_access.dart';
 import '../../domain/entities/api_device.dart';
 import '../providers/api_devices_provider.dart';
 import '../providers/devices_providers.dart';
+import '../providers/device_settings_provider.dart';
 import '../widgets/door_command_card.dart';
 
 /// Honest in-app destination for a validated local RING_DETECTED notification.
@@ -52,6 +53,12 @@ class IncomingCallPage extends ConsumerWidget {
       knownName: knownName,
     );
     final canOpenDoor = detail.value?.role == DeviceRole.owner;
+    final doorOpeningEnabled =
+        ref
+            .watch(deviceSettingsProvider(intent.deviceId))
+            .value
+            ?.doorOpeningEnabled ==
+        true;
 
     return PopScope(
       canPop: false,
@@ -98,7 +105,7 @@ class IncomingCallPage extends ConsumerWidget {
                 icon: const Icon(Icons.call_end),
                 label: const Text('Dispensar'),
               ),
-              if (canOpenDoor) ...[
+              if (canOpenDoor && doorOpeningEnabled) ...[
                 const SizedBox(height: 24),
                 DoorCommandCard(deviceId: intent.deviceId, detail: detail),
               ],

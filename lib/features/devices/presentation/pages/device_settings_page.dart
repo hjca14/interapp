@@ -88,14 +88,19 @@ class _DeviceSettingsBody extends ConsumerWidget {
         const SizedBox(height: 16),
         _DoorCard(
           settings: settings,
+          onEnabledChanged: (value) => _apply(
+            ref,
+            (settings) => settings.copyWith(doorOpeningEnabled: value),
+          ),
           onConfirmChanged: (value) => _apply(
             ref,
             (settings) => settings.copyWith(confirmBeforeOpeningDoor: value),
           ),
           onAuthChanged: (value) => _apply(
             ref,
-            (settings) =>
-                settings.copyWith(requireDeviceAuthenticationToOpenDoor: value),
+            (settings) => settings.copyWith(
+              requireDeviceAuthenticationToOpenDoor: value,
+            ),
           ),
         ),
         const SizedBox(height: 16),
@@ -186,17 +191,19 @@ String _sharingPermissionDescription(DeviceRole role) => switch (role) {
     'Você não tem permissão para compartilhar este dispositivo.',
 };
 
-/// "Confirmar abertura" and "exigir autenticação" — both plain booleans
-/// since, unlike the call policy, there's no meaningful combination to model
-/// here. Device authentication is enforced by the door-open flow.
+/// Local opt-in followed by the existing confirmation/authentication policy.
+/// Turning the opt-in off only collapses the two policy controls; their
+/// values remain persisted for a later opt-in.
 class _DoorCard extends StatelessWidget {
   const _DoorCard({
     required this.settings,
+    required this.onEnabledChanged,
     required this.onConfirmChanged,
     required this.onAuthChanged,
   });
 
   final DeviceSettings settings;
+  final ValueChanged<bool> onEnabledChanged;
   final ValueChanged<bool> onConfirmChanged;
   final ValueChanged<bool> onAuthChanged;
 
@@ -207,21 +214,31 @@ class _DoorCard extends StatelessWidget {
       title: 'Porta',
       children: [
         SwitchListTile(
-          title: const Text('Confirmar antes de abrir'),
+          title: const Text('Ativar abertura de portão'),
           subtitle: const Text(
-            'Pede confirmação antes de enviar o comando de abertura.',
+            'Exibe a ação de abertura neste dispositivo.',
           ),
-          value: settings.confirmBeforeOpeningDoor,
-          onChanged: onConfirmChanged,
+          value: settings.doorOpeningEnabled,
+          onChanged: onEnabledChanged,
         ),
-        SwitchListTile(
-          title: const Text('Exigir autenticação do aparelho'),
-          subtitle: const Text(
-            'Pede a credencial segura ou biometria do aparelho para abrir.',
+        if (settings.doorOpeningEnabled) ...[
+          SwitchListTile(
+            title: const Text('Confirmar antes de abrir'),
+            subtitle: const Text(
+              'Pede confirmação antes de enviar o comando de abertura.',
+            ),
+            value: settings.confirmBeforeOpeningDoor,
+            onChanged: onConfirmChanged,
           ),
-          value: settings.requireDeviceAuthenticationToOpenDoor,
-          onChanged: onAuthChanged,
-        ),
+          SwitchListTile(
+            title: const Text('Exigir autenticação do aparelho'),
+            subtitle: const Text(
+              'Pede a credencial segura ou biometria do aparelho para abrir.',
+            ),
+            value: settings.requireDeviceAuthenticationToOpenDoor,
+            onChanged: onAuthChanged,
+          ),
+        ],
       ],
     );
   }

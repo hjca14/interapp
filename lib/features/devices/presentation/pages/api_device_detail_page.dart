@@ -12,6 +12,7 @@ import 'edit_device_name_page.dart';
 import '../providers/api_devices_provider.dart';
 import '../providers/devices_providers.dart';
 import '../providers/device_refresh_provider.dart';
+import '../providers/device_settings_provider.dart';
 
 /// Observes routes covering the detail page so polling only runs while the
 /// page is actually visible. Applications and widget tests must attach this
@@ -248,8 +249,7 @@ class _DeviceOverviewState extends ConsumerState<_DeviceOverview> {
             lastStatus: _lastStatus,
           ),
           const SizedBox(height: 12),
-          DoorCommandCard(deviceId: widget.deviceId, detail: detail),
-          const SizedBox(height: 24),
+          _DoorCommandVisibility(deviceId: widget.deviceId, detail: detail),
           Text(
             'Eventos recentes',
             style: Theme.of(context).textTheme.titleLarge,
@@ -265,6 +265,28 @@ class _DeviceOverviewState extends ConsumerState<_DeviceOverview> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _DoorCommandVisibility extends ConsumerWidget {
+  const _DoorCommandVisibility({required this.deviceId, required this.detail});
+
+  final String deviceId;
+  final AsyncValue<ApiDeviceDetail> detail;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enabled = ref
+        .watch(deviceSettingsProvider(deviceId))
+        .value
+        ?.doorOpeningEnabled;
+    if (enabled != true) return const SizedBox(height: 12);
+    return Column(
+      children: [
+        DoorCommandCard(deviceId: deviceId, detail: detail),
+        const SizedBox(height: 24),
+      ],
     );
   }
 }

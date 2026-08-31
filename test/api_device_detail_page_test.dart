@@ -16,6 +16,7 @@ import 'package:interapp/features/devices/presentation/providers/device_refresh_
 import 'package:interapp/features/favorites/data/repositories/local_favorites_repository.dart';
 import 'package:interapp/features/favorites/domain/entities/favorite.dart';
 import 'package:interapp/features/devices/presentation/providers/devices_providers.dart';
+import 'package:interapp/features/devices/presentation/widgets/door_command_card.dart';
 import 'package:interapp/features/sharing/domain/entities/device_access.dart';
 import 'package:interapp/features/auth/domain/entities/auth_session.dart';
 import 'package:interapp/features/auth/presentation/providers/auth_providers.dart';
@@ -288,7 +289,12 @@ void main() {
           _MemoryFavoritesRepository(favorites),
         ),
         deviceSettingsRepositoryProvider.overrideWithValue(
-          _SettingsRepository(settings ?? Future.value(const DeviceSettings())),
+          _SettingsRepository(
+            settings ??
+                Future.value(
+                  const DeviceSettings(doorOpeningEnabled: true),
+                ),
+          ),
         ),
         deviceNotificationPreferencesRepositoryProvider.overrideWithValue(
           _NotificationPreferencesRepository(),
@@ -343,6 +349,18 @@ void main() {
           .onPressed,
       isNotNull,
     );
+  });
+
+  testWidgets('does not build the door action before local opt-in', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      subject(settings: Future.value(const DeviceSettings())),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(DoorCommandCard), findsNothing);
+    expect(find.text('Abrir portão'), findsNothing);
   });
 
   testWidgets('loads initially and polls exactly at 60 seconds', (
@@ -651,6 +669,7 @@ void main() {
           authenticator: authenticator,
           settings: Future.value(
             const DeviceSettings(
+              doorOpeningEnabled: true,
               confirmBeforeOpeningDoor: false,
               requireDeviceAuthenticationToOpenDoor: true,
             ),
@@ -680,6 +699,7 @@ void main() {
         authenticator: authenticator,
         settings: Future.value(
           const DeviceSettings(
+            doorOpeningEnabled: true,
             confirmBeforeOpeningDoor: true,
             requireDeviceAuthenticationToOpenDoor: true,
           ),
@@ -723,6 +743,7 @@ void main() {
               authenticator: authenticator,
               settings: Future.value(
                 DeviceSettings(
+                  doorOpeningEnabled: true,
                   confirmBeforeOpeningDoor: confirm,
                   requireDeviceAuthenticationToOpenDoor: requireAuthentication,
                 ),
@@ -769,6 +790,7 @@ void main() {
         authenticator: authenticator,
         settings: Future.value(
           const DeviceSettings(
+            doorOpeningEnabled: true,
             confirmBeforeOpeningDoor: true,
             requireDeviceAuthenticationToOpenDoor: true,
           ),
@@ -803,6 +825,7 @@ void main() {
           authenticator: _Authenticator(result: result),
           settings: Future.value(
             const DeviceSettings(
+              doorOpeningEnabled: true,
               confirmBeforeOpeningDoor: false,
               requireDeviceAuthenticationToOpenDoor: true,
             ),
@@ -831,6 +854,7 @@ void main() {
         authenticator: authenticator,
         settings: Future.value(
           const DeviceSettings(
+            doorOpeningEnabled: true,
             confirmBeforeOpeningDoor: false,
             requireDeviceAuthenticationToOpenDoor: true,
           ),
@@ -900,6 +924,7 @@ void main() {
         authenticator: _Authenticator(pendingResult: authentication.future),
         settings: Future.value(
           const DeviceSettings(
+            doorOpeningEnabled: true,
             confirmBeforeOpeningDoor: false,
             requireDeviceAuthenticationToOpenDoor: true,
           ),
@@ -937,6 +962,7 @@ void main() {
           authenticator: _Authenticator(pendingResult: authentication.future),
           settings: Future.value(
             const DeviceSettings(
+              doorOpeningEnabled: true,
               confirmBeforeOpeningDoor: false,
               requireDeviceAuthenticationToOpenDoor: true,
             ),

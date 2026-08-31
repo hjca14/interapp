@@ -85,7 +85,7 @@ class _DoorCommandCardState extends ConsumerState<DoorCommandCard>
                 child: CircularProgressIndicator(strokeWidth: 2.5),
               )
             : const Icon(Icons.lock_open_outlined),
-        title: const Text('Abrir portão'),
+        title: const Text('Abrir porta'),
         subtitle: Text(subtitle),
         trailing: command.canRetryCreate
             ? FilledButton(
@@ -113,7 +113,7 @@ class _DoorCommandCardState extends ConsumerState<DoorCommandCard>
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('Abrir portão?'),
+          title: const Text('Abrir porta?'),
           content: const Text(
             'O InterBridge enviará uma solicitação ao dispositivo. '
             'A abertura só será confirmada após a resposta do aparelho.',

@@ -170,7 +170,10 @@ permanecem explicitamente pendentes.
     local preserva apenas uma intenção mínima validada, aguarda sessão válida
     e autorização do dispositivo, e então abre a rota interna. A tela carrega
     o nome pelo repositório autenticado, permite dispensar localmente e
-    reutiliza integralmente o fluxo `OPEN_DOOR` quando disponível. “Atender”
+    reutiliza integralmente o fluxo `OPEN_DOOR` quando disponível e habilitado
+    por preferência local opt-in do dispositivo (desativada por padrão).
+    Essa preferência controla somente a visibilidade no app e não concede
+    autorização nem desabilita fisicamente o relé. “Atender”
     informa honestamente que o áudio ainda não está disponível e não envia
     comando nem cria uma chamada ativa;
   - **continua aberta:** full-screen intent, integração Android de chamada
