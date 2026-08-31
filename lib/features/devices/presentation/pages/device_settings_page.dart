@@ -214,9 +214,9 @@ class _DoorCard extends StatelessWidget {
       title: 'Porta',
       children: [
         SwitchListTile(
-          title: const Text('Ativar abertura de portão'),
+          title: const Text('Ativar abertura de porta'),
           subtitle: const Text(
-            'Exibe a ação de abertura neste dispositivo.',
+            'Exibe a ação de abertura da porta neste dispositivo.',
           ),
           value: settings.doorOpeningEnabled,
           onChanged: onEnabledChanged,

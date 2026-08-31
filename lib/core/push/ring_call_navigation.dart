@@ -3,14 +3,22 @@ import 'package:flutter/foundation.dart';
 import 'ring_call_intent.dart';
 
 typedef RingDeviceAuthorizer = Future<bool> Function(String deviceId);
+typedef RingCallClock = DateTime Function();
 
 /// Holds at most one minimal ring intent until both authentication and an
 /// authenticated device lookup succeed. It is UI/router agnostic and never
 /// retains an FCM payload.
 final class RingCallNavigationCoordinator extends ChangeNotifier {
-  RingCallNavigationCoordinator(this._authorizeDevice);
+  RingCallNavigationCoordinator(
+    this._authorizeDevice, {
+    RingCallClock? now,
+    Duration maxAge = const Duration(minutes: 15),
+  }) : _now = now ?? DateTime.now,
+       _maxAge = maxAge;
 
   final RingDeviceAuthorizer _authorizeDevice;
+  final RingCallClock _now;
+  final Duration _maxAge;
   RingCallIntent? _pending;
   RingCallIntent? _active;
   bool _authenticated = false;
@@ -21,7 +29,11 @@ final class RingCallNavigationCoordinator extends ChangeNotifier {
   bool get shouldOpen => _active != null;
 
   void acceptSerialized(String? payload, {DateTime? now}) {
-    final intent = RingCallIntent.tryRestore(payload, now: now);
+    final intent = RingCallIntent.tryRestore(
+      payload,
+      now: now ?? _now(),
+      maxAge: _maxAge,
+    );
     if (intent == null) return;
     _pending = intent;
     _active = null;
@@ -42,6 +54,15 @@ final class RingCallNavigationCoordinator extends ChangeNotifier {
   Future<void> _resolve() async {
     final intent = _pending;
     if (!_authenticated || intent == null) return;
+    // A tap may have waited for login. Revalidate the typed minimal context
+    // before doing even the authenticated device lookup, rather than treating
+    // validation at notification-receipt time as permanently valid.
+    if (!_isRecent(intent)) {
+      _generation++;
+      _pending = null;
+      notifyListeners();
+      return;
+    }
     final generation = ++_generation;
     var authorized = false;
     try {
@@ -53,9 +74,19 @@ final class RingCallNavigationCoordinator extends ChangeNotifier {
       return;
     }
     _pending = null;
-    if (authorized) _active = intent;
+    // Authorization itself can take long enough for the ring to expire.
+    // Never promote a stale intent to navigation after that await either.
+    if (authorized && _isRecent(intent)) _active = intent;
     notifyListeners();
   }
+
+  bool _isRecent(RingCallIntent intent) =>
+      RingCallIntent.tryRestore(
+        intent.serialize(),
+        now: _now(),
+        maxAge: _maxAge,
+      ) !=
+      null;
 
   void consumed() {
     _active = null;

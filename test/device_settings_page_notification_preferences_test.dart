@@ -125,7 +125,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Porta'), findsOneWidget);
-    expect(find.text('Ativar abertura de portão'), findsOneWidget);
+    expect(find.text('Ativar abertura de porta'), findsOneWidget);
     expect(find.text('Confirmar antes de abrir'), findsNothing);
     expect(find.text('Acesso e compartilhamento'), findsOneWidget);
     expect(find.text('Dispositivo'), findsOneWidget);
@@ -149,16 +149,16 @@ void main() {
     expect(find.text('Confirmar antes de abrir'), findsNothing);
     expect(find.text('Exigir autenticação do aparelho'), findsNothing);
 
-    await tester.tap(find.text('Ativar abertura de portão'));
+    await tester.tap(find.text('Ativar abertura de porta'));
     await tester.pumpAndSettle();
     expect(find.text('Confirmar antes de abrir'), findsOneWidget);
     expect(find.text('Exigir autenticação do aparelho'), findsOneWidget);
     expect(local.value.confirmBeforeOpeningDoor, isFalse);
     expect(local.value.requireDeviceAuthenticationToOpenDoor, isTrue);
 
-    await tester.tap(find.text('Ativar abertura de portão'));
+    await tester.tap(find.text('Ativar abertura de porta'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Ativar abertura de portão'));
+    await tester.tap(find.text('Ativar abertura de porta'));
     await tester.pumpAndSettle();
     expect(local.value.confirmBeforeOpeningDoor, isFalse);
     expect(local.value.requireDeviceAuthenticationToOpenDoor, isTrue);

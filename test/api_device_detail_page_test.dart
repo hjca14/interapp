@@ -360,7 +360,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(DoorCommandCard), findsNothing);
-    expect(find.text('Abrir portão'), findsNothing);
+    expect(find.text('Abrir porta'), findsNothing);
   });
 
   testWidgets('loads initially and polls exactly at 60 seconds', (
