@@ -18,12 +18,23 @@ class PushNotificationService {
   PushNotificationService(
     this._client,
     this._tokenSink, {
+    this.onForegroundMessage,
     bool? debugMode,
   }) : _debugMode = debugMode ?? kDebugMode;
 
   final PushMessagingClient _client;
   final bool _debugMode;
   final void Function(String token)? _tokenSink;
+
+  /// Fed every message from [PushMessagingClient.onForegroundMessage],
+  /// after the diagnostic below is recorded. Used to wire in
+  /// `presentRingDetectedPush` without this class needing to know anything
+  /// about the `RING_DETECTED` contract itself. A failure here is swallowed
+  /// (see [_notifyForegroundMessage]) — see also
+  /// `ring_detected_presenter.dart`'s own internal error handling — so this
+  /// is really two layers of protection for the same requirement: one
+  /// listener misbehaving must never break the others.
+  final void Function(PushMessage message)? onForegroundMessage;
 
   Future<void>? _initialization;
 
@@ -104,6 +115,7 @@ class PushNotificationService {
       _foregroundSubscription = _client.onForegroundMessage.listen((message) {
         _lastForegroundEvent = PushEventDiagnostic.fromMessage(message);
         _logEvent('foreground', _lastForegroundEvent!);
+        _notifyForegroundMessage(message);
       }, onError: (Object _) {});
 
       _openedAppSubscription = _client.onMessageOpenedApp.listen((message) {
@@ -128,6 +140,15 @@ class PushNotificationService {
     } on Object {
       // Sanitized on purpose. The token and listeners set up above stay
       // active regardless.
+    }
+  }
+
+  void _notifyForegroundMessage(PushMessage message) {
+    try {
+      onForegroundMessage?.call(message);
+    } on Object {
+      // A misbehaving consumer (e.g. a broken ring-push presenter) must
+      // never break the foreground listener itself.
     }
   }
 

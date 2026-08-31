@@ -446,6 +446,68 @@ void main() {
     });
   });
 
+  group('onForegroundMessage hook', () {
+    test('is invoked with every foreground message', () async {
+      client.authorizationStatus = PushAuthorizationStatus.granted;
+      final received = <PushMessage>[];
+      final service = PushNotificationService(
+        client,
+        null,
+        onForegroundMessage: received.add,
+        debugMode: false,
+      );
+      await service.initialize();
+
+      const message = PushMessage(messageId: 'msg-ring', title: 'Oi');
+      client.emitForegroundMessage(message);
+      await pumpEventQueue();
+
+      expect(received, [message]);
+    });
+
+    test('a throwing hook does not break the foreground diagnostic or the '
+        'other listeners', () async {
+      client.authorizationStatus = PushAuthorizationStatus.granted;
+      final service = PushNotificationService(
+        client,
+        null,
+        onForegroundMessage: (_) => throw Exception('boom'),
+        debugMode: false,
+      );
+      await service.initialize();
+
+      client.emitForegroundMessage(
+        const PushMessage(messageId: 'msg-ring', title: 'Oi'),
+      );
+      client.emitMessageOpenedApp(
+        const PushMessage(messageId: 'msg-opened', title: 'Toque'),
+      );
+      await pumpEventQueue();
+
+      expect(service.lastForegroundEvent?.messageId, 'msg-ring');
+      expect(service.lastOpenedAppEvent?.messageId, 'msg-opened');
+    });
+
+    test('is never invoked for onMessageOpenedApp', () async {
+      client.authorizationStatus = PushAuthorizationStatus.granted;
+      final received = <PushMessage>[];
+      final service = PushNotificationService(
+        client,
+        null,
+        onForegroundMessage: received.add,
+        debugMode: false,
+      );
+      await service.initialize();
+
+      client.emitMessageOpenedApp(
+        const PushMessage(messageId: 'msg-opened', title: 'Toque'),
+      );
+      await pumpEventQueue();
+
+      expect(received, isEmpty);
+    });
+  });
+
   group('dispose', () {
     test('cancels every subscription created during initialize', () async {
       client.authorizationStatus = PushAuthorizationStatus.granted;
