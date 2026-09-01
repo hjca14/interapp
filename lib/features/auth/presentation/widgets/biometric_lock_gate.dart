@@ -25,15 +25,23 @@ import '../providers/biometric_lock_providers.dart';
 ///
 /// The same exception extends to the lock *decision* itself, not only the
 /// prompt: [didChangeAppLifecycleState] never treats an inactive/paused/
-/// resumed cycle observed while [_callInFlight] as the user backgrounding
-/// the app — the call's own presentation (notification shade, a tap,
-/// full-screen intent, `MainActivity` toggling `showWhenLocked`, the system
-/// prompt over it, returning from the call screen) can emit exactly that
-/// transition on its own. Without this, an app the user was already using
-/// unlocked would re-lock the moment a call ends, purely from that noise —
-/// see that method's doc for the precise, scoped-per-resume rule (never a
-/// permanent bypass, and never grants access to an app that was already
-/// locked before the call).
+/// resumed cycle caused by a call's own presentation (notification shade, a
+/// tap, full-screen intent, `MainActivity` toggling `showWhenLocked`, the
+/// system prompt over it, returning from the call screen) as the user
+/// backgrounding the app. This is not simply "is a call in flight right now
+/// at `resumed`" — on real Android, `endCall()` (Atender, Dispensar,
+/// `RING_ENDED`, the local ring-timeout) can just as easily land *before*
+/// the matching `resumed` as after it, and by then [_callInFlight] has
+/// already gone back to `false`. [_backgroundCycleIsCallAssociated] is the
+/// latch that closes that race: it records, for the *background cycle
+/// currently in progress* (see [_backgroundedAt]), whether a call was ever
+/// in flight at any point during it — set the instant the cycle begins if a
+/// call is already in flight, or the instant one starts mid-cycle (see
+/// [_onRingCallChanged]) — and deliberately never cleared just because the
+/// call later ends before the cycle's own `resumed` arrives. See that
+/// field's and [didChangeAppLifecycleState]'s doc for the precise, bounded,
+/// scoped-per-cycle rule: never a permanent bypass, and never grants access
+/// to an app that was already locked before the call.
 class BiometricLockGate extends ConsumerStatefulWidget {
   const BiometricLockGate({super.key, required this.child, this.now});
 
@@ -47,6 +55,24 @@ class BiometricLockGate extends ConsumerStatefulWidget {
 class _BiometricLockGateState extends ConsumerState<BiometricLockGate>
     with WidgetsBindingObserver {
   DateTime? _backgroundedAt;
+
+  /// Whether the background cycle currently open (i.e. while
+  /// [_backgroundedAt] is non-null) has, at any point since it began, had a
+  /// call pending/active — see the class doc and
+  /// [didChangeAppLifecycleState]'s doc for exactly how this closes the
+  /// end-before-resume race. Only ever:
+  ///  - set to `true` (never explicitly reset to `false` mid-cycle — once a
+  ///    call has touched this cycle, ending it does not un-mark it);
+  ///  - read and reset together, exactly once, when the matching `resumed`
+  ///    consumes it (or the state is torn down — see [dispose]);
+  ///  - reset when a *new* cycle begins ([_backgroundedAt] transitioning
+  ///    from `null`), so it never carries meaning across two different
+  ///    cycles;
+  ///  - reset when the tracked coordinator itself is replaced (see
+  ///    [didChangeDependencies]) — a latch about a call is meaningless once
+  ///    that call's own coordinator is gone.
+  bool _backgroundCycleIsCallAssociated = false;
+
   bool _locked = false;
   bool _initialSettingsHandled = false;
   bool _unlocking = false;
@@ -73,10 +99,22 @@ class _BiometricLockGateState extends ConsumerState<BiometricLockGate>
     if (!identical(_ringCoordinator, coordinator)) {
       _ringCoordinator?.removeListener(_onRingCallChanged);
       _ringCoordinator = coordinator..addListener(_onRingCallChanged);
+      // A latch referring to a call tracked by the previous coordinator
+      // instance carries no meaning under a new one (e.g. across a
+      // provider/session reset) — never let it survive the swap.
+      _backgroundCycleIsCallAssociated = false;
     }
   }
 
   void _onRingCallChanged() {
+    if (_backgroundedAt != null && _callInFlight) {
+      // A call became pending/active partway through the background cycle
+      // already in progress (e.g. the notification shade opened first, and
+      // only the subsequent tap accepted the call) — mark this cycle
+      // call-associated from this point on, same as if it had already been
+      // in flight when the cycle began.
+      _backgroundCycleIsCallAssociated = true;
+    }
     if (mounted) setState(() {});
   }
 
@@ -84,8 +122,23 @@ class _BiometricLockGateState extends ConsumerState<BiometricLockGate>
   void dispose() {
     _ringCoordinator?.removeListener(_onRingCallChanged);
     WidgetsBinding.instance.removeObserver(this);
+    _backgroundedAt = null;
+    _backgroundCycleIsCallAssociated = false;
     super.dispose();
   }
+
+  /// A generous cap — far beyond any plausible full-screen-intent
+  /// transition, authorization lookup, or Atender/Dispensar interaction,
+  /// but far short of a real "the user put the phone down" absence — on how
+  /// stale a call-associated background cycle (see
+  /// [_backgroundCycleIsCallAssociated]) may be before its own `resumed`
+  /// still honors it. Deliberately combined with that explicit latch, never
+  /// used on its own: this is what stops an old, already-ended call from
+  /// suppressing a lock indefinitely if the user then genuinely stayed away
+  /// long past the call itself, and is not a substitute for the latch — a
+  /// currently in-flight call ([_callInFlight] below) is never subject to
+  /// this cap at all.
+  static const _maxCallAssociatedBackgroundDuration = Duration(minutes: 2);
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -97,32 +150,42 @@ class _BiometricLockGateState extends ConsumerState<BiometricLockGate>
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
-      _backgroundedAt ??= _now;
+      if (_backgroundedAt == null) {
+        // The start of a new cycle: never inherit a stale association from
+        // whatever the previous cycle was classified as.
+        _backgroundedAt = _now;
+        _backgroundCycleIsCallAssociated = _callInFlight;
+      }
       return;
     }
     if (state != AppLifecycleState.resumed || _backgroundedAt == null) {
       return;
     }
     final elapsed = _now.difference(_backgroundedAt!);
+    final callAssociated = _backgroundCycleIsCallAssociated;
     _backgroundedAt = null;
+    _backgroundCycleIsCallAssociated = false;
     if (_callInFlight) {
-      // A call's own presentation — the notification shade opening, a tap,
-      // full-screen intent, MainActivity toggling showWhenLocked, the
-      // native system prompt over it, returning from the call screen — can
-      // transiently emit inactive/paused/resumed on its own, with no real
-      // backgrounding by the user at all. Classifying this resume by
-      // whether a call is actually pending/active right now (not merely by
-      // the raw lifecycle transition) is what keeps that noise from ever
-      // counting as "the user left the app": elapsed time is discarded
-      // rather than evaluated.
+      // A call is still pending/active right this moment — never locks
+      // regardless of elapsed time; see the class doc and [build]'s own
+      // unconditional exception while a call is in flight.
+      return;
+    }
+    if (callAssociated && elapsed <= _maxCallAssociatedBackgroundDuration) {
+      // This cycle's inactive/paused/resumed was caused by a call's own
+      // presentation, even though that call already ended (Atender,
+      // Dispensar, RING_ENDED, the local ring-timeout) *before* this
+      // resumed arrived — the exact race a same-instant _callInFlight check
+      // alone cannot close, since by then it has already gone back to
+      // false. Elapsed time is discarded rather than evaluated, same as
+      // when the call is still in flight.
       //
       // This is not a persistent bypass: it only ever *skips newly
       // locking* for this one resume — an already-[_locked] app (cold
       // start, over the keyguard, or locked before the call arrived) stays
       // exactly as locked as it was, since nothing here ever sets `_locked
-      // = false`. The next resume that is not itself call-related is
-      // evaluated normally, with a fresh [_backgroundedAt] and no memory of
-      // this one.
+      // = false`. The next resume that is not itself call-associated is
+      // evaluated normally, with a fresh cycle and no memory of this one.
       return;
     }
     final settings = ref.read(biometricLockSettingsProvider).value;

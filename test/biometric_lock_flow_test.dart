@@ -350,11 +350,170 @@ void main() {
     /// ring-timeout *timer* mechanics are covered separately in
     /// ring_call_navigation_test.dart.
     for (final endReason in ['Dispensar', 'Atender', 'RING_ENDED', 'timeout']) {
-      testWidgets('already unlocked in foreground: a call interrupted by a '
-          'notification-shade-like lifecycle blip, then ended via $endReason, '
-          'reveals the exact same content — still unlocked, no new prompt', (
-        tester,
-      ) async {
+      testWidgets(
+        'Order A (resumed before end) — already unlocked in foreground: a '
+        'call interrupted by a notification-shade-like lifecycle blip, '
+        'RESUMED while still in flight, then ended via $endReason, reveals '
+        'the exact same content — still unlocked, no new prompt',
+        (tester) async {
+          final biometrics = _FakeBiometrics();
+          final callIntent = RingCallIntent(
+            eventId: 'evt-${List.filled(32, 'a').join()}',
+            callId: 'call-${List.filled(32, 'c').join()}',
+            deviceId: 'ib-${List.filled(32, 'b').join()}',
+            occurredAt: DateTime(2026),
+          );
+          final coordinator = RingCallNavigationCoordinator(
+            (_) async => true,
+            now: () => DateTime(2026),
+          );
+          coordinator.setAuthenticated(true);
+
+          await _pumpGate(
+            tester,
+            biometrics: biometrics,
+            ringCallCoordinator: coordinator,
+          );
+          expect(
+            find.text('Conteúdo protegido'),
+            findsOneWidget,
+            reason: 'setup: the app must start unlocked, in foreground',
+          );
+          expect(biometrics.authenticateCalls, 1);
+
+          coordinator.acceptSerialized(callIntent.serialize());
+          await tester.pump();
+
+          // The notification shade opening/closing around the tap — an
+          // ordinary AppLifecycleState cycle with a call already in flight.
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.inactive,
+          );
+          await tester.pump();
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.resumed,
+          );
+          await tester.pump();
+
+          expect(
+            find.text('Conteúdo protegido'),
+            findsOneWidget,
+            reason: 'still unlocked while the call is in flight',
+          );
+          expect(biometrics.authenticateCalls, 1);
+
+          coordinator.endCall(callIntent.callId);
+          await tester.pump();
+          await tester.pump();
+
+          expect(
+            find.text('Conteúdo protegido'),
+            findsOneWidget,
+            reason:
+                '$endReason must reveal the exact prior content, still '
+                'unlocked',
+          );
+          expect(find.text('Desbloqueie para continuar'), findsNothing);
+          expect(
+            biometrics.authenticateCalls,
+            1,
+            reason: 'no new biometric prompt was started',
+          );
+          coordinator.dispose();
+        },
+      );
+    }
+
+    /// The race this hardening closes: on real Android, `endCall()`
+    /// (Atender, Dispensar, RING_ENDED, the local ring-timeout) can land
+    /// *before* the matching `resumed`, not just after it — by then
+    /// [BiometricLockGate._callInFlight] has already gone back to `false`,
+    /// so a same-instant check alone cannot tell this apart from a genuine
+    /// backgrounding. These four tests simulate the exact event order (not
+    /// merely different labels for the same `endCall()`-after-`resumed`
+    /// call) — each must still reveal the same unlocked content and never
+    /// start a new biometric prompt.
+    for (final endReason in ['Dispensar', 'Atender', 'RING_ENDED', 'timeout']) {
+      testWidgets(
+        'Order B (end before resumed) — already unlocked in foreground: a '
+        'call ends via $endReason WHILE still backgrounded, and only THEN '
+        'does resumed arrive — still reveals the same content, still '
+        'unlocked, no new prompt',
+        (tester) async {
+          final biometrics = _FakeBiometrics();
+          final callIntent = RingCallIntent(
+            eventId: 'evt-${List.filled(32, 'a').join()}',
+            callId: 'call-${List.filled(32, 'c').join()}',
+            deviceId: 'ib-${List.filled(32, 'b').join()}',
+            occurredAt: DateTime(2026),
+          );
+          final coordinator = RingCallNavigationCoordinator(
+            (_) async => true,
+            now: () => DateTime(2026),
+          );
+          coordinator.setAuthenticated(true);
+
+          await _pumpGate(
+            tester,
+            biometrics: biometrics,
+            ringCallCoordinator: coordinator,
+          );
+          expect(
+            find.text('Conteúdo protegido'),
+            findsOneWidget,
+            reason: 'setup: the app must start unlocked, in foreground',
+          );
+          expect(biometrics.authenticateCalls, 1);
+
+          coordinator.acceptSerialized(callIntent.serialize());
+          await tester.pump();
+
+          // 1. inactive/paused while the call is in flight.
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.inactive,
+          );
+          await tester.pump();
+
+          // 2. the call ends WHILE still backgrounded — before resumed.
+          coordinator.endCall(callIntent.callId);
+          await tester.pump();
+          expect(
+            coordinator.hasPending || coordinator.shouldOpen,
+            isFalse,
+            reason: 'setup: the call has genuinely already ended',
+          );
+
+          // 3. only now does resumed arrive.
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.resumed,
+          );
+          await tester.pump();
+          await tester.pump();
+
+          expect(
+            find.text('Conteúdo protegido'),
+            findsOneWidget,
+            reason:
+                '$endReason landing before resumed must still reveal the '
+                'exact prior content, still unlocked',
+          );
+          expect(find.text('Desbloqueie para continuar'), findsNothing);
+          expect(
+            biometrics.authenticateCalls,
+            1,
+            reason: 'no new biometric prompt was started',
+          );
+          coordinator.dispose();
+        },
+      );
+    }
+
+    testWidgets(
+      'a call accepted only partway through an already-open background '
+      'cycle (e.g. the notification shade opened first, then the tap '
+      'accepted the call), ended before resumed, still reveals unlocked '
+      'content',
+      (tester) async {
         final biometrics = _FakeBiometrics();
         final callIntent = RingCallIntent(
           eventId: 'evt-${List.filled(32, 'a').join()}',
@@ -373,54 +532,218 @@ void main() {
           biometrics: biometrics,
           ringCallCoordinator: coordinator,
         );
-        expect(
-          find.text('Conteúdo protegido'),
-          findsOneWidget,
-          reason: 'setup: the app must start unlocked, in foreground',
-        );
-        expect(biometrics.authenticateCalls, 1);
+        expect(find.text('Conteúdo protegido'), findsOneWidget);
 
-        coordinator.acceptSerialized(callIntent.serialize());
-        await tester.pump();
-
-        // The notification shade opening/closing around the tap — an
-        // ordinary AppLifecycleState cycle with a call already in flight.
+        // The shade opens BEFORE any call exists at all.
         tester.binding.handleAppLifecycleStateChanged(
           AppLifecycleState.inactive,
         );
         await tester.pump();
+
+        // The call arrives (and is accepted) only now, mid-cycle.
+        coordinator.acceptSerialized(callIntent.serialize());
+        await tester.pump();
+
+        // It ends before the shade closes/resumed fires.
+        coordinator.endCall(callIntent.callId);
+        await tester.pump();
+
         tester.binding.handleAppLifecycleStateChanged(
           AppLifecycleState.resumed,
         );
         await tester.pump();
+        await tester.pump();
 
-        expect(
-          find.text('Conteúdo protegido'),
-          findsOneWidget,
-          reason: 'still unlocked while the call is in flight',
-        );
+        expect(find.text('Conteúdo protegido'), findsOneWidget);
+        expect(find.text('Desbloqueie para continuar'), findsNothing);
         expect(biometrics.authenticateCalls, 1);
+        coordinator.dispose();
+      },
+    );
 
+    testWidgets('a call-associated cycle that stays open far longer than any '
+        'plausible call interaction is not honored — the user genuinely '
+        'stayed away, so the next resumed locks normally', (tester) async {
+      var now = DateTime(2026);
+      // First attempt (cold start) succeeds so the test starts unlocked;
+      // the second (triggered by the stale-cycle resume this test is
+      // actually about) is canceled, so the lock this test asserts on
+      // stays visible instead of silently re-unlocking on its own.
+      final biometrics = _FakeBiometrics(
+        results: [
+          BiometricAuthenticationResult.success,
+          BiometricAuthenticationResult.canceled,
+        ],
+      );
+      final callIntent = RingCallIntent(
+        eventId: 'evt-${List.filled(32, 'a').join()}',
+        callId: 'call-${List.filled(32, 'c').join()}',
+        deviceId: 'ib-${List.filled(32, 'b').join()}',
+        occurredAt: DateTime(2026),
+      );
+      final coordinator = RingCallNavigationCoordinator(
+        (_) async => true,
+        now: () => now,
+      );
+      coordinator.setAuthenticated(true);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            biometricLockSettingsRepositoryProvider.overrideWithValue(
+              _MemorySettingsRepository(
+                const BiometricLockSettings(
+                  enabled: true,
+                  backgroundTimeout: Duration.zero,
+                ),
+              ),
+            ),
+            biometricAuthenticatorProvider.overrideWithValue(biometrics),
+            authRepositoryProvider.overrideWithValue(
+              LocalAuthRepository(
+                initial: const AuthSession(isSignedIn: true, userId: 'user'),
+              ),
+            ),
+            ringCallNavigationCoordinatorProvider.overrideWithValue(
+              coordinator,
+            ),
+          ],
+          child: MaterialApp(
+            home: BiometricLockGate(
+              now: () => now,
+              child: const Scaffold(body: Text('Conteúdo protegido')),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Conteúdo protegido'), findsOneWidget);
+      expect(biometrics.authenticateCalls, 1);
+
+      coordinator.acceptSerialized(callIntent.serialize());
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      coordinator.endCall(callIntent.callId);
+      await tester.pump();
+
+      // The user genuinely stays away for much longer than any call
+      // interaction plausibly takes.
+      now = now.add(const Duration(hours: 1));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        find.text('Desbloqueie para continuar'),
+        findsOneWidget,
+        reason:
+            'an hour-old call association must not suppress a real '
+            'lock — the safety cap rejects it',
+      );
+      expect(
+        biometrics.authenticateCalls,
+        2,
+        reason: 'a fresh automatic attempt was correctly triggered',
+      );
+      coordinator.dispose();
+    });
+
+    testWidgets(
+      'already locked before the call arrives stays locked in Order B too '
+      '(end before resumed)',
+      (tester) async {
+        final biometrics = _FakeBiometrics(
+          result: BiometricAuthenticationResult.canceled,
+        );
+        final callIntent = RingCallIntent(
+          eventId: 'evt-${List.filled(32, 'a').join()}',
+          callId: 'call-${List.filled(32, 'c').join()}',
+          deviceId: 'ib-${List.filled(32, 'b').join()}',
+          occurredAt: DateTime(2026),
+        );
+        final coordinator = RingCallNavigationCoordinator(
+          (_) async => true,
+          now: () => DateTime(2026),
+        );
+        coordinator.setAuthenticated(true);
+
+        await _pumpLockedGate(tester, biometrics: biometrics);
+        expect(find.text('Desbloqueie para continuar'), findsOneWidget);
+
+        // A call arrives even though the gate is locked — should never
+        // reveal content, and ending it before resumed must not change
+        // that.
+        coordinator.acceptSerialized(callIntent.serialize());
         coordinator.endCall(callIntent.callId);
         await tester.pump();
         await tester.pump();
 
         expect(
-          find.text('Conteúdo protegido'),
+          find.text('Desbloqueie para continuar'),
           findsOneWidget,
           reason:
-              '$endReason must reveal the exact prior content, still '
-              'unlocked',
+              'a call arriving and ending, in either order, never '
+              'unlocks an already-locked gate',
         );
-        expect(find.text('Desbloqueie para continuar'), findsNothing);
+        expect(find.text('Conteúdo protegido'), findsNothing);
+        coordinator.dispose();
+      },
+    );
+
+    testWidgets(
+      'ending an unrelated call_id during an open background cycle never '
+      'marks that cycle call-associated on its own',
+      (tester) async {
+        // First attempt (cold start) succeeds so the test starts unlocked;
+        // the second (the genuine immediate-timeout lock this test asserts
+        // on) is canceled, so it stays visible for the final expectation.
+        final biometrics = _FakeBiometrics(
+          results: [
+            BiometricAuthenticationResult.success,
+            BiometricAuthenticationResult.canceled,
+          ],
+        );
+        final coordinator = RingCallNavigationCoordinator(
+          (_) async => true,
+          now: () => DateTime(2026),
+        );
+        coordinator.setAuthenticated(true);
+
+        await _pumpGate(
+          tester,
+          biometrics: biometrics,
+          ringCallCoordinator: coordinator,
+        );
+        expect(find.text('Conteúdo protegido'), findsOneWidget);
+
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.inactive,
+        );
+        await tester.pump();
+
+        // A RING_ENDED for a call this coordinator never held, arriving
+        // mid-cycle — must not mark the cycle call-associated.
+        coordinator.endCall('call-${List.filled(32, 'd').join()}');
+        await tester.pump();
+
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pump();
+        await tester.pump();
+
         expect(
-          biometrics.authenticateCalls,
-          1,
-          reason: 'no new biometric prompt was started',
+          find.text('Desbloqueie para continuar'),
+          findsOneWidget,
+          reason:
+              'an unrelated call_id must never suppress a genuine '
+              'immediate-timeout lock',
         );
         coordinator.dispose();
-      });
-    }
+      },
+    );
 
     testWidgets(
       'multiple lifecycle blips during one call never accumulate into a '

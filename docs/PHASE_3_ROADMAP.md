@@ -362,16 +362,28 @@ permanecem explicitamente pendentes.
       apresentação da chamada (central de notificações abrindo/fechando,
       full-screen intent, `MainActivity` alternando `showWhenLocked`) emitir
       `inactive`/`paused`/`resumed` no Flutter sem o usuário realmente ter
-      saído do app. `BiometricLockGate.didChangeAppLifecycleState` agora
-      classifica cada `resumed` pelo estado real da apresentação
-      (`_callInFlight`, o mesmo já usado para o prompt) em vez do último
-      `AppLifecycleState` bruto: enquanto uma chamada está pendente/ativa,
-      o tempo decorrido é descartado, nunca avaliado. Não é um bypass
-      permanente — só evita *bloquear de novo* nesta janela específica; um
-      app já bloqueado antes da chamada (cold start, sobre o keyguard)
-      permanece bloqueado, já que nada aqui jamais define `_locked = false`
-      fora de uma autenticação bem-sucedida, e uma janela de fundo genuína
-      logo depois continua avaliada normalmente;
+      saído do app;
+    - **hardening posterior: checar `_callInFlight` só no instante do
+      `resumed` ainda deixava uma corrida real.** No Android real,
+      `endCall()` (Atender, Dispensar, `RING_ENDED`, o ring-timeout local)
+      pode chegar *antes* do `resumed` correspondente, não só depois — nesse
+      caso `_callInFlight` já volta a `false` antes da checagem rodar, e a
+      correção anterior reaplicaria o bloqueio. `BiometricLockGate` agora
+      classifica o **ciclo** de background inteiro (`_backgroundedAt` até o
+      próximo `resumed`), não só o instante do `resumed`: um latch explícito
+      (`_backgroundCycleIsCallAssociated`) registra se uma chamada esteve
+      pendente/ativa em algum momento do ciclo atual — no início do ciclo, ou
+      quando a chamada só é aceita no meio dele (central de notificações
+      abre antes da chamada existir) — e **nunca é desmarcado só porque a
+      chamada termina antes do `resumed`**, exatamente a corrida que faltava
+      fechar. Consumido (lido e zerado) uma única vez, no próximo `resumed`,
+      com um teto de segurança de 2 minutos combinado ao latch (nunca usado
+      sozinho) para que uma associação antiga não suprima um bloqueio depois
+      de uma ausência genuinamente longa. Não é bypass permanente: nada aqui
+      jamais define `_locked = false` fora de autenticação bem-sucedida, um
+      app já bloqueado (cold start, sobre o keyguard) permanece bloqueado
+      nas duas ordens de evento, e o latch é reiniciado a cada novo ciclo e
+      ao trocar a instância do coordenador rastreado;
     - **retorno ao keyguard ao encerrar sobre tela bloqueada:** novo canal
       `interapp/ring_call_presentation` (`MainActivity.endRingCallPresentation`)
       derruba `setShowWhenLocked`/`setTurnScreenOn` e, se o aparelho ainda
