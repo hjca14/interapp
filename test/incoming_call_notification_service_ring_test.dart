@@ -141,6 +141,15 @@ void main() {
       expect(details.ongoing, isFalse);
       expect(details.additionalFlags, anyOf(isNull, isEmpty));
     });
+
+    test('NOTIFICATION_ONLY is auto-cancelable like an ordinary notification — '
+        'unlike the call channel, which is never auto-canceled by a tap', () {
+      final details = IncomingCallNotificationService.androidChannelFor(
+        RingPresentationIntent.notificationOnly,
+      );
+
+      expect(details.autoCancel, isTrue);
+    });
   });
 
   group('IncomingCallNotificationService.present/endCall', () {
@@ -361,6 +370,66 @@ void main() {
       final args = captured!.arguments as Map<Object?, Object?>;
       expect(args['id'], ringNotificationId('call-${'c' * 32}'));
       expect(endedCallId, 'call-${'c' * 32}');
+    });
+
+    test('cancelNotificationById cancels exactly the given OS id, never a '
+        'value recomputed from any call_id/payload — used by the safe-'
+        'recovery path for a tapped call notification whose payload failed '
+        'to restore', () async {
+      MethodCall? captured;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(notificationsChannel, (call) async {
+            if (call.method == 'cancel') captured = call;
+            return null;
+          });
+      final service = IncomingCallNotificationService(
+        FlutterLocalNotificationsPlugin(),
+      );
+
+      await service.cancelNotificationById(4242);
+
+      expect(captured, isNotNull, reason: 'cancel was never invoked');
+      final args = captured!.arguments as Map<Object?, Object?>;
+      expect(args['id'], 4242);
+    });
+
+    test('onDidReceiveNotificationResponse forwards both the payload and the '
+        "response's own notification id to onRingNotificationTap", () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(notificationsChannel, (call) async {
+            if (call.method == 'initialize') return true;
+            if (call.method == 'requestNotificationsPermission') {
+              return true;
+            }
+            return null;
+          });
+      String? capturedPayload;
+      int? capturedId;
+      final service = IncomingCallNotificationService(
+        FlutterLocalNotificationsPlugin(),
+        onRingNotificationTap: (payload, notificationId) {
+          capturedPayload = payload;
+          capturedId = notificationId;
+        },
+      );
+      await service.initialize();
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .handlePlatformMessage(
+            notificationsChannel.name,
+            notificationsChannel.codec.encodeMethodCall(
+              const MethodCall('didReceiveNotificationResponse', {
+                'notificationResponseType': 0,
+                'notificationId': 4242,
+                'payload': 'some-payload',
+              }),
+            ),
+            (_) {},
+          );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(capturedPayload, 'some-payload');
+      expect(capturedId, 4242);
     });
   });
 }

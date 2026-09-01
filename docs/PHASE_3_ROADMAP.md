@@ -298,9 +298,9 @@ permanecem explicitamente pendentes.
       e o ciclo de vida local, ver `lib/core/push/
       ring_detected_push_parser.dart`):
       - `call_id` **opcional** em `RING_DETECTED`, casando
-        `^call-[0-9a-f]{32}$`; ausente, o app usa o próprio `event_id` como
-        `call_id` (equivalente ao comportamento atual — nenhum push antigo
-        quebra);
+        `^call-[0-9a-f]{32}$`; ausente, o app deriva `call-<32 hex>` a partir
+        do sufixo do `event_id` (nenhum push antigo quebra, e o valor
+        derivado já casa a regex canônica que todo consumidor exige);
       - `RING_ENDED`: mesmo envelope de `RING_DETECTED` (`push_contract_version`,
         `event_id`, `device_id`, `event`, `occurred_at`), **sem**
         `presentation_intent` e com `call_id` **obrigatório**;

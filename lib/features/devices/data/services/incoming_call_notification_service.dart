@@ -38,7 +38,16 @@ class IncomingCallNotificationService implements RingNotificationPresenter {
            fullScreenIntentChecker ?? checkFullScreenIntentAccess;
 
   final FlutterLocalNotificationsPlugin _plugin;
-  final void Function(String? payload)? onRingNotificationTap;
+
+  /// [notificationId] is the OS's own id for the tapped notification —
+  /// always the exact same id [present]/[showIncomingCall] used, whatever
+  /// its `payload` turns out to say (or fails to say). Callers needing to
+  /// safely recover from an invalid/expired call tap (see
+  /// `routeNotificationTap`) must cancel by this id, never by recomputing
+  /// one from the payload — an invalid payload cannot be trusted to derive
+  /// anything from, including which notification it was.
+  final void Function(String? payload, int? notificationId)?
+  onRingNotificationTap;
 
   /// Notified with `callId` whenever [endCall] cancels a call's
   /// notification — production wiring forwards this to
@@ -192,7 +201,7 @@ class IncomingCallNotificationService implements RingNotificationPresenter {
         iOS: iosSettings,
       ),
       onDidReceiveNotificationResponse: (response) {
-        onRingNotificationTap?.call(response.payload);
+        onRingNotificationTap?.call(response.payload, response.id);
       },
     );
   }
@@ -203,7 +212,10 @@ class IncomingCallNotificationService implements RingNotificationPresenter {
   Future<void> consumeInitialNotificationLaunch() async {
     final details = await _plugin.getNotificationAppLaunchDetails();
     if (details?.didNotificationLaunchApp == true) {
-      onRingNotificationTap?.call(details?.notificationResponse?.payload);
+      onRingNotificationTap?.call(
+        details?.notificationResponse?.payload,
+        details?.notificationResponse?.id,
+      );
     }
   }
 
@@ -311,6 +323,15 @@ class IncomingCallNotificationService implements RingNotificationPresenter {
   /// does (canceling always does, regardless of caller).
   Future<void> cancelRing(String callId) {
     return _plugin.cancel(id: ringNotificationId(callId));
+  }
+
+  /// Cancels a notification by its exact OS-assigned [id] — used only for
+  /// the safe-recovery path when a tapped call notification's payload fails
+  /// to restore (see `routeNotificationTap`'s `onInvalidCallTap`), where no
+  /// valid `call_id` is available to recompute [ringNotificationId] from.
+  /// Never derives an id from untrusted/invalid payload content.
+  Future<void> cancelNotificationById(int id) {
+    return _plugin.cancel(id: id);
   }
 
   /// Shows the "device X is calling" notification. [deviceId]'s hash code is

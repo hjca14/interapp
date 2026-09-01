@@ -1,11 +1,15 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:interapp/core/config/app_environment.dart';
 import 'package:interapp/core/network/interbridge_api_client.dart';
+import 'package:interapp/core/push/device_event_navigation.dart';
 import 'package:interapp/core/push/notification_tap_router.dart';
 import 'package:interapp/core/push/ring_call_intent.dart';
+import 'package:interapp/core/push/ring_call_lock_screen_channel.dart';
 import 'package:interapp/core/push/ring_call_navigation.dart';
-import 'package:interapp/core/router/app_router.dart';
 import 'package:interapp/features/auth/presentation/providers/auth_providers.dart';
 import 'package:interapp/features/devices/data/repositories/http_device_repository.dart';
 import 'package:interapp/features/devices/data/repositories/http_device_notification_preferences_repository.dart';
@@ -107,22 +111,54 @@ final deviceBackendRepositoryProvider = Provider<DeviceBackendRepository>(
 /// Note this only builds the service — `main()` still has to call
 /// `.initialize()` on it before it's usable.
 final incomingCallNotificationServiceProvider =
-    Provider<IncomingCallNotificationService>(
-      (ref) => IncomingCallNotificationService(
+    Provider<IncomingCallNotificationService>((ref) {
+      // Declared before construction so onInvalidCallTap below can call back
+      // into this same instance to cancel-by-id without a self-referential
+      // `ref.read(incomingCallNotificationServiceProvider)`, which would
+      // make this provider's own type inference cyclic. Safe: the closure
+      // only reads [service] once actually invoked, always after this
+      // provider has finished building and returned it.
+      late final IncomingCallNotificationService service;
+      service = IncomingCallNotificationService(
         FlutterLocalNotificationsPlugin(),
         // Only a call-mode payload (RingCallIntent) reaches the navigation
         // coordinator/IncomingCallPage. A NOTIFICATION_ONLY tap
-        // (DeviceEventNotificationIntent) instead opens the device's own
-        // detail route — it names an event that already happened, not a
-        // live call to answer/dismiss. See `routeNotificationTap`.
-        onRingNotificationTap: (payload) => routeNotificationTap(
-          payload,
-          onCallTap: ref
-              .read(ringCallNavigationCoordinatorProvider)
-              .acceptSerialized,
-          onDeviceEventTap: (deviceId) =>
-              ref.read(appRouterProvider).go('/devices/$deviceId'),
-        ),
+        // (DeviceEventNotificationIntent) instead goes through
+        // deviceEventNavigationCoordinatorProvider, which preserves it until
+        // authentication is confirmed rather than navigating immediately —
+        // see DeviceEventNavigationCoordinator's doc. See
+        // `routeNotificationTap`.
+        onRingNotificationTap: (payload, notificationId) =>
+            routeNotificationTap(
+              payload,
+              onCallTap: ref
+                  .read(ringCallNavigationCoordinatorProvider)
+                  .acceptSerialized,
+              onDeviceEventTap: (deviceId) => ref
+                  .read(deviceEventNavigationCoordinatorProvider)
+                  .acceptDeviceId(deviceId),
+              // The payload had a call notification's shape but failed to
+              // restore (expired past the ring-timeout, malformed, foreign
+              // version) — recover safely without opening IncomingCallPage:
+              // cancel exactly the tapped notification by its own OS id (never
+              // derived from the untrusted payload), and undo any lock-screen
+              // bypass in case MainActivity had already granted one from the
+              // launching Intent alone. Never touches any other
+              // call/notification, and never stops the ringtone for a call that
+              // is actually still valid — this is a distinct branch from
+              // onCallTap above.
+              onInvalidCallTap: notificationId == null
+                  ? null
+                  : () {
+                      unawaited(service.cancelNotificationById(notificationId));
+                      unawaited(endRingCallLockScreenPresentation());
+                    },
+              onDiagnostic: (diagnostic) {
+                if (kDebugMode) {
+                  debugPrint(diagnostic.toLogLine());
+                }
+              },
+            ),
         // A RING_ENDED/local ring-timeout cancels the notification here,
         // and must also close an already-open IncomingCallPage/abort a
         // pending one — see IncomingCallNotificationService.endCall's doc.
@@ -137,15 +173,37 @@ final incomingCallNotificationServiceProvider =
         onCallPresented: (event) => ref
             .read(ringCallNavigationCoordinatorProvider)
             .acceptSerialized(RingCallIntent.fromEvent(event).serialize()),
-      ),
-    );
+      );
+      return service;
+    });
+
+Future<bool> _deviceExistsAndIsAuthorized(Ref ref, String deviceId) async {
+  await ref.read(deviceRepositoryProvider).getDeviceDetails(deviceId);
+  return true;
+}
 
 final ringCallNavigationCoordinatorProvider =
     Provider<RingCallNavigationCoordinator>((ref) {
-      final coordinator = RingCallNavigationCoordinator((deviceId) async {
-        await ref.read(deviceRepositoryProvider).getDeviceDetails(deviceId);
-        return true;
-      });
+      final coordinator = RingCallNavigationCoordinator(
+        (deviceId) => _deviceExistsAndIsAuthorized(ref, deviceId),
+      );
+      ref.onDispose(coordinator.dispose);
+      return coordinator;
+    });
+
+/// See [DeviceEventNavigationCoordinator]'s doc comment — the `deviceId`
+/// counterpart to [ringCallNavigationCoordinatorProvider], for a
+/// `NOTIFICATION_ONLY` tap instead of a call.
+final deviceEventNavigationCoordinatorProvider =
+    Provider<DeviceEventNavigationCoordinator>((ref) {
+      final coordinator = DeviceEventNavigationCoordinator(
+        (deviceId) => _deviceExistsAndIsAuthorized(ref, deviceId),
+        onDiagnostic: (diagnostic) {
+          if (kDebugMode) {
+            debugPrint(diagnostic.toLogLine());
+          }
+        },
+      );
       ref.onDispose(coordinator.dispose);
       return coordinator;
     });

@@ -44,10 +44,12 @@ sealed class RingPushEvent {
   /// the one call it names — see [RingPresentationIntentCall] doc and
   /// `RingCallNavigationCoordinator.endCall`.
   ///
-  /// Defaults to [eventId] when the backend has not sent `call_id` yet (an
-  /// old `RING_DETECTED`-only sender): every event is then its own
-  /// single-event "call", which is exactly today's behavior and never
-  /// receives a matching `RING_ENDED` — see `ring_detected_push_parser.dart`.
+  /// On [RingDetectedEvent], defaults to [deriveLegacyCallId] of [eventId]
+  /// when the backend has not sent `call_id` yet (an old
+  /// `RING_DETECTED`-only sender) — see that function's doc. Such an event
+  /// never receives a matching `RING_ENDED` (the legacy sender does not emit
+  /// one), which remains exactly today's behavior; only the id's shape
+  /// changed, not this fact.
   final String callId;
 
   final String deviceId;
@@ -64,16 +66,31 @@ sealed class RingPushEvent {
 /// dedup/preferences) — never shown as the notification's visible text; the
 /// backend contract does not yet include a trustworthy display name.
 final class RingDetectedEvent extends RingPushEvent {
-  const RingDetectedEvent({
+  RingDetectedEvent({
     required super.eventId,
     required super.deviceId,
     required this.presentationIntent,
     required super.occurredAt,
     String? callId,
-  }) : super(callId: callId ?? eventId);
+  }) : super(callId: callId ?? deriveLegacyCallId(eventId));
 
   final RingPresentationIntent presentationIntent;
 }
+
+/// Derives a legacy (pre-`call_id`) `RING_DETECTED`'s synthetic `call_id`
+/// from its `event_id` — the single, canonical place this normalization
+/// happens; every consumer ([RingCallIntent], the native Kotlin validator,
+/// `RingCallTombstoneStore`, the notification id) receives the already-
+/// normalized [RingDetectedEvent.callId] and never repeats this conversion.
+///
+/// `event_id` and `call_id` share the same 32-hex-character suffix by
+/// construction (matching the backend's own fallback, interBackend PR #27):
+/// `evt-<32 hex>` becomes `call-<32 hex>`, satisfying the canonical
+/// `^call-[0-9a-f]{32}$` contract every consumer already enforces, instead
+/// of leaking the `evt-` prefix into a field that must start with `call-`.
+/// Pure and deterministic: a retried delivery of the same legacy `event_id`
+/// always derives the same `call_id`.
+String deriveLegacyCallId(String eventId) => 'call-${eventId.substring(4)}';
 
 /// A validated `RING_ENDED` push: the remote counterpart to a
 /// `RING_DETECTED` that shares the same [RingPushEvent.callId]. See

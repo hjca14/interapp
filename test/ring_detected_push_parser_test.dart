@@ -41,8 +41,10 @@ void main() {
         expect(event.occurredAt, DateTime.parse('2026-08-30T12:00:00Z'));
         expect(
           event.callId,
-          'evt-0123456789abcdef0123456789abcdef',
-          reason: 'defaults call_id to event_id when the backend omits it',
+          'call-0123456789abcdef0123456789abcdef',
+          reason:
+              'derives call-<32 hex> from the event_id suffix when the '
+              'backend omits call_id, never the raw evt- prefixed value',
         );
       });
     }

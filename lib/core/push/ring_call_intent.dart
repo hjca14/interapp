@@ -95,6 +95,32 @@ final class RingCallIntent {
   }
 }
 
+/// Whether [encoded] has [RingCallIntent]'s JSON envelope shape (exact key
+/// set, `v == 2`) regardless of whether its *content* would also pass
+/// [RingCallIntent.tryRestore]'s full validation (id formats, freshness).
+///
+/// Lets a caller distinguish "this was a call notification's payload, which
+/// just failed stricter validation" (e.g. tapped after its ~60s ring-timeout
+/// window, or produced by a different app version) from "this payload was
+/// never a call notification's to begin with" — see
+/// `routeNotificationTap`'s safe-recovery path for a tap that falls into the
+/// former case.
+bool looksLikeRingCallPayload(String? encoded) {
+  if (encoded == null) return false;
+  try {
+    final decoded = jsonDecode(encoded);
+    return decoded is Map<String, dynamic> &&
+        decoded.length == 5 &&
+        decoded['v'] == 2 &&
+        decoded.containsKey('event_id') &&
+        decoded.containsKey('call_id') &&
+        decoded.containsKey('device_id') &&
+        decoded.containsKey('occurred_at');
+  } on Object {
+    return false;
+  }
+}
+
 /// Stable across processes, unlike Dart's runtime [String.hashCode].
 ///
 /// Callers must pass a call's [RingPushEvent.callId], not its `event_id`: a

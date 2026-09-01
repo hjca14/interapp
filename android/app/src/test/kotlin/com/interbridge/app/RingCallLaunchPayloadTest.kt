@@ -123,4 +123,10 @@ class RingCallLaunchPayloadTest {
     fun `an ordinary non-ring notification payload extra never validates`() {
         assertFalse(isValidRingCallLaunchPayload("some-other-notification-id"))
     }
+
+    @Test
+    fun `a legacy RING_DETECTED's derived call_id (call- plus the event_id's own 32 hex suffix, not the raw evt- prefixed event_id) validates like any other call_id`() {
+        val derivedCallId = "call-" + "a".repeat(32)
+        assertTrue(isValidRingCallLaunchPayload(validPayload(callId = "\"$derivedCallId\"")))
+    }
 }

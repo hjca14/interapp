@@ -289,15 +289,18 @@ void main() {
       );
     });
 
-    test('a RING_DETECTED with no explicit call_id still runs the tombstone '
-        'check using its defaulted call_id (== event_id) — it just never '
-        'matches a real RING_ENDED in practice, since call_id there is always '
-        'required and always call-prefixed, never evt-prefixed', () async {
-      await run(_validPayload(eventId: 'evt-${'7' * 32}'));
+    test(
+      'a RING_DETECTED with no explicit call_id still runs the tombstone '
+      'check using its derived call-<32 hex> call_id, not the raw '
+      'evt-prefixed event_id — so it can genuinely match a real RING_ENDED '
+      'for the same legacy delivery, which is always call-prefixed too',
+      () async {
+        await run(_validPayload(eventId: 'evt-${'7' * 32}'));
 
-      expect(presenter.presented, hasLength(1));
-      expect(presenter.presented.single.callId, 'evt-${'7' * 32}');
-    });
+        expect(presenter.presented, hasLength(1));
+        expect(presenter.presented.single.callId, 'call-${'7' * 32}');
+      },
+    );
 
     test('a genuine near-simultaneous race — RING_DETECTED\'s isEnded() check '
         'reads before RING_ENDED\'s markEnded() commits — degrades to '
