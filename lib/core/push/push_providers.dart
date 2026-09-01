@@ -15,6 +15,7 @@ import 'push_message.dart';
 import 'push_notification_service.dart';
 import 'ring_call_lock_screen_channel.dart';
 import 'ring_call_navigation.dart';
+import 'ring_call_tombstone.dart';
 import 'ring_detected_presenter.dart';
 import 'ring_event_deduplicator.dart';
 
@@ -43,6 +44,19 @@ final ringEventDeduplicatorProvider = Provider<Future<RingEventDeduplicator>>((
     SharedPreferencesStringStore(preferences),
   );
 });
+
+/// Built once per process. Safe to hold onto the same [SharedPreferences]
+/// instance for the whole session despite its per-isolate caching — see
+/// `SharedPreferencesRingCallTombstoneStore`'s doc comment: [isEnded] always
+/// [SharedPreferences.reload]s before reading, so it is never blind to a
+/// tombstone written by a different isolate after this instance was first
+/// obtained.
+final ringCallTombstoneStoreProvider = Provider<Future<RingCallTombstoneStore>>(
+  (ref) async {
+    final preferences = await SharedPreferences.getInstance();
+    return SharedPreferencesRingCallTombstoneStore(preferences);
+  },
+);
 
 /// Built once per process. `main()` still has to call `.initialize()` on it
 /// (after `runApp`, not before — see [PushNotificationService.initialize])
@@ -74,11 +88,13 @@ final pushNotificationServiceProvider = Provider<PushNotificationService>((
 /// `presentRingDetectedPush` swallows its own failures.
 Future<void> _handleForegroundRingPush(Ref ref, PushMessage message) async {
   final deduplicator = await ref.read(ringEventDeduplicatorProvider);
+  final tombstones = await ref.read(ringCallTombstoneStoreProvider);
   final presenter = ref.read(incomingCallNotificationServiceProvider);
   await presentRingDetectedPush(
     data: message.data,
     presenter: presenter,
     deduplicator: deduplicator,
+    tombstones: tombstones,
     path: 'foreground',
     onDiagnostic: (diagnostic) {
       if (kDebugMode) {

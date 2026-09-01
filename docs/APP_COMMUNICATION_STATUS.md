@@ -43,20 +43,45 @@ uma chamada aberta sobre tela bloqueada; e corrige o status de tela cheia em
 `SecuritySettingsPage` para reconsultar a cada retomada do app e reentrada na
 tela, em vez de um valor potencialmente desatualizado.
 
-`flutter analyze`, `flutter test` (702 testes) e os testes unitários Kotlin
+A 3B.9e (revisão pós-CI conjunto com interBackend PR #27 e firmware/protocolo
+PR #23) fecha três lacunas: FCM/o isolate de background não garantem que
+`RING_DETECTED(call_id=X)` seja processado antes do seu próprio
+`RING_ENDED(call_id=X)`, então `RingCallTombstoneStore` grava de forma
+durável (via `SharedPreferences`, com `reload()` explícito para nunca
+depender de um cache por isolate desatualizado) que uma chamada terminou, e
+`presentRingDetectedPush` consulta esse estado antes de qualquer
+`RING_DETECTED` chegar à apresentação — um `call_id` já encerrado nunca cria
+notificação, toque, full-screen intent ou navegação; best-effort e falha
+aberta (nunca bloqueia uma chamada legítima), sem atomicidade reivindicada
+para uma corrida verdadeiramente simultânea (o pior caso ainda converge para
+"encerrada" pouco depois, limitado pelo timeout local de 60s já existente).
+O parser passa a validar `expires_at` (interBackend PR #27) em
+`RING_DETECTED` — nunca em `RING_ENDED`, que é honrado mesmo com transporte
+aparentemente vencido — e, na ausência de `expires_at` (payload legado),
+`RING_ONLY`/`RING_AND_NOTIFICATION` passam a usar um teto próprio de ~60s em
+vez do `maxAge` genérico de 15 min, para que uma chamada de vários minutos
+nunca comece a tocar. E "Atender" deixou de manter a chamada aberta
+indefinidamente à espera de `RING_ENDED`: agora encerra exatamente como
+"Dispensar" (toque, notificação, coordenador, bypass de lock screen, rota
+anterior/keyguard), só com a mensagem honesta de áudio indisponível antes —
+`RingCallNavigationCoordinator.markAnswered` foi removido por não ter mais
+função.
+
+`flutter analyze`, `flutter test` (736 testes) e os testes unitários Kotlin
 (`RingCallLaunchPayloadTest`) estão verdes nesta branch. A validação manual
-física sobre tela bloqueada real, toque contínuo audível e retorno ao
-keyguard (Android 13 e 14+ em aparelho) não foi executada neste ambiente de
-desenvolvimento e permanece pendente, assim como `RING_ENDED` real do backend
-e a validação física do Si3050 — nenhum dos dois é necessário para validar o
-ciclo de vida local, já coberto por teste automatizado/fake. Força-
-encerramento (`adb shell am force-stop`) é deliberadamente fora da validação
-de conclusão — o Android pode bloquear mensagens em segundo plano até
-reabertura manual, o que não é garantia do FCM/Android. Integração Android de
-chamada via `ConnectionService`/`TelecomManager` foi avaliada e
-deliberadamente adiada para quando existir uma sessão de áudio/chamada real a
-registrar — ver o roadmap para o raciocínio completo. Áudio bidirecional
-continua pendente, frente própria ainda não iniciada.
+física sobre tela bloqueada real, toque contínuo audível, retorno ao keyguard
+e os comportamentos novos da 3B.9e (Android 13 e 14+ em aparelho) não foi
+executada neste ambiente de desenvolvimento e permanece pendente, assim como
+`RING_ENDED`/`expires_at` reais do backend e a validação física do Si3050 —
+nenhum dos dois é necessário para validar o ciclo de vida local, já coberto
+por teste automatizado/fake. Força-encerramento (`adb shell am force-stop`) é
+deliberadamente fora da validação de conclusão — o Android pode bloquear
+mensagens em segundo plano até reabertura manual, o que não é garantia do
+FCM/Android. Integração Android de chamada via `ConnectionService`/
+`TelecomManager` foi avaliada e deliberadamente adiada para quando existir
+uma sessão de áudio/chamada real a registrar — ver o roadmap para o
+raciocínio completo. Áudio bidirecional continua pendente, frente própria
+ainda não iniciada.
 
 O detalhamento e os critérios de conclusão estão no
 [roadmap canônico da Fase 3](PHASE_3_ROADMAP.md). A Fase 3A reúne os fundamentos

@@ -363,11 +363,9 @@ permanecem explicitamente pendentes.
       (`WidgetsBindingObserver`), corrigindo o texto "Ativado" que antes
       podia ficar desatualizado depois de o usuário mexer nas configurações
       do Android e voltar;
-    - **"Atender" honesto:** continua sem áudio real — agora também para o
-      toque local (cancela a notificação/o `FLAG_INSISTENT`) mas
-      deliberadamente não encerra a chamada nem fecha a tela, já que não há
-      sessão de áudio para "atender de fato"; só "Dispensar" (ou
-      `RING_ENDED`/timeout) encerra;
+    - **"Atender" honesto (revisado na 3B.9e abaixo):** continua sem áudio
+      real, mas desde a 3B.9e encerra a chamada exatamente como "Dispensar"
+      em vez de deixá-la aberta indefinidamente — ver lá o motivo;
     - **Si3050 e força-encerramento continuam fora do critério de
       conclusão desta entrega:** nada aqui exige hardware físico do
       interfone — o cancelamento remoto simulado (`RING_ENDED` sintético
@@ -376,15 +374,110 @@ permanecem explicitamente pendentes.
       segue com a mesma ressalva já registrada na 3B.9a: o Android pode
       bloquear mensagens em segundo plano até reabertura manual, o que não
       é garantia do FCM/Android e por isso nunca é cobrado como validado.
+  - **3B.9e — ordenação fora de sequência, `expires_at` e "Atender" honesto
+    até o fim (revisão pós-CI conjunto com interBackend PR #27 e
+    firmware/protocolo PR #23; implementação completa, validação manual
+    física ainda pendente):**
+    - **tombstone persistente por `call_id`:** FCM, o isolate de background
+      e o app encerrado não garantem que `RING_DETECTED(call_id=X)` seja
+      processado antes do seu próprio `RING_ENDED(call_id=X)` — são
+      `event_id`s diferentes, entregues por caminhos possivelmente
+      distintos. `RingCallTombstoneStore` (`lib/core/push/ring_call_tombstone.dart`)
+      grava de forma durável, via `SharedPreferences`, que um `call_id`
+      terminou, e `presentRingDetectedPush` consulta esse estado
+      imediatamente antes de qualquer `RING_DETECTED` chegar ao
+      `present()` — um `call_id` já marcado como encerrado nunca cria
+      notificação, toque, full-screen intent ou navegação; um término
+      duplicado é idempotente (dedup por `event_id` já cobre); um término
+      de uma chamada anterior nunca afeta uma chamada mais nova (`call_id`
+      diferente). Assim como o deduplicador de `event_id`
+      (`ring_event_deduplicator.dart`), isso é **best-effort**, não fonte
+      de verdade, e falha aberto (nunca bloqueia uma chamada legítima) se a
+      leitura falhar — nunca fechado;
+    - **por que não um `Set` em memória:** o mesmo `call_id` precisa ser
+      reconhecido pelo listener de foreground, pelo isolate de background
+      do FCM (que pode ser recriado do zero a cada mensagem) e por um cold
+      start causado por toque na notificação ou full-screen intent — nenhum
+      desses compartilha memória entre si;
+    - **cache do `SharedPreferences` diverge entre isolates — corrigido com
+      `reload()`:** a API legada de `shared_preferences` cacheia todo o
+      mapa de preferências em memória por isolate na primeira chamada a
+      `getInstance()`, e uma leitura simples nunca busca de novo do nativo
+      sozinha. Por isso `isEnded()` sempre chama
+      `SharedPreferences#reload()` antes de ler — sem isso, uma instância
+      de longa duração no isolate principal nunca enxergaria um tombstone
+      escrito por uma execução mais recente do isolate de background. Esse
+      mecanismo específico está coberto por teste automatizado que escreve
+      diretamente no *mock* nativo por baixo da instância já cacheada e
+      confirma que só a versão com `reload()` observa a escrita
+      (`test/ring_call_tombstone_test.dart`);
+    - **sem atomicidade entre isolates, declarada explicitamente:** esta
+      entrega garante que um `RING_ENDED` gravado de forma durável *antes*
+      de uma leitura posterior é sempre observado por ela; **não** garante
+      atomicidade para uma corrida verdadeiramente simultânea entre início
+      e término. Nesse caso raro, o pior cenário converge para "encerrada"
+      pouco depois de qualquer forma (o próprio `RING_ENDED` cancela a
+      notificação de modo incondicional, independente da corrida), e o
+      timeout local de 60s/`timeoutAfter` do Android — já existentes,
+      independentes deste tombstone — limitam por quanto tempo qualquer
+      janela de corrida poderia parecer uma chamada viva;
+    - **limpeza limitada:** TTL de 30 minutos (generoso frente ao TTL de
+      push de ~30s do backend) e no máximo 50 entradas, com poda
+      oportunística das expiradas a cada escrita — nunca cresce sem limite;
+    - **`expires_at` (interBackend PR #27):** o parser
+      (`lib/core/push/ring_detected_push_parser.dart`) passa a validar
+      `expires_at` (UTC ISO-8601) quando presente em `RING_DETECTED`:
+      formato inválido ou `expires_at < occurred_at` rejeita como
+      `invalid_expires_at`; `now >= expires_at` rejeita como `expired`.
+      **Nunca aplicado a `RING_ENDED`** — um fim de chamada é honrado mesmo
+      que seu próprio `expires_at` de transporte pareça vencido, porque é
+      preferível encerrar uma chamada "atrasada" a deixar uma chamada
+      fantasma tocando. Payload legado sem `expires_at`: `RING_ENDED`
+      segue exigindo `call_id` normalmente; `NOTIFICATION_ONLY` continua
+      usando o `maxAge` genérico (15 min por padrão); `RING_ONLY`/
+      `RING_AND_NOTIFICATION` sem `expires_at` passam a usar um teto
+      próprio de ~60s a partir de `occurred_at` — o mesmo timeout de toque
+      — em vez do `maxAge` genérico, para que uma chamada com muitos
+      minutos de idade nunca comece a tocar só porque ainda estava dentro
+      da folga genérica de entrega. Esse teto não precisa ser propagado
+      para `RingCallIntent`/`RingCallLaunchPayload.kt`, que já derivam sua
+      própria expiração com segurança de `occurred_at` mais essa mesma
+      janela de 60s;
+    - **"Atender" agora encerra de fato:** `IncomingCallPage._answer` (e o
+      antigo `RingCallNavigationCoordinator.markAnswered`, removido por não
+      ter mais função legítima) deixavam a tela de chamada aberta
+      indefinidamente até `RING_ENDED` ou "Dispensar" — eliminando
+      justamente o fallback de 60s para o cenário em que `RING_ENDED` nunca
+      chega. Sem áudio bidirecional implantado, não existe sessão real para
+      manter aberta depois de "Atender": agora ele cancela toque/
+      notificação, encerra o coordenador, invalida o timer, desfaz o
+      bypass de lock screen e retorna à rota anterior/ao keyguard — a única
+      diferença para "Dispensar" é mostrar a mensagem honesta de áudio
+      indisponível antes;
+    - testes cobrem ordenação fora de sequência (fim antes do início nunca
+      apresenta; início suprimido nunca reserva dedup; fim de X nunca
+      afeta Y; corrida próxima degrada para encerrada), `expires_at`
+      (futuro aceito; igual a agora e passado rejeitados; formato/coerência
+      inválidos rejeitados; nunca aplicado a `RING_ENDED`; fallback legado
+      de ~60s só para modo chamada), e "Atender" (cancela tudo, preserva
+      rota, desfaz keyguard, sem prompt biométrico duplo, mensagem honesta
+      preservada) — ver `test/ring_call_tombstone_test.dart`,
+      `test/ring_detected_presenter_test.dart`,
+      `test/ring_detected_push_parser_test.dart` e
+      `test/incoming_call_page_test.dart`.
   - **validação manual física (lock screen real, toque contínuo audível,
     retorno ao keyguard, ambos em Android 13 e 14+ em aparelho físico)
     permanece pendente** — não foi executada neste ambiente de
     desenvolvimento, que não tem acesso a um aparelho físico bloqueável. A
     3B.9 segue tecnicamente implementada, não "concluída", até essa
-    validação física real ser executada e registrada aqui. `RING_ENDED` real
-    do backend, e a validação física do Si3050, também permanecem
-    pendentes e fora do escopo desta entrega — ver acima o que já está
-    coberto por teste automatizado/fake enquanto isso. Áudio bidirecional
+    validação física real ser executada e registrada aqui — os novos
+    comportamentos da 3B.9e (ordenação fora de sequência, `expires_at`,
+    "Atender" honesto até o fim) também aguardam essa validação manual em
+    Android 17 físico. `RING_ENDED`/`expires_at` reais do backend
+    (interBackend PR #27) e a validação física do Si3050 (firmware/protocolo
+    PR #23), também permanecem pendentes e fora do escopo desta entrega —
+    ver acima o que já está coberto por teste automatizado/fake enquanto
+    isso. Áudio bidirecional
     continua uma frente totalmente separada, ainda não iniciada; iOS/APNs
     permanece na 3B.10.
 - [ ] **3B.10 — iOS, APNs e chamada**

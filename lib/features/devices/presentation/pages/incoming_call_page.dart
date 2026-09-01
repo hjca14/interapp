@@ -23,25 +23,28 @@ class IncomingCallPage extends ConsumerWidget {
   final RingCallIntent intent;
   final VoidCallback onDismiss;
 
-  /// Stops the local ringtone (cancels the notification, same as
-  /// [_dismiss]) but deliberately does **not** end the call/close this page
-  /// — matching a real phone's "answer": ringing stops, the call screen
-  /// stays up. There is no real audio to connect to yet, so it stays this
-  /// honest placeholder instead of pretending a call session started; the
-  /// user still uses "Dispensar" to actually leave.
+  /// There is no real audio session to "answer" into yet, so this stays an
+  /// honest placeholder instead of pretending a call connected: it shows the
+  /// message, then ends the call exactly like [_dismiss] does (ringtone,
+  /// notification, coordinator state, lock-screen bypass, previous
+  /// route/keyguard). Leaving the call open indefinitely after Atender would
+  /// remove the 60s/`RING_ENDED` safety net for the one scenario it exists
+  /// for — the user believing something is still happening when nothing is.
+  ///
+  /// `ScaffoldMessenger.of(context)` resolves to `MaterialApp`'s own
+  /// ancestor messenger (above `RingCallOverlay`/the routed content), so the
+  /// SnackBar keeps showing on whatever becomes visible once this page
+  /// unmounts — reading it before `_endCall` is what makes that safe.
   void _answer(BuildContext context, WidgetRef ref) {
-    unawaited(
-      ref
-          .read(incomingCallNotificationServiceProvider)
-          .cancelRing(intent.callId),
-    );
-    ref.read(ringCallNavigationCoordinatorProvider).markAnswered(intent.callId);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Áudio ainda não disponível nesta versão.')),
     );
+    _endCall(ref);
   }
 
-  void _dismiss(WidgetRef ref) {
+  void _dismiss(WidgetRef ref) => _endCall(ref);
+
+  void _endCall(WidgetRef ref) {
     unawaited(
       ref
           .read(incomingCallNotificationServiceProvider)

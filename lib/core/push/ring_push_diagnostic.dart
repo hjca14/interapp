@@ -63,6 +63,26 @@ final class RingPushDiagnostic {
     );
   }
 
+  /// A `RING_DETECTED` whose `call_id` was already durably marked ended —
+  /// its `RING_ENDED` was processed first (no ordering guarantee between
+  /// FCM deliveries/isolates). See `RingCallTombstoneStore`. Never reaches
+  /// [RingNotificationPresenter.present]: no notification, no ringtone, no
+  /// full-screen intent, no navigation.
+  factory RingPushDiagnostic.suppressedAlreadyEnded(
+    String path,
+    RingDetectedEvent event,
+  ) {
+    return RingPushDiagnostic._(
+      path: path,
+      maskedEventId: _mask(event.eventId),
+      contractValid: true,
+      eventName: _eventName(event),
+      presentationIntent: event.presentationIntent,
+      presented: false,
+      reason: 'start_suppressed_already_ended',
+    );
+  }
+
   factory RingPushDiagnostic.rejected(
     String path,
     RingPushRejectionReason reason,

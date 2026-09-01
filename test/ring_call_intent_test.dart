@@ -50,14 +50,28 @@ void main() {
     );
   });
 
-  test('an explicit maxAge overrides the 60s default', () {
+  test('an explicit maxAge shorter than 60s is still respected', () {
+    expect(
+      RingCallIntent.tryRestore(
+        intent.serialize(),
+        now: now.add(const Duration(seconds: 20)),
+        maxAge: const Duration(seconds: 10),
+      ),
+      isNull,
+    );
+  });
+
+  test('an explicit maxAge longer than 60s never loosens a call intent past '
+      'the 60s ring-timeout safety net — RingCallIntent must derive its own '
+      'expiry safely from occurred_at + 60s regardless of what a caller '
+      'requests, since it never carries an expires_at of its own', () {
     expect(
       RingCallIntent.tryRestore(
         intent.serialize(),
         now: now.add(const Duration(minutes: 10)),
         maxAge: const Duration(minutes: 15),
       ),
-      isNotNull,
+      isNull,
     );
   });
 

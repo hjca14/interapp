@@ -342,14 +342,229 @@ void main() {
       );
     });
 
-    test('accepts an event right at the edge of maxAge', () {
+    test('accepts an event right at the edge of maxAge — NOTIFICATION_ONLY, '
+        'since call-mode has its own much tighter legacy fallback (see the '
+        "'expires_at' group below)", () {
       final now = DateTime.parse('2026-08-30T12:10:00Z');
       final result = parseRingDetectedPush(
-        _validPayload(occurredAt: '2026-08-30T12:00:00Z'),
+        _validPayload(
+          presentationIntent: 'NOTIFICATION_ONLY',
+          occurredAt: '2026-08-30T12:00:00Z',
+        ),
         now: now,
         maxAge: const Duration(minutes: 15),
       );
       expect(result, isA<RingPushParsed>());
+    });
+  });
+
+  group('expires_at (backend PR #27)', () {
+    test('a future expires_at is accepted', () {
+      final payload = _validPayload()..['expires_at'] = '2026-08-30T12:00:30Z';
+
+      final result = parseRingDetectedPush(payload, now: _fixedNow);
+
+      expect(result, isA<RingPushParsed>());
+    });
+
+    test('expires_at equal to now is rejected as expired', () {
+      final payload = _validPayload()
+        ..['expires_at'] = _fixedNow.toIso8601String();
+
+      final result = parseRingDetectedPush(payload, now: _fixedNow);
+
+      expect(
+        result,
+        isA<RingPushRejected>().having(
+          (r) => r.reason,
+          'reason',
+          RingPushRejectionReason.expired,
+        ),
+      );
+    });
+
+    test('a past expires_at is rejected as expired', () {
+      final payload = _validPayload()..['expires_at'] = '2026-08-30T12:00:01Z';
+
+      final result = parseRingDetectedPush(payload, now: _fixedNow);
+
+      expect(
+        result,
+        isA<RingPushRejected>().having(
+          (r) => r.reason,
+          'reason',
+          RingPushRejectionReason.expired,
+        ),
+      );
+    });
+
+    test('a malformed expires_at is rejected', () {
+      final payload = _validPayload()..['expires_at'] = 'not-a-timestamp';
+
+      final result = parseRingDetectedPush(payload, now: _fixedNow);
+
+      expect(
+        result,
+        isA<RingPushRejected>().having(
+          (r) => r.reason,
+          'reason',
+          RingPushRejectionReason.invalidExpiresAt,
+        ),
+      );
+    });
+
+    test('an expires_at without an explicit UTC (Z) marker is rejected', () {
+      final payload = _validPayload()..['expires_at'] = '2026-08-30T12:00:30';
+
+      final result = parseRingDetectedPush(payload, now: _fixedNow);
+
+      expect(
+        result,
+        isA<RingPushRejected>().having(
+          (r) => r.reason,
+          'reason',
+          RingPushRejectionReason.invalidExpiresAt,
+        ),
+      );
+    });
+
+    test('expires_at encoded as a non-string value is rejected', () {
+      final payload = _validPayload();
+      payload['expires_at'] = 1234567890;
+
+      final result = parseRingDetectedPush(payload, now: _fixedNow);
+
+      expect(
+        result,
+        isA<RingPushRejected>().having(
+          (r) => r.reason,
+          'reason',
+          RingPushRejectionReason.invalidExpiresAt,
+        ),
+      );
+    });
+
+    test('expires_at earlier than occurred_at is rejected as incoherent', () {
+      final payload = _validPayload(occurredAt: '2026-08-30T12:00:00Z')
+        ..['expires_at'] = '2026-08-30T11:59:59Z';
+
+      final result = parseRingDetectedPush(payload, now: _fixedNow);
+
+      expect(
+        result,
+        isA<RingPushRejected>().having(
+          (r) => r.reason,
+          'reason',
+          RingPushRejectionReason.invalidExpiresAt,
+        ),
+      );
+    });
+
+    test('expires_at is never enforced for RING_ENDED — a message '
+        'announcing a call ended is honored even if its own transport TTL '
+        'marker looks stale, rather than leaving a phantom call ringing', () {
+      final payload = <String, dynamic>{
+        'push_contract_version': '1',
+        'event': 'RING_ENDED',
+        'event_id': 'evt-abcdef0123456789abcdef0123456789',
+        'device_id': 'ib-fedcba9876543210fedcba9876543210',
+        'call_id': 'call-0123456789abcdef0123456789abcdef',
+        'occurred_at': '2026-08-30T12:00:00Z',
+        'expires_at': '2020-01-01T00:00:00Z', // absurdly expired, ignored
+      };
+
+      final result = parseRingDetectedPush(payload, now: _fixedNow);
+
+      expect(result, isA<RingPushParsed>());
+    });
+
+    group('legacy fallback (no expires_at)', () {
+      test('a call-mode RING_DETECTED many minutes old is rejected even '
+          'within the generic maxAge window — the legacy fallback for calls '
+          'is the ~60s ring-timeout, not the generic delivery-jitter '
+          'allowance', () {
+        final now = DateTime.parse('2026-08-30T12:05:00Z'); // 5 min later
+        final result = parseRingDetectedPush(
+          _validPayload(
+            presentationIntent: 'RING_ONLY',
+            occurredAt: '2026-08-30T12:00:00Z',
+          ),
+          now: now,
+          maxAge: const Duration(minutes: 15),
+        );
+
+        expect(
+          result,
+          isA<RingPushRejected>().having(
+            (r) => r.reason,
+            'reason',
+            RingPushRejectionReason.timestampTooOld,
+          ),
+        );
+      });
+
+      test('a call-mode RING_DETECTED just inside 60s is still accepted', () {
+        final now = DateTime.parse('2026-08-30T12:00:59Z');
+        final result = parseRingDetectedPush(
+          _validPayload(
+            presentationIntent: 'RING_ONLY',
+            occurredAt: '2026-08-30T12:00:00Z',
+          ),
+          now: now,
+        );
+
+        expect(result, isA<RingPushParsed>());
+      });
+
+      test('RING_AND_NOTIFICATION (legacy call mode) is bound by the same '
+          '60s fallback as RING_ONLY', () {
+        final now = DateTime.parse('2026-08-30T12:05:00Z');
+        final result = parseRingDetectedPush(
+          _validPayload(
+            presentationIntent: 'RING_AND_NOTIFICATION',
+            occurredAt: '2026-08-30T12:00:00Z',
+          ),
+          now: now,
+        );
+
+        expect(
+          result,
+          isA<RingPushRejected>().having(
+            (r) => r.reason,
+            'reason',
+            RingPushRejectionReason.timestampTooOld,
+          ),
+        );
+      });
+
+      test('NOTIFICATION_ONLY without expires_at keeps using the generic, '
+          'more lenient maxAge — it is not a call, so it is not bound by the '
+          'ring-timeout fallback', () {
+        final now = DateTime.parse('2026-08-30T12:05:00Z'); // 5 min later
+        final result = parseRingDetectedPush(
+          _validPayload(
+            presentationIntent: 'NOTIFICATION_ONLY',
+            occurredAt: '2026-08-30T12:00:00Z',
+          ),
+          now: now,
+          maxAge: const Duration(minutes: 15),
+        );
+
+        expect(result, isA<RingPushParsed>());
+      });
+    });
+
+    test('the exact shape backend PR #27 sends (occurred_at + expires_at + '
+        'call_id) is accepted end to end', () {
+      final payload = _validPayload(occurredAt: '2026-08-30T12:00:00Z')
+        ..['call_id'] = 'call-0123456789abcdef0123456789abcdef'
+        ..['expires_at'] = '2026-08-30T12:00:30Z';
+
+      final result = parseRingDetectedPush(payload, now: _fixedNow);
+
+      expect(result, isA<RingPushParsed>());
+      final event = (result as RingPushParsed).event as RingDetectedEvent;
+      expect(event.callId, 'call-0123456789abcdef0123456789abcdef');
     });
   });
 }

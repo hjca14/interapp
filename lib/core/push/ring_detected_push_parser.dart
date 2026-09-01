@@ -11,7 +11,9 @@ enum RingPushRejectionReason {
   invalidCallId,
   invalidPresentationIntent,
   invalidTimestamp,
-  timestampTooOld;
+  timestampTooOld,
+  invalidExpiresAt,
+  expired;
 
   /// Short snake_case code for diagnostics, e.g. `missing_field`.
   String get wireCode => switch (this) {
@@ -26,6 +28,8 @@ enum RingPushRejectionReason {
       'invalid_presentation_intent',
     RingPushRejectionReason.invalidTimestamp => 'invalid_timestamp',
     RingPushRejectionReason.timestampTooOld => 'timestamp_too_old',
+    RingPushRejectionReason.invalidExpiresAt => 'invalid_expires_at',
+    RingPushRejectionReason.expired => 'expired',
   };
 }
 
@@ -62,6 +66,12 @@ const _commonRequiredFields = [
   'occurred_at',
 ];
 
+/// Conservative fallback ceiling for a legacy `RING_DETECTED` (no
+/// `expires_at`) that is call-mode (`RING_ONLY`/`RING_AND_NOTIFICATION`) —
+/// see [parseRingDetectedPush]'s doc for why this is much tighter than the
+/// generic [maxAge] used for everything else.
+const _legacyCallFallbackMaxAge = Duration(seconds: 60);
+
 /// Strictly validates a `RING_DETECTED`/`RING_ENDED` push contract v1
 /// payload (`RemoteMessage.data`) into a typed [RingPushEvent], or a
 /// sanitized [RingPushRejected] reason. Pure and Firebase-free — takes a
@@ -72,18 +82,31 @@ const _commonRequiredFields = [
 /// guards against stale/clock-skewed events reaching the user — it is
 /// deliberately more generous than the backend's ~30s FCM delivery TTL
 /// (used instead for local dedup, see `ring_event_deduplicator.dart`)
-/// because pipeline/delivery jitter is expected. It bounds message
-/// *delivery* staleness only; how long a call keeps ringing once accepted is
-/// `RingCallNavigationCoordinator`'s separate, much shorter ring-timeout
-/// concern.
+/// because pipeline/delivery jitter is expected. It is an outer safety net
+/// applied to `occurred_at` for every event regardless of `expires_at`.
 ///
 /// `call_id` is optional on `RING_DETECTED` for backward compatibility with
 /// a backend that has not deployed it yet — see [RingPushEvent.callId]'s doc
 /// for the degrade. It is required on `RING_ENDED`, which is meaningless
-/// without one. **Expected backend contract** (new, not yet deployed): an
-/// optional `call_id` matching `^call-[0-9a-f]{32}$` on `RING_DETECTED`, and
-/// a `RING_ENDED` message shaped like `RING_DETECTED` but without
-/// `presentation_intent` and with `call_id` required.
+/// without one.
+///
+/// `expires_at` (backend PR #27 — deployed): an optional UTC ISO-8601
+/// timestamp, checked **only for `RING_DETECTED`** (a `RING_ENDED` is
+/// honored regardless of its own transport staleness — better to over-
+/// cancel a call than leave a phantom one ringing because the message
+/// announcing its end arrived "late"). When present, it must be a
+/// well-formed UTC timestamp no earlier than `occurred_at`, and the event is
+/// rejected (`expired`) once `now >= expires_at`. When absent (a push from
+/// before backend PR #27, or `RING_ENDED`, which never carries it in this
+/// contract), `RING_DETECTED` falls back to [maxAge] for `NOTIFICATION_ONLY`
+/// but to the much tighter [_legacyCallFallbackMaxAge] (60s, matching
+/// `RingCallNavigationCoordinator`'s own ring-timeout) for call-mode
+/// (`RING_ONLY`/`RING_AND_NOTIFICATION`) — a several-minutes-old push must
+/// never start a call ringing just because it arrived within the generic
+/// delivery-jitter allowance. This fallback only governs whether this
+/// function accepts the event at all; it never needs to be threaded further
+/// into `RingCallIntent`/`RingCallLaunchPayload.kt`, which already derive
+/// their own expiry safely from `occurred_at` and the same 60s window.
 RingPushParseResult parseRingDetectedPush(
   Map<String, dynamic> data, {
   DateTime? now,
@@ -140,6 +163,8 @@ RingPushParseResult parseRingDetectedPush(
     eventId: eventId,
     deviceId: deviceId,
     occurredAt: occurredAt,
+    reference: reference,
+    maxAge: maxAge,
   );
 }
 
@@ -148,6 +173,8 @@ RingPushParseResult _parseRingDetected(
   required String eventId,
   required String deviceId,
   required DateTime occurredAt,
+  required DateTime reference,
+  required Duration maxAge,
 }) {
   if (data['presentation_intent'] is! String) {
     return const RingPushRejected(RingPushRejectionReason.missingField);
@@ -165,6 +192,26 @@ RingPushParseResult _parseRingDetected(
   if (rawCallId != null &&
       (rawCallId is! String || !_callIdPattern.hasMatch(rawCallId))) {
     return const RingPushRejected(RingPushRejectionReason.invalidCallId);
+  }
+
+  final rawExpiresAt = data['expires_at'];
+  if (rawExpiresAt != null) {
+    if (rawExpiresAt is! String) {
+      return const RingPushRejected(RingPushRejectionReason.invalidExpiresAt);
+    }
+    final expiresAt = _parseUtcTimestamp(rawExpiresAt);
+    if (expiresAt == null || expiresAt.isBefore(occurredAt)) {
+      return const RingPushRejected(RingPushRejectionReason.invalidExpiresAt);
+    }
+    if (!reference.isBefore(expiresAt)) {
+      return const RingPushRejected(RingPushRejectionReason.expired);
+    }
+  } else if (intent.isCall &&
+      reference.difference(occurredAt) > _legacyCallFallbackMaxAge) {
+    // Legacy push (no expires_at yet) requesting the call experience —
+    // see the function-level doc for why this needs a much tighter
+    // fallback than the generic [maxAge] used elsewhere.
+    return const RingPushRejected(RingPushRejectionReason.timestampTooOld);
   }
 
   return RingPushParsed(

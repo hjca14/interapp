@@ -136,43 +136,85 @@ void main() {
     },
   );
 
-  testWidgets('Atender stops the ringtone but does not end the call — the call '
-      'screen stays up, matching a real phone answering a call', (
-    tester,
-  ) async {
-    final service = _RecordingNotificationService();
-    final coordinator = RingCallNavigationCoordinator(
-      (_) async => true,
-      now: () => intent.occurredAt,
-    );
-    coordinator.setAuthenticated(true);
-    // Real async, not the fake-async clock testWidgets normally runs
-    // under: the coordinator's authorization future only resolves once
-    // real microtasks/timers actually run.
-    await tester.runAsync(() async {
-      coordinator.acceptSerialized(intent.serialize());
-      await Future<void>.delayed(Duration.zero);
-    });
-    expect(coordinator.shouldOpen, isTrue, reason: 'setup: call is active');
+  testWidgets(
+    'Atender shows the honest "no audio yet" message and then ends the '
+    'call exactly like Dispensar — ringtone/notification canceled, '
+    'coordinator cleared, onDismiss called — never leaving the call screen '
+    'open as if a session had connected',
+    (tester) async {
+      final service = _RecordingNotificationService();
+      final coordinator = RingCallNavigationCoordinator(
+        (_) async => true,
+        now: () => intent.occurredAt,
+      );
+      coordinator.setAuthenticated(true);
+      // Real async, not the fake-async clock testWidgets normally runs
+      // under: the coordinator's authorization future only resolves once
+      // real microtasks/timers actually run.
+      await tester.runAsync(() async {
+        coordinator.acceptSerialized(intent.serialize());
+        await Future<void>.delayed(Duration.zero);
+      });
+      expect(coordinator.shouldOpen, isTrue, reason: 'setup: call is active');
+      var dismissed = false;
 
-    await tester.pumpWidget(
-      subject(
-        const DeviceSettings(),
-        notificationService: service,
-        coordinator: coordinator,
-      ),
-    );
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        subject(
+          const DeviceSettings(),
+          notificationService: service,
+          coordinator: coordinator,
+          onDismiss: () => dismissed = true,
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Atender'));
-    await tester.pump();
+      await tester.tap(find.text('Atender'));
+      await tester.pump();
 
-    expect(service.canceledCallIds, [intent.callId]);
-    expect(coordinator.shouldOpen, isTrue);
-    expect(
-      find.text('Áudio ainda não disponível nesta versão.'),
-      findsOneWidget,
-    );
-    coordinator.dispose();
-  });
+      expect(
+        find.text('Áudio ainda não disponível nesta versão.'),
+        findsOneWidget,
+      );
+      expect(service.canceledCallIds, [intent.callId]);
+      expect(coordinator.shouldOpen, isFalse);
+      expect(dismissed, isTrue);
+      coordinator.dispose();
+    },
+  );
+
+  testWidgets(
+    'a RING_ENDED for the same call after Atender is an idempotent no-op '
+    '— the coordinator no longer holds it',
+    (tester) async {
+      final service = _RecordingNotificationService();
+      final coordinator = RingCallNavigationCoordinator(
+        (_) async => true,
+        now: () => intent.occurredAt,
+      );
+      coordinator.setAuthenticated(true);
+      await tester.runAsync(() async {
+        coordinator.acceptSerialized(intent.serialize());
+        await Future<void>.delayed(Duration.zero);
+      });
+
+      await tester.pumpWidget(
+        subject(
+          const DeviceSettings(),
+          notificationService: service,
+          coordinator: coordinator,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Atender'));
+      await tester.pump();
+      expect(coordinator.shouldOpen, isFalse);
+
+      var notified = false;
+      coordinator.addListener(() => notified = true);
+      coordinator.endCall(intent.callId);
+
+      expect(notified, isFalse, reason: 'nothing changed — already ended');
+      coordinator.dispose();
+    },
+  );
 }

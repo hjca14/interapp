@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../features/devices/data/services/incoming_call_notification_service.dart';
 import '../../firebase_options.dart';
 import 'installation_id_store.dart' show SharedPreferencesStringStore;
+import 'ring_call_tombstone.dart';
 import 'ring_detected_presenter.dart';
 import 'ring_event_deduplicator.dart';
 
@@ -39,11 +40,13 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     final deduplicator = SharedPreferencesRingEventDeduplicator(
       SharedPreferencesStringStore(preferences),
     );
+    final tombstones = SharedPreferencesRingCallTombstoneStore(preferences);
 
     await presentRingDetectedPush(
       data: message.data,
       presenter: presenter,
       deduplicator: deduplicator,
+      tombstones: tombstones,
       path: 'background_handler',
       onDiagnostic: (diagnostic) {
         if (kDebugMode) {

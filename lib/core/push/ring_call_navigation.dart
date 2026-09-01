@@ -163,17 +163,6 @@ final class RingCallNavigationCoordinator extends ChangeNotifier {
     }
   }
 
-  /// Stops the local ring-timeout for [callId] without ending the call: the
-  /// user answered (there is nothing left to "ring" for), but this
-  /// placeholder build has no real audio session to hang up on its own —
-  /// see `IncomingCallPage._answer`. The call stays [active] until the user
-  /// explicitly dismisses it or a `RING_ENDED` arrives. A no-op if [callId]
-  /// is not the currently active call.
-  void markAnswered(String callId) {
-    if (_active?.callId != callId) return;
-    _cancelRingTimeout();
-  }
-
   void _scheduleRingTimeout(RingCallIntent intent, DateTime reference) {
     _cancelRingTimeout();
     final elapsed = reference.difference(intent.occurredAt);

@@ -43,13 +43,21 @@ final class RingCallIntent {
   });
 
   /// Restores through the strict push parser so persisted notification
-  /// context never becomes a less-validated path into navigation.
+  /// context never becomes a less-validated path into navigation. Always
+  /// synthesizes `presentation_intent: RING_ONLY` and never an
+  /// `expires_at` — this represents a call-mode launch/tap, and carries no
+  /// transport-level expiry of its own, so the parser's legacy call-mode
+  /// fallback (a hard ~60s ceiling from `occurred_at`) always applies.
   ///
   /// [maxAge] defaults to the call ring-timeout (60s, matching
-  /// `RingCallNavigationCoordinator`'s own default): a tapped call
-  /// notification older than that is not "still ringing" regardless of
-  /// what created the delay, so restoring it must fail the same as any
-  /// other stale/foreign payload.
+  /// `RingCallNavigationCoordinator`'s own default) and can only ever
+  /// *tighten* that ceiling, never loosen it: a tapped call notification
+  /// older than ~60s is not "still ringing" regardless of what created the
+  /// delay or what a caller requests, so restoring it must fail the same as
+  /// any other stale/foreign payload. See
+  /// `ring_detected_push_parser.dart`'s doc comment for why call-mode
+  /// events are bound to this tighter window instead of the generic,
+  /// message-delivery-jitter `maxAge`.
   static RingCallIntent? tryRestore(
     String? encoded, {
     DateTime? now,
