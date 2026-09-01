@@ -87,7 +87,7 @@ Map<String, dynamic> _validPayload({
   'device_id': 'ib-fedcba9876543210fedcba9876543210',
   'presentation_intent': presentationIntent,
   'occurred_at': '2026-08-30T12:00:00Z',
-  if (callId != null) 'call_id': callId,
+  'call_id': ?callId,
 };
 
 Map<String, dynamic> _endedPayload({
