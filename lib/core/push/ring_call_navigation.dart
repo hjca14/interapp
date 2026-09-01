@@ -24,9 +24,8 @@ final class RingCallNavigationCoordinator extends ChangeNotifier {
   RingCallNavigationCoordinator(
     this._authorizeDevice, {
     RingCallClock? now,
-    Duration ringTimeout = const Duration(seconds: 60),
-  }) : _now = now ?? DateTime.now,
-       _ringTimeout = ringTimeout;
+    this._ringTimeout = const Duration(seconds: 60),
+  }) : _now = now ?? DateTime.now;
 
   final RingDeviceAuthorizer _authorizeDevice;
   final RingCallClock _now;
