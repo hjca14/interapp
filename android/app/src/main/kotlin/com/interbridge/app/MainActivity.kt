@@ -23,9 +23,12 @@ class MainActivity : FlutterFragmentActivity() {
             }
         // Own channel, not part of flutter_local_notifications: that plugin only
         // exposes requestFullScreenIntentPermission(), which navigates to
-        // Settings whenever access is missing. Fase 3B.9 needs a read-only
-        // check first (to render status without ever navigating on its own),
-        // so this mirrors NotificationManager#canUseFullScreenIntent() plainly.
+        // Settings whenever access is missing. Powers only SecuritySettingsPage's
+        // informational status (read-only, never navigates on its own) — never a
+        // dependency of whether a RING_DETECTED push requests full-screen, since
+        // this handler only exists while MainActivity is alive, which a push
+        // arriving through the FCM background isolate cannot guarantee. See
+        // IncomingCallNotificationService.present() / full_screen_intent_access.dart.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "interapp/full_screen_intent")
             .setMethodCallHandler { call, result ->
                 if (call.method == "canUseFullScreenIntent") {
@@ -48,11 +51,12 @@ class MainActivity : FlutterFragmentActivity() {
 
     // Lets the ring-call notification's full-screen intent actually draw over
     // a locked screen and wake it, per Android's documented requirement for
-    // full-screen intent target activities. Scoped to only the launch that
-    // carries our own ring payload extra (set exclusively by
-    // IncomingCallNotificationService.present — see ring_call_intent.dart)
-    // so an ordinary app open, or any other local notification, never
-    // bypasses the keyguard.
+    // full-screen intent target activities. Scoped to only the launch whose
+    // "payload" extra strictly validates as a RingCallIntent v1 payload (set
+    // exclusively by IncomingCallNotificationService.present — see
+    // ring_call_intent.dart and RingCallLaunchPayload.kt) so an ordinary app
+    // open, any other local notification, or an arbitrary Intent from another
+    // app (this Activity is exported) never bypasses the keyguard.
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         applyRingCallLockScreenPresentation(intent)
@@ -64,7 +68,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun applyRingCallLockScreenPresentation(intent: Intent?) {
-        val isRingCallLaunch = !intent?.getStringExtra("payload").isNullOrEmpty()
+        val isRingCallLaunch = isValidRingCallLaunchPayload(intent?.getStringExtra("payload"))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(isRingCallLaunch)
             setTurnScreenOn(isRingCallLaunch)

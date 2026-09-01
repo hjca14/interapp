@@ -181,25 +181,38 @@ permanecem explicitamente pendentes.
     `RING_ONLY`/`RING_AND_NOTIFICATION` passam a usar categoria
     `CATEGORY_CALL` e `fullScreenIntent` no mesmo canal `incoming_call`
     (nenhuma propriedade de canal — importância, som — mudou, então o canal
-    existente foi evoluído sem quebrar instalações antigas); a decisão de
-    pedir tela cheia é feita em Dart a partir de uma checagem própria
+    existente foi evoluído sem quebrar instalações antigas). A decisão de
+    pedir tela cheia é **incondicional** para esses dois intents — `present()`
+    nunca consulta nenhuma checagem de acesso do SO para decidir isso, e o
+    próprio Android aplica o fallback documentado para heads-up quando
+    `USE_FULL_SCREEN_INTENT` não está concedido ou quando decide não abrir a
+    tela (aparelho desbloqueado, app em uso etc.); `NOTIFICATION_ONLY` nunca
+    recebe categoria de chamada nem full-screen, em nenhuma hipótese. Essa
+    incondicionalidade é deliberada: `checkFullScreenIntentAccess()`
     (`lib/core/push/full_screen_intent_access.dart`, canal nativo
-    `interapp/full_screen_intent`, distinto do plugin) do
-    `NotificationManager#canUseFullScreenIntent()` (Android 14+; sempre
-    verdadeiro abaixo disso), então mesmo quando o acesso é concedido e o
-    Android decide não abrir a tela (aparelho desbloqueado, app em uso etc.)
-    o heads-up continua funcional — e quando o acesso não está concedido, o
-    mesmo heads-up aparece sem full-screen, sem erro nem tela bloqueante;
-    `NOTIFICATION_ONLY` nunca recebe categoria de chamada nem full-screen,
-    em nenhuma hipótese;
+    `interapp/full_screen_intent`, distinto do plugin) fala com um handler
+    registrado somente em `MainActivity`, sem nenhuma garantia de estar vivo
+    quando um `RING_DETECTED` chega pelo isolate de background do FCM com o
+    app em segundo plano/encerrado e o aparelho bloqueado — justamente o
+    cenário que esta entrega existe para cobrir. Consultar essa checagem para
+    decidir a apresentação do push faria a notificação silenciosamente nunca
+    pedir tela cheia nesse cenário, degradando de forma sempre-`false` sem
+    erro visível. Por isso `checkFullScreenIntentAccess()` e o canal nativo
+    permanecem exclusivamente para alimentar o status informativo da
+    `SecuritySettingsPage` — nunca para decidir se um push recebe full-screen;
   - o toque que abre a `IncomingCallPage` e o disparo automático do
     full-screen intent são literalmente o mesmo `PendingIntent`/payload
     (o plugin usa o mesmo intent de conteúdo para ambos), então foreground,
     background, cold start e o lançamento sobre a tela bloqueada convergem
     no mesmo `RingCallNavigationCoordinator` sem caminho paralelo;
     `MainActivity` só aplica `setShowWhenLocked`/`setTurnScreenOn` (Android
-    27+) quando a própria intent de lançamento carrega o payload do ring
-    (nunca em abertura comum do app ou de outra notificação);
+    27+) quando a própria intent de lançamento carrega um extra `payload`
+    que valida estritamente contra o formato mínimo `RingCallIntent` v1
+    (`RingCallLaunchPayload.kt`: estrutura/tipos, `v=1`, `event_id`/
+    `device_id` nos padrões do contrato, `occurred_at` UTC válido) — nunca
+    em abertura comum do app, de outra notificação, ou de uma Intent externa
+    arbitrária carregando um extra chamado `payload` (a Activity é
+    exportada). O payload nunca é logado por essa validação;
   - nenhuma ação é anexada diretamente à notificação: "Atender"/"Dispensar"
     continuam vivendo somente na `IncomingCallPage`, evitando qualquer
     atalho de `OPEN_DOOR`/autorização a partir de um receiver em isolate de
@@ -224,20 +237,31 @@ permanecem explicitamente pendentes.
     apresentar full-screen intent e ações locais. Essa integração será
     reavaliada junto da futura frente de áudio bidirecional, quando existir
     uma chamada real para registrar;
-  - testes automatizados cobrem a seleção de apresentação (full-screen
-    permitido/negado, `NOTIFICATION_ONLY` nunca full-screen), a checagem
-    nativa falhando de forma segura (canal ausente, exceção, resultado
-    nulo) e a UI voluntária de acesso (nunca solicita sozinha, só ao toque
-    explícito); `flutter analyze`/`flutter test` verdes — ver
+  - testes automatizados cobrem: a apresentação de `RING_ONLY`/
+    `RING_AND_NOTIFICATION` sempre com full-screen intent (`androidChannelFor`
+    e `present()`, este último sem nenhum handler registrado no canal nativo
+    de acesso — provando que não depende de `MainActivity`/Activity viva),
+    `NOTIFICATION_ONLY` nunca com full-screen, uma falha ou ausência do canal
+    nativo de acesso nunca alterando a apresentação do push, a UI voluntária
+    de acesso da `SecuritySettingsPage` (nunca solicita sozinha, só ao toque
+    explícito), e — em Kotlin (`RingCallLaunchPayloadTest.kt`) — que só um
+    `payload` estritamente válido do contrato `RingCallIntent` v1 habilita o
+    comportamento de lock screen, enquanto payload ausente, malformado,
+    incompleto, com campo extra ou fora do contrato nunca habilita;
+    `flutter analyze`/`flutter test` verdes — ver
     `docs/APP_COMMUNICATION_STATUS.md` para o resultado exato;
-  - **validação manual física (lock screen real, Android 13 e 14+ físicos,
-    força-encerramento) permanece pendente** — não foi executada neste
-    ambiente de desenvolvimento, que não tem acesso a um aparelho físico
-    bloqueável para observar o comportamento real sobre a tela de bloqueio.
-    A 3B.9 segue tecnicamente implementada, não "concluída", até essa
-    validação ser executada e registrada aqui. Áudio bidirecional continua
-    uma frente totalmente separada, ainda não iniciada; iOS/APNs permanece
-    na 3B.10.
+  - **validação manual física (lock screen real, Android 13 e 14+ em
+    aparelho físico) permanece pendente** — não foi executada neste ambiente
+    de desenvolvimento, que não tem acesso a um aparelho físico bloqueável
+    para observar o comportamento real sobre a tela de bloqueio. Força-
+    encerramento (`adb shell am force-stop`) é deliberadamente **fora** dessa
+    validação: o Android pode bloquear mensagens em segundo plano até o
+    usuário reabrir o app manualmente, o que não é uma garantia do FCM/Android
+    e por isso nunca é exigido como critério de conclusão da 3B.9 — ver a nota
+    correspondente na 3B.9a acima. A 3B.9 segue tecnicamente implementada, não
+    "concluída", até a validação física real (não a de força-encerramento) ser
+    executada e registrada aqui. Áudio bidirecional continua uma frente
+    totalmente separada, ainda não iniciada; iOS/APNs permanece na 3B.10.
 - [ ] **3B.10 — iOS, APNs e chamada**
   - cadastrar o app iOS no Firebase e configurar APNs;
   - capabilities, background modes e validação em aparelho físico;

@@ -7,15 +7,28 @@ A antecipação 3B.9a do PR #22 foi validada por um `RING_DETECTED` real. A
 local, placeholder explícito de áudio indisponível e reutilização do fluxo
 existente de `OPEN_DOOR`. A 3B.9c acrescenta full-screen intent e
 comportamento sobre lock screen para `RING_ONLY`/`RING_AND_NOTIFICATION`
-(categoria `CATEGORY_CALL`, checagem própria de
-`NotificationManager#canUseFullScreenIntent()`, fallback automático para
-heads-up quando o acesso especial não está concedido ou o Android decide não
-abrir a tela, e uma seção voluntária em `SecuritySettingsPage` para o usuário
-conceder o acesso quando quiser) — implementação completa, `flutter analyze`
-e `flutter test` (645 testes) verdes nesta branch, mas a validação manual
-física sobre tela bloqueada real (Android 13 e 14+ em aparelho, e o cenário de
-força-encerramento) não foi executada neste ambiente de desenvolvimento e
-permanece pendente. Integração Android de chamada via `ConnectionService`/
+(categoria `CATEGORY_CALL`, `fullScreenIntent` pedido de forma incondicional —
+nunca decidido por `NotificationManager#canUseFullScreenIntent()`, já que essa
+checagem fala com um handler que só existe em `MainActivity` e não tem
+garantia de estar vivo quando o push chega pelo isolate de background do FCM
+com o app encerrado e o aparelho bloqueado — e o próprio Android aplica o
+fallback documentado para heads-up quando o acesso especial não está
+concedido ou decide não abrir a tela). `checkFullScreenIntentAccess()`
+permanece exclusivamente para uma seção voluntária em `SecuritySettingsPage`
+mostrar status e permitir que o usuário conceda o acesso quando quiser, nunca
+para decidir a apresentação do push. `MainActivity` só aplica
+`setShowWhenLocked`/`setTurnScreenOn` quando o extra `payload` da intent de
+lançamento valida estritamente contra o formato mínimo `RingCallIntent` v1
+(nunca para um extra `payload` arbitrário, já que a Activity é exportada) —
+implementação completa, `flutter analyze` e `flutter test` verdes nesta
+branch (ver contagem atual no histórico de CI), assim como os testes
+unitários Kotlin da validação de payload, mas a validação manual física sobre
+tela bloqueada real (Android 13 e 14+ em aparelho) não foi executada neste
+ambiente de desenvolvimento e permanece pendente. Força-encerramento
+(`adb shell am force-stop`) é deliberadamente fora dessa validação — o
+Android pode bloquear mensagens em segundo plano até reabertura manual, o que
+não é garantia do FCM/Android e por isso nunca é cobrado como critério de
+conclusão da 3B.9. Integração Android de chamada via `ConnectionService`/
 `TelecomManager` foi avaliada e deliberadamente adiada para quando existir uma
 sessão de áudio/chamada real a registrar — ver o roadmap para o raciocínio
 completo. Áudio bidirecional continua pendente, frente própria ainda não
