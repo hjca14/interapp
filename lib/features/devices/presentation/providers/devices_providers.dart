@@ -1,7 +1,13 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:interapp/core/config/app_environment.dart';
 import 'package:interapp/core/network/interbridge_api_client.dart';
+import 'package:interapp/core/push/notification_tap_router.dart';
+import 'package:interapp/core/push/ring_call_intent.dart';
+import 'package:interapp/core/push/ring_call_lock_screen_channel.dart';
 import 'package:interapp/core/push/ring_call_navigation.dart';
 import 'package:interapp/features/auth/presentation/providers/auth_providers.dart';
 import 'package:interapp/features/devices/data/repositories/http_device_repository.dart';
@@ -104,14 +110,65 @@ final deviceBackendRepositoryProvider = Provider<DeviceBackendRepository>(
 /// Note this only builds the service — `main()` still has to call
 /// `.initialize()` on it before it's usable.
 final incomingCallNotificationServiceProvider =
-    Provider<IncomingCallNotificationService>(
-      (ref) => IncomingCallNotificationService(
+    Provider<IncomingCallNotificationService>((ref) {
+      // Declared before construction so onInvalidCallTap below can call back
+      // into this same instance to cancel-by-id without a self-referential
+      // `ref.read(incomingCallNotificationServiceProvider)`, which would
+      // make this provider's own type inference cyclic. Safe: the closure
+      // only reads [service] once actually invoked, always after this
+      // provider has finished building and returned it.
+      late final IncomingCallNotificationService service;
+      service = IncomingCallNotificationService(
         FlutterLocalNotificationsPlugin(),
-        onRingNotificationTap: ref
+        // Both RING_ONLY and NOTIFICATION_ONLY taps carry a RingCallIntent
+        // payload (see IncomingCallNotificationService.present's doc — both
+        // represent the same live call session) and reach the same
+        // navigation coordinator/IncomingCallPage. See `routeNotificationTap`.
+        onRingNotificationTap: (payload, notificationId) =>
+            routeNotificationTap(
+              payload,
+              onCallTap: ref
+                  .read(ringCallNavigationCoordinatorProvider)
+                  .acceptSerialized,
+              // The payload had a call notification's shape but failed to
+              // restore (expired past the ring-timeout, malformed, foreign
+              // version) — recover safely without opening IncomingCallPage:
+              // cancel exactly the tapped notification by its own OS id (never
+              // derived from the untrusted payload), and undo any lock-screen
+              // bypass in case MainActivity had already granted one from the
+              // launching Intent alone. Never touches any other
+              // call/notification, and never stops the ringtone for a call that
+              // is actually still valid — this is a distinct branch from
+              // onCallTap above.
+              onInvalidCallTap: notificationId == null
+                  ? null
+                  : () {
+                      unawaited(service.cancelNotificationById(notificationId));
+                      unawaited(endRingCallLockScreenPresentation());
+                    },
+              onDiagnostic: (diagnostic) {
+                if (kDebugMode) {
+                  debugPrint(diagnostic.toLogLine());
+                }
+              },
+            ),
+        // A RING_ENDED/local ring-timeout cancels the notification here,
+        // and must also close an already-open IncomingCallPage/abort a
+        // pending one — see IncomingCallNotificationService.endCall's doc.
+        onCallEnded: (callId) =>
+            ref.read(ringCallNavigationCoordinatorProvider).endCall(callId),
+        // This instance is the one the *foreground* listener presents
+        // through (see push_providers.dart's _handleForegroundRingPush) —
+        // reaching this callback means InterBridge is already in
+        // foreground, so open IncomingCallPage directly instead of waiting
+        // on a tap/Android's own full-screen-intent decision. See
+        // IncomingCallNotificationService.onCallPresented's doc.
+        onCallPresented: (event) => ref
             .read(ringCallNavigationCoordinatorProvider)
-            .acceptSerialized,
-      ),
-    );
+            .acceptSerialized(RingCallIntent.fromEvent(event).serialize()),
+      );
+      return service;
+    });
 
 final ringCallNavigationCoordinatorProvider =
     Provider<RingCallNavigationCoordinator>((ref) {
@@ -122,3 +179,16 @@ final ringCallNavigationCoordinatorProvider =
       ref.onDispose(coordinator.dispose);
       return coordinator;
     });
+
+/// Read-only status for `SecuritySettingsPage`. `ref.invalidate` this after
+/// [requestFullScreenIntentAccess] resolves to reflect a just-granted (or
+/// still-denied) result, and also on every app resume and re-entry to the
+/// screen — see `_FullScreenCallAccessSectionState`. `autoDispose` so that
+/// re-entry actually re-queries the OS instead of showing a value cached
+/// from a previous visit: once `SecuritySettingsPage` is popped and nothing
+/// else watches this, its cached result is dropped.
+final fullScreenIntentAccessProvider = FutureProvider.autoDispose<bool>(
+  (ref) => ref
+      .read(incomingCallNotificationServiceProvider)
+      .hasFullScreenIntentAccess(),
+);

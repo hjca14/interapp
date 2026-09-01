@@ -243,6 +243,45 @@ class _CodePageState extends ConsumerState<CodePage> {
     }
   }
 
+  /// A new code for password recovery is a distinct operation from sign-up
+  /// confirmation ([_resendCode]/`resendSignUpCode`) — it must re-request a
+  /// reset via `beginPasswordReset`, since the two codes are not
+  /// interchangeable and the most recent one is always the one that works.
+  Future<void> _sendNewResetCode() async {
+    if (_submitting) {
+      return;
+    }
+    setState(() {
+      _submitting = true;
+      _errorMessage = null;
+    });
+    try {
+      await ref.read(authRepositoryProvider).beginPasswordReset(widget.email);
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Novo código enviado.')));
+      }
+    } on AuthFailure catch (failure) {
+      if (!mounted) {
+        return;
+      }
+      if (failure.kind == AuthFailureKind.passwordResetComplete) {
+        _goToLoginWithMessage(context, failure.safeMessage);
+        return;
+      }
+      setState(() {
+        _errorMessage = failure.safeMessage;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return _AuthScaffold(
@@ -269,7 +308,12 @@ class _CodePageState extends ConsumerState<CodePage> {
           idleLabel: 'Confirmar',
           onPressed: _submit,
         ),
-        if (!widget.passwordReset)
+        if (widget.passwordReset)
+          TextButton(
+            onPressed: _submitting ? null : _sendNewResetCode,
+            child: const Text('Enviar novo código'),
+          )
+        else
           TextButton(
             onPressed: _submitting ? null : _resendCode,
             child: const Text('Reenviar código'),
@@ -313,11 +357,16 @@ class _ForgotPasswordPageState extends ConsumerState<ForgotPasswordPage> {
         context.push('/reset', extra: email);
       }
     } on AuthFailure catch (failure) {
-      if (mounted) {
-        setState(() {
-          _errorMessage = failure.safeMessage;
-        });
+      if (!mounted) {
+        return;
       }
+      if (failure.kind == AuthFailureKind.passwordResetComplete) {
+        _goToLoginWithMessage(context, failure.safeMessage);
+        return;
+      }
+      setState(() {
+        _errorMessage = failure.safeMessage;
+      });
     } finally {
       if (mounted) {
         setState(() {
@@ -345,6 +394,15 @@ class _ForgotPasswordPageState extends ConsumerState<ForgotPasswordPage> {
       ],
     );
   }
+}
+
+/// Navigates back to login with a safe confirmation message — used when
+/// [AuthFailureKind.passwordResetComplete] reports the reset needs no code
+/// confirmation, so the user is never left stuck on a code screen.
+void _goToLoginWithMessage(BuildContext context, String message) {
+  final messenger = ScaffoldMessenger.of(context);
+  context.go('/login');
+  messenger.showSnackBar(SnackBar(content: Text(message)));
 }
 
 class _AuthScaffold extends StatelessWidget {

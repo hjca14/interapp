@@ -5,8 +5,99 @@
 A antecipação 3B.9a do PR #22 foi validada por um `RING_DETECTED` real. A
 3B.9b acrescenta a experiência interna acionada pelo toque, com dispensa
 local, placeholder explícito de áudio indisponível e reutilização do fluxo
-existente de `OPEN_DOOR`. Full-screen/integração nativa de chamada e áudio
-bidirecional continuam pendentes.
+existente de `OPEN_DOOR`. A 3B.9c acrescenta full-screen intent e
+comportamento sobre lock screen para `RING_ONLY`/`RING_AND_NOTIFICATION`
+(categoria `CATEGORY_CALL`, `fullScreenIntent` pedido de forma incondicional —
+nunca decidido por `NotificationManager#canUseFullScreenIntent()`, já que essa
+checagem fala com um handler que só existe em `MainActivity` e não tem
+garantia de estar vivo quando o push chega pelo isolate de background do FCM
+com o app encerrado e o aparelho bloqueado — e o próprio Android aplica o
+fallback documentado para heads-up quando o acesso especial não está
+concedido ou decide não abrir a tela). `checkFullScreenIntentAccess()`
+permanece exclusivamente para uma seção voluntária em `SecuritySettingsPage`
+mostrar status e permitir que o usuário conceda o acesso quando quiser, nunca
+para decidir a apresentação do push. `MainActivity` só aplica
+`setShowWhenLocked`/`setTurnScreenOn` quando o extra `payload` da intent de
+lançamento valida estritamente contra o formato mínimo `RingCallIntent` v2
+(nunca para um extra `payload` arbitrário, já que a Activity é exportada).
+
+A 3B.9d (mesmo PR #24, revisão pós-teste manual em Android 17) corrige o
+toque, que agora é contínuo (`FLAG_INSISTENT` + `notificationRingtone` +
+`ongoing`/`timeoutAfter` 60s) em vez de um único alerta curto; separa
+a *apresentação* de Modo Chamada e Modo Notificação (canais versionados
+`incoming_call_v2`/`device_notification_v1` — este último audível, nunca mais
+silencioso, sem toque contínuo nem full-screen), mantendo os dois como a
+mesma sessão de chamada viva: ambos carregam o mesmo payload `RingCallIntent`
+e o toque em qualquer um abre `IncomingCallPage` enquanto a sessão for
+válida; troca as duas opções de alerta
+independentes por uma escolha exclusiva Chamada/Notificação/Desativado,
+gravando somente `NONE`/`RING_ONLY`/`NOTIFICATION_ONLY` e continuando a ler
+`RING_AND_NOTIFICATION` legado como "Chamada"; renomeia "Horários sem
+ligação" para "Programação de alertas" (nome final, após passar por
+"Horários de silêncio"), com "Somente notificação" reduzindo — nunca
+bloqueando totalmente — Chamada/Notificação a uma notificação acionável
+durante o período, e "Não avisar" como o único comportamento que bloqueia
+tudo (contrato `quiet_schedule`/`NOTIFICATION_ONLY`/`BLOCK_ALL` inalterado,
+só os rótulos da UI mudaram); introduz o consumo do contrato `RING_ENDED`
+correlacionado por `call_id` (extensão retrocompatível — ver
+`docs/PHASE_3_ROADMAP.md` 3B.9d para o contrato exato) com timeout local de
+60s como fallback sempre ativo; substitui
+a rota `/incoming-call` por um overlay (`RingCallOverlay`) que nunca navega,
+corrigindo o flash da tela anterior antes da chamada, a perda da rota/pilha
+ao dispensar, e o prompt biométrico duplicado (`BiometricLockGate` agora trata
+uma chamada em curso como exceção); volta ao keyguard do sistema ao dispensar
+uma chamada aberta sobre tela bloqueada; e corrige o status de tela cheia em
+`SecuritySettingsPage` para reconsultar a cada retomada do app e reentrada na
+tela, em vez de um valor potencialmente desatualizado.
+
+A 3B.9e (revisão pós-CI conjunto com interBackend PR #27 e firmware/protocolo
+PR #23) fecha três lacunas: FCM/o isolate de background não garantem que
+`RING_DETECTED(call_id=X)` seja processado antes do seu próprio
+`RING_ENDED(call_id=X)`, então `RingCallTombstoneStore` grava de forma
+durável (via `SharedPreferences`, com `reload()` explícito para nunca
+depender de um cache por isolate desatualizado) que uma chamada terminou, e
+`presentRingDetectedPush` consulta esse estado antes de qualquer
+`RING_DETECTED` chegar à apresentação — um `call_id` já encerrado nunca cria
+notificação, toque, full-screen intent ou navegação; best-effort e falha
+aberta (nunca bloqueia uma chamada legítima), sem atomicidade reivindicada
+para uma corrida verdadeiramente simultânea (o pior caso ainda converge para
+"encerrada" pouco depois, limitado pelo timeout local de 60s já existente).
+O parser passa a validar `expires_at` (interBackend PR #27) em
+`RING_DETECTED` — nunca em `RING_ENDED`, que é honrado mesmo com transporte
+aparentemente vencido — e, na ausência de `expires_at` (payload legado),
+`RING_ONLY`/`RING_AND_NOTIFICATION` passam a usar um teto próprio de ~60s em
+vez do `maxAge` genérico de 15 min, para que uma chamada de vários minutos
+nunca comece a tocar. E "Atender" deixou de manter a chamada aberta
+indefinidamente à espera de `RING_ENDED`: agora encerra exatamente como
+"Dispensar" (toque, notificação, coordenador, bypass de lock screen, rota
+anterior/keyguard), só com a mensagem honesta de áudio indisponível antes —
+`RingCallNavigationCoordinator.markAnswered` foi removido por não ter mais
+função.
+
+`flutter analyze`, `flutter test` e os testes unitários Kotlin
+(`RingCallLaunchPayloadTest`) estão verdes nesta branch. A validação manual
+física em Android real foi executada após o deploy coordenado do backend
+(interBackend PR #27) e o flash do firmware coordenado (interBridge PR #23),
+ambos em DEV: `RING_DETECTED` chegou pelo pipeline AWS IoT → backend → FCM,
+`RING_ENDED` com o mesmo `call_id` encerrou a chamada/apresentação
+correspondente, uma nova chamada pôde começar após o término da anterior, os
+modos Chamada e Notificação apresentaram a experiência esperada (o segundo
+com notificação audível e acionável, abrindo a experiência de chamada, não
+só o detalhe do dispositivo), "Somente notificação" reduziu Chamada sem
+bloquear o alerta e "Não avisar" seguiu como o único bloqueio total, o
+layout vertical dos seletores não quebrou, e a biometria não foi pedida de
+novo indevidamente ao encerrar uma chamada com o app já desbloqueado — ver
+`docs/PHASE_3_ROADMAP.md` 3B.9f para o detalhamento completo. Essa validação
+cobre a apresentação de uma sessão simulada em ambiente DEV, nunca produção,
+e nunca áudio real: força-encerramento (`adb shell am force-stop`), Não
+perturbe, permissão/canal de notificação revogados, outras restrições do
+sistema, e validação em outros fabricantes/versões de Android além do
+aparelho testado permanecem fora do escopo validado. Integração Android de
+chamada via `ConnectionService`/`TelecomManager` foi avaliada e
+deliberadamente adiada para quando existir uma sessão de áudio/chamada real a
+registrar — ver o roadmap para o raciocínio completo. Áudio bidirecional
+continua pendente, frente própria ainda não iniciada; iOS/APNs permanece na
+3B.10.
 
 O detalhamento e os critérios de conclusão estão no
 [roadmap canônico da Fase 3](PHASE_3_ROADMAP.md). A Fase 3A reúne os fundamentos

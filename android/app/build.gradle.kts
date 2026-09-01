@@ -49,4 +49,9 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    testImplementation("junit:junit:4.13.2")
+    // The android.jar used for local unit tests stubs org.json.* to throw
+    // ("not mocked"); this pulls in the real, pure-Java implementation so
+    // RingCallLaunchPayloadTest can exercise the actual JSON parsing.
+    testImplementation("org.json:json:20231013")
 }

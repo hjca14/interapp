@@ -1,36 +1,45 @@
 import 'ring_detected_event.dart';
 import 'ring_detected_push_parser.dart';
 
-/// A minimal, sanitized record of one `RING_DETECTED` push handling
-/// attempt — safe to log. Never carries the raw payload, a full
-/// `event_id`/`device_id`, a token, or a user id.
+/// A minimal, sanitized record of one `RING_DETECTED`/`RING_ENDED` push
+/// handling attempt — safe to log. Never carries the raw payload, a full
+/// `event_id`/`device_id`/`call_id`, a token, or a user id.
 final class RingPushDiagnostic {
   const RingPushDiagnostic._({
     required this.path,
     required this.maskedEventId,
     required this.contractValid,
+    required this.eventName,
     required this.presentationIntent,
     required this.presented,
     required this.reason,
   });
 
-  factory RingPushDiagnostic.presented(String path, RingDetectedEvent event) {
+  factory RingPushDiagnostic.presented(String path, RingPushEvent event) {
     return RingPushDiagnostic._(
       path: path,
       maskedEventId: _mask(event.eventId),
       contractValid: true,
-      presentationIntent: event.presentationIntent,
+      eventName: _eventName(event),
+      presentationIntent: switch (event) {
+        RingDetectedEvent(:final presentationIntent) => presentationIntent,
+        RingEndedEvent() => null,
+      },
       presented: true,
       reason: 'presented',
     );
   }
 
-  factory RingPushDiagnostic.duplicate(String path, RingDetectedEvent event) {
+  factory RingPushDiagnostic.duplicate(String path, RingPushEvent event) {
     return RingPushDiagnostic._(
       path: path,
       maskedEventId: _mask(event.eventId),
       contractValid: true,
-      presentationIntent: event.presentationIntent,
+      eventName: _eventName(event),
+      presentationIntent: switch (event) {
+        RingDetectedEvent(:final presentationIntent) => presentationIntent,
+        RingEndedEvent() => null,
+      },
       presented: false,
       reason: 'duplicate_event_id',
     );
@@ -38,15 +47,39 @@ final class RingPushDiagnostic {
 
   factory RingPushDiagnostic.presentationFailed(
     String path,
+    RingPushEvent event,
+  ) {
+    return RingPushDiagnostic._(
+      path: path,
+      maskedEventId: _mask(event.eventId),
+      contractValid: true,
+      eventName: _eventName(event),
+      presentationIntent: switch (event) {
+        RingDetectedEvent(:final presentationIntent) => presentationIntent,
+        RingEndedEvent() => null,
+      },
+      presented: false,
+      reason: 'presentation_failed',
+    );
+  }
+
+  /// A `RING_DETECTED` whose `call_id` was already durably marked ended —
+  /// its `RING_ENDED` was processed first (no ordering guarantee between
+  /// FCM deliveries/isolates). See `RingCallTombstoneStore`. Never reaches
+  /// [RingNotificationPresenter.present]: no notification, no ringtone, no
+  /// full-screen intent, no navigation.
+  factory RingPushDiagnostic.suppressedAlreadyEnded(
+    String path,
     RingDetectedEvent event,
   ) {
     return RingPushDiagnostic._(
       path: path,
       maskedEventId: _mask(event.eventId),
       contractValid: true,
+      eventName: _eventName(event),
       presentationIntent: event.presentationIntent,
       presented: false,
-      reason: 'presentation_failed',
+      reason: 'start_suppressed_already_ended',
     );
   }
 
@@ -58,6 +91,7 @@ final class RingPushDiagnostic {
       path: path,
       maskedEventId: null,
       contractValid: false,
+      eventName: null,
       presentationIntent: null,
       presented: false,
       reason: reason.wireCode,
@@ -72,6 +106,7 @@ final class RingPushDiagnostic {
       path: path,
       maskedEventId: null,
       contractValid: false,
+      eventName: null,
       presentationIntent: null,
       presented: false,
       reason: 'internal_error',
@@ -82,6 +117,10 @@ final class RingPushDiagnostic {
   final String path;
   final String? maskedEventId;
   final bool contractValid;
+
+  /// `RING_DETECTED` | `RING_ENDED`, or `null` when [contractValid] is
+  /// `false` (nothing was successfully parsed to name).
+  final String? eventName;
   final RingPresentationIntent? presentationIntent;
   final bool presented;
   final String reason;
@@ -93,11 +132,16 @@ final class RingPushDiagnostic {
     return '[RING][DEBUG-ONLY] $path '
         'event_id=${maskedEventId ?? '-'} '
         'contract_valid=$contractValid '
-        'event=${contractValid ? 'RING_DETECTED' : '-'} '
+        'event=${eventName ?? '-'} '
         'presentation_intent=${presentationIntent?.name ?? '-'} '
         'apresentado=$presented '
         'motivo=$reason';
   }
+
+  static String _eventName(RingPushEvent event) => switch (event) {
+    RingDetectedEvent() => 'RING_DETECTED',
+    RingEndedEvent() => 'RING_ENDED',
+  };
 
   /// Shows only the last 4 hex characters of `evt-<32 hex>`, matching the
   /// masking style used elsewhere for short-lived codes

@@ -13,7 +13,9 @@ import 'push_installation_coordinator.dart';
 import 'push_installation_repository.dart';
 import 'push_message.dart';
 import 'push_notification_service.dart';
+import 'ring_call_lock_screen_channel.dart';
 import 'ring_call_navigation.dart';
+import 'ring_call_tombstone.dart';
 import 'ring_detected_presenter.dart';
 import 'ring_event_deduplicator.dart';
 
@@ -42,6 +44,19 @@ final ringEventDeduplicatorProvider = Provider<Future<RingEventDeduplicator>>((
     SharedPreferencesStringStore(preferences),
   );
 });
+
+/// Built once per process. Safe to hold onto the same [SharedPreferences]
+/// instance for the whole session despite its per-isolate caching — see
+/// `SharedPreferencesRingCallTombstoneStore`'s doc comment: [isEnded] always
+/// [SharedPreferences.reload]s before reading, so it is never blind to a
+/// tombstone written by a different isolate after this instance was first
+/// obtained.
+final ringCallTombstoneStoreProvider = Provider<Future<RingCallTombstoneStore>>(
+  (ref) async {
+    final preferences = await SharedPreferences.getInstance();
+    return SharedPreferencesRingCallTombstoneStore(preferences);
+  },
+);
 
 /// Built once per process. `main()` still has to call `.initialize()` on it
 /// (after `runApp`, not before — see [PushNotificationService.initialize])
@@ -73,11 +88,13 @@ final pushNotificationServiceProvider = Provider<PushNotificationService>((
 /// `presentRingDetectedPush` swallows its own failures.
 Future<void> _handleForegroundRingPush(Ref ref, PushMessage message) async {
   final deduplicator = await ref.read(ringEventDeduplicatorProvider);
+  final tombstones = await ref.read(ringCallTombstoneStoreProvider);
   final presenter = ref.read(incomingCallNotificationServiceProvider);
   await presentRingDetectedPush(
     data: message.data,
     presenter: presenter,
     deduplicator: deduplicator,
+    tombstones: tombstones,
     path: 'foreground',
     onDiagnostic: (diagnostic) {
       if (kDebugMode) {
@@ -123,4 +140,55 @@ final ringCallNavigationIntegrationProvider = Provider<void>((ref) {
       (session) => coordinator.setAuthenticated(session.isSignedIn),
     );
   }, fireImmediately: true);
+});
+
+/// Reacts to a call ending no matter which path did it — answered,
+/// dismissed, a remote `RING_ENDED`, or the coordinator's own internal
+/// ring-timeout — by diffing
+/// [RingCallNavigationCoordinator.trackedCallId] across
+/// [ChangeNotifier.notifyListeners] calls, since that is the one signal
+/// common to every path, including the timeout, which has no external
+/// notification of its own:
+///
+/// - undoes `MainActivity`'s lock-screen bypass, returning to the system
+///   keyguard if it is still actually engaged, once nothing is
+///   pending/active any more — not only once a call was fully active:
+///   `MainActivity` grants the bypass from the launching Intent's payload
+///   alone, before Dart-side authorization is known, so a call dropped
+///   while still pending (e.g. an unauthorized device) must revert it just
+///   as much as one that was answered/dismissed, or the app would be left
+///   showing ordinary content over a still-locked keyguard. See
+///   [endRingCallLockScreenPresentation]'s doc for why this call is safe
+///   even for a call that was never shown over a locked keyguard;
+/// - cancels the ended call's notification (and with it, the insistent
+///   ringtone). Redundant with, and harmless alongside, the paths that
+///   already do this themselves at their own call site
+///   (`IncomingCallNotificationService.endCall` for a remote `RING_ENDED`,
+///   `IncomingCallPage._dismiss`/`_answer` for the user) — this is what
+///   covers the internal ring-timeout, which cancels nothing on its own
+///   (`RingCallNavigationCoordinator` never depends on
+///   `IncomingCallNotificationService`, avoiding a circular provider
+///   dependency between the two).
+final ringCallEndIntegrationProvider = Provider<void>((ref) {
+  final coordinator = ref.watch(ringCallNavigationCoordinatorProvider);
+  var lastCallId = coordinator.trackedCallId;
+  void listener() {
+    final currentCallId = coordinator.trackedCallId;
+    final endedCallId = lastCallId;
+    final wasTrackingSomething = endedCallId != null;
+    if (endedCallId != null && endedCallId != currentCallId) {
+      unawaited(
+        ref
+            .read(incomingCallNotificationServiceProvider)
+            .cancelRing(endedCallId),
+      );
+    }
+    if (wasTrackingSomething && currentCallId == null) {
+      unawaited(endRingCallLockScreenPresentation());
+    }
+    lastCallId = currentCallId;
+  }
+
+  coordinator.addListener(listener);
+  ref.onDispose(() => coordinator.removeListener(listener));
 });
