@@ -4,13 +4,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../core/router/app_router.dart';
 import '../../features/auth/presentation/providers/auth_providers.dart';
 import '../../features/devices/presentation/providers/devices_providers.dart';
 import 'app_version_provider.dart';
 import 'firebase_messaging_client.dart';
 import 'installation_id_store.dart';
-import 'notification_tap_diagnostic.dart';
 import 'push_installation_coordinator.dart';
 import 'push_installation_repository.dart';
 import 'push_message.dart';
@@ -189,39 +187,6 @@ final ringCallEndIntegrationProvider = Provider<void>((ref) {
       unawaited(endRingCallLockScreenPresentation());
     }
     lastCallId = currentCallId;
-  }
-
-  coordinator.addListener(listener);
-  ref.onDispose(() => coordinator.removeListener(listener));
-});
-
-/// Delivers authentication readiness to a pending `NOTIFICATION_ONLY` tap —
-/// the [DeviceEventNavigationCoordinator] counterpart to
-/// [ringCallNavigationIntegrationProvider] — and, once one is authorized,
-/// actually opens its destination route. Reading this provider (from
-/// `main()`, after `runApp`) is what lets a tap that arrived *before*
-/// authentication was known (e.g. during a cold start, before this provider
-/// was ever read) still resolve correctly once the session settles: the
-/// coordinator itself is created and holds the tap's minimal intent as soon
-/// as it is first read (even earlier, from inside
-/// `devicesProviders.incomingCallNotificationServiceProvider`'s tap
-/// callback), independent of when this integration provider is read.
-final deviceEventNavigationIntegrationProvider = Provider<void>((ref) {
-  final coordinator = ref.watch(deviceEventNavigationCoordinatorProvider);
-  ref.listen(authSessionProvider, (_, next) {
-    next.whenData(
-      (session) => coordinator.setAuthenticated(session.isSignedIn),
-    );
-  }, fireImmediately: true);
-
-  void listener() {
-    final deviceId = coordinator.target;
-    if (deviceId == null) return;
-    coordinator.consumed();
-    if (kDebugMode) {
-      debugPrint(NotificationTapDiagnostic.destinationOpened().toLogLine());
-    }
-    ref.read(appRouterProvider).go('/devices/$deviceId');
   }
 
   coordinator.addListener(listener);

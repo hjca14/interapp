@@ -38,7 +38,6 @@ Future<void> main() async {
     container.read(pushInstallationIntegrationProvider);
     container.read(ringCallNavigationIntegrationProvider);
     container.read(ringCallEndIntegrationProvider);
-    container.read(deviceEventNavigationIntegrationProvider);
   } on Object {
     runApp(const _ConfigurationErrorApp());
   }

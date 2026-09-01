@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
-import '../../../../core/push/device_event_notification_intent.dart';
 import '../../../../core/push/full_screen_intent_access.dart';
 import '../../../../core/push/ring_detected_event.dart';
 import '../../../../core/push/ring_detected_presenter.dart';
@@ -243,30 +242,20 @@ class IncomingCallNotificationService implements RingNotificationPresenter {
   /// app backgrounded or fully closed and the device locked, where no
   /// Activity is guaranteed to exist; see [androidChannelFor].
   ///
-  /// Call-mode notifications are id'd from [RingPushEvent.callId] (not
-  /// `eventId`): a repeated `RING_DETECTED` for the same call replaces
-  /// rather than stacks, and [endCall]/the local ring-timeout can cancel it
-  /// by `call_id` alone. `NOTIFICATION_ONLY` is id'd from `eventId` instead
-  /// — each is its own event, not part of a call to later replace/cancel by
-  /// `call_id` — and its tap payload is a [DeviceEventNotificationIntent],
-  /// not a [RingCallIntent]: it must open a device destination, never
-  /// `IncomingCallPage`.
+  /// Both presentation modes represent the same live call session — see
+  /// `RingPresentationIntent`'s doc — so both are id'd from
+  /// [RingPushEvent.callId] and carry the same [RingCallIntent] payload:
+  /// a repeated `RING_DETECTED` for the same call replaces rather than
+  /// stacks regardless of mode, [endCall]/the local ring-timeout cancels
+  /// either by `call_id` alone, and tapping either opens the same
+  /// `IncomingCallPage` (see `routeNotificationTap`) — never a separate
+  /// "device event" destination. Only the notification *channel*
+  /// ([androidChannelFor]) differs: `NOTIFICATION_ONLY` never gets
+  /// full-screen intent, the insistent ringtone, or `onCallPresented`'s
+  /// immediate-open shortcut — it is a plain, tappable notification, not an
+  /// automatic presentation.
   @override
   Future<void> present(RingDetectedEvent event) async {
-    if (!event.presentationIntent.isCall) {
-      return _plugin.show(
-        id: ringNotificationId('notification:${event.eventId}'),
-        title: _ringDetectedNotificationTitle,
-        body: _ringDetectedNotificationBody,
-        payload: DeviceEventNotificationIntent(
-          deviceId: event.deviceId,
-        ).serialize(),
-        notificationDetails: NotificationDetails(
-          android: androidChannelFor(event.presentationIntent),
-          iOS: const DarwinNotificationDetails(presentSound: true),
-        ),
-      );
-    }
     await _plugin.show(
       id: ringNotificationId(event.callId),
       title: _ringDetectedNotificationTitle,
@@ -277,18 +266,21 @@ class IncomingCallNotificationService implements RingNotificationPresenter {
         iOS: const DarwinNotificationDetails(presentSound: true),
       ),
     );
-    onCallPresented?.call(event);
+    if (event.presentationIntent.isCall) {
+      onCallPresented?.call(event);
+    }
   }
 
-  /// Ends a call locally: cancels its notification (which also stops the
-  /// insistent ringtone — Android's `FLAG_INSISTENT` sound/vibration always
-  /// stops when the notification is canceled) and notifies [onCallEnded] so
-  /// navigation can close an already-open `IncomingCallPage`/abort a
-  /// pending one. A `RING_ENDED` for a call that never got this far (never
-  /// presented here, already ended, or `NOTIFICATION_ONLY` — which is never
-  /// id'd by `call_id`) safely cancels nothing and still reports
-  /// [onCallEnded]; the coordinator's own [RingEndedEvent.callId] match
-  /// makes that a no-op on its side too.
+  /// Ends a call locally: cancels its notification — whichever presentation
+  /// mode it was shown in, since both share the same `call_id`-derived id
+  /// (which also stops the insistent ringtone for a call-mode notification —
+  /// Android's `FLAG_INSISTENT` sound/vibration always stops when the
+  /// notification is canceled) — and notifies [onCallEnded] so navigation
+  /// can close an already-open `IncomingCallPage`/abort a pending one. A
+  /// `RING_ENDED` for a call that never got this far (never presented here,
+  /// already ended) safely cancels nothing and still reports [onCallEnded];
+  /// the coordinator's own [RingEndedEvent.callId] match makes that a no-op
+  /// on its side too.
   @override
   Future<void> endCall(RingEndedEvent event) async {
     await _plugin.cancel(id: ringNotificationId(event.callId));

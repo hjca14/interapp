@@ -4,8 +4,9 @@
 final class NotificationTapDiagnostic {
   const NotificationTapDiagnostic._(this.reason);
 
-  /// A tapped call notification restored successfully and was handed to the
-  /// navigation coordinator.
+  /// A tapped notification (call-mode or `NOTIFICATION_ONLY` — both share
+  /// the same [RingCallIntent] payload shape) restored successfully and was
+  /// handed to `RingCallNavigationCoordinator`.
   factory NotificationTapDiagnostic.callAccepted() =>
       const NotificationTapDiagnostic._('call_accepted');
 
@@ -14,25 +15,6 @@ final class NotificationTapDiagnostic {
   /// `routeNotificationTap`'s safe-recovery path.
   factory NotificationTapDiagnostic.callRejected() =>
       const NotificationTapDiagnostic._('call_rejected');
-
-  /// A tapped `NOTIFICATION_ONLY` notification restored successfully.
-  factory NotificationTapDiagnostic.deviceNotificationAccepted() =>
-      const NotificationTapDiagnostic._('device_notification_accepted');
-
-  /// A device-event tap arrived before authentication was confirmed —
-  /// preserved as a pending intent rather than navigated immediately.
-  factory NotificationTapDiagnostic.pendingAwaitingAuthentication() =>
-      const NotificationTapDiagnostic._('pending_awaiting_authentication');
-
-  /// A pending device-event intent's device failed authorization once
-  /// authentication resolved — never navigated.
-  factory NotificationTapDiagnostic.deviceNotAuthorized() =>
-      const NotificationTapDiagnostic._('device_not_authorized');
-
-  /// A pending device-event intent was authorized and its destination
-  /// route was actually opened.
-  factory NotificationTapDiagnostic.destinationOpened() =>
-      const NotificationTapDiagnostic._('destination_opened');
 
   final String reason;
 

@@ -24,10 +24,12 @@ lançamento valida estritamente contra o formato mínimo `RingCallIntent` v2
 A 3B.9d (mesmo PR #24, revisão pós-teste manual em Android 17) corrige o
 toque, que agora é contínuo (`FLAG_INSISTENT` + `notificationRingtone` +
 `ongoing`/`timeoutAfter` 60s) em vez de um único alerta curto; separa
-definitivamente Modo Chamada de Modo Notificação (canais versionados
+a *apresentação* de Modo Chamada e Modo Notificação (canais versionados
 `incoming_call_v2`/`device_notification_v1` — este último audível, nunca mais
-silencioso — e payloads de toque distintos, com `NOTIFICATION_ONLY` abrindo o
-dispositivo em vez de `IncomingCallPage`); troca as duas opções de alerta
+silencioso, sem toque contínuo nem full-screen), mantendo os dois como a
+mesma sessão de chamada viva: ambos carregam o mesmo payload `RingCallIntent`
+e o toque em qualquer um abre `IncomingCallPage` enquanto a sessão for
+válida; troca as duas opções de alerta
 independentes por uma escolha exclusiva Chamada/Notificação/Desativado,
 gravando somente `NONE`/`RING_ONLY`/`NOTIFICATION_ONLY` e continuando a ler
 `RING_AND_NOTIFICATION` legado como "Chamada"; renomeia "Horários sem

@@ -262,12 +262,12 @@ AlertMode _toAlertMode(_ExclusiveAlertChoice choice) => switch (choice) {
   _ExclusiveAlertChoice.off => AlertMode.none,
 };
 
-/// Exclusive by design: a call and a plain notification are two different
-/// experiences (one is a live, answerable/dismissable ringing event; the
-/// other names something that already happened — see
-/// `IncomingCallNotificationService`'s "Modo Chamada"/"Modo Notificação"
-/// doc comments), so "get both at once" is no longer offered as a
-/// combination of independent toggles.
+/// Exclusive by design: each choice controls only **how** the user is
+/// warned, not whether the call can be answered — both "Chamada" and
+/// "Notificação" lead to the same live, answerable `IncomingCallPage` while
+/// the session is valid (see `IncomingCallNotificationService`'s doc), so
+/// "get both at once" was never a meaningful combination of independent
+/// toggles to begin with.
 class _AlertsCard extends StatelessWidget {
   const _AlertsCard({
     required this.preferences,
@@ -291,165 +291,88 @@ class _AlertsCard extends StatelessWidget {
       icon: Icons.notifications_outlined,
       title: 'Alertas',
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-          child: LayoutBuilder(
-            builder: (context, constraints) => _AlertModeSelector(
-              selected: selected,
-              enabled: enabled,
-              onChanged: change,
-              maxWidth: constraints.maxWidth,
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-          child: Text(switch (selected) {
-            _ExclusiveAlertChoice.call =>
-              'Mostra a tela de chamada quando o interfone tocar.',
-            _ExclusiveAlertChoice.notification =>
-              'Mostra uma notificação sonora quando o interfone tocar, sem '
-                  'abrir a tela de chamada.',
-            _ExclusiveAlertChoice.off =>
-              'Nenhum aviso é mostrado quando o interfone tocar.',
-          }),
+        _AlertModeSelector(
+          selected: selected,
+          enabled: enabled,
+          onChanged: change,
         ),
       ],
     );
   }
 }
 
-/// One alert-mode choice: [value] is the wire-facing selection, [fullLabel]/
-/// [compactLabel] are the two label lengths [_AlertModeSelector] tries in
-/// order, and [icon] is only ever shown alongside [fullLabel].
+/// One alert-mode choice: [value] is the wire-facing selection, [label] is
+/// the single (short, single-word) title shown, and [description] explains
+/// what tapping/receiving it does.
 typedef _AlertModeOption = ({
   _ExclusiveAlertChoice value,
-  String fullLabel,
-  String compactLabel,
+  String label,
+  String description,
   IconData icon,
 });
 
 const _alertModeOptions = <_AlertModeOption>[
   (
     value: _ExclusiveAlertChoice.call,
-    fullLabel: 'Chamada',
-    compactLabel: 'Chamada',
+    label: 'Chamada',
+    description: 'Toca continuamente e tenta abrir a tela de chamada.',
     icon: Icons.call,
   ),
   (
     value: _ExclusiveAlertChoice.notification,
-    fullLabel: 'Notificação',
-    compactLabel: 'Aviso',
+    label: 'Notificação',
+    description: 'Mostra um aviso com som; toque nele para abrir a chamada.',
     icon: Icons.notifications,
   ),
   (
     value: _ExclusiveAlertChoice.off,
-    fullLabel: 'Desativado',
-    compactLabel: 'Desativado',
+    label: 'Desativado',
+    description: 'Não avisa quando o interfone tocar.',
     icon: Icons.notifications_off,
   ),
 ];
 
-/// Picks, then renders, one of three layouts for the exclusive alert-mode
-/// choice — never lets a label wrap mid-word, overflow, or get truncated:
-///
-/// 1. A [SegmentedButton] with icons and full labels ("Chamada",
-///    "Notificação", "Desativado"), if that measurably fits [maxWidth].
-/// 2. A [SegmentedButton] with compact, icon-less labels ("Chamada",
-///    "Aviso", "Desativado"), if that fits instead.
-/// 3. A vertical, one-choice-per-row list ([RadioListTile]) otherwise — each
-///    row gets the full available width, so a label can never fail to fit.
-///
-/// "Fits" is measured with a real [TextPainter] against the current
-/// [MediaQuery] text scale, not a fixed device-width breakpoint: a normal
-/// phone width at an accessible text scale (e.g. 1.3+) falls back to the
-/// vertical layout exactly like a narrow width would, and a tablet-width
-/// screen at a huge text scale does too — the decision follows actual
-/// rendered content size, never a guess.
+/// Renders the exclusive alert-mode choice as a vertical, one-option-per-row
+/// list — deliberately **not** measured or estimated against any width or
+/// text-scale threshold (a `SegmentedButton`, even with a `TextPainter`-
+/// measured fallback, still broke at some width/scale combination in manual
+/// testing). Each [RadioListTile] gets the full available row width, so its
+/// single-word [_AlertModeOption.label] never competes for horizontal space
+/// with the other two options — the actual cause of the original overflow —
+/// and safely fits at any width or text scale a phone/tablet could
+/// realistically report, without needing to measure anything to prove it.
 class _AlertModeSelector extends StatelessWidget {
   const _AlertModeSelector({
     required this.selected,
     required this.enabled,
     required this.onChanged,
-    required this.maxWidth,
   });
 
   final _ExclusiveAlertChoice selected;
   final bool enabled;
   final ValueChanged<_ExclusiveAlertChoice> onChanged;
-  final double maxWidth;
-
-  /// Approximate horizontal chrome (icon + gaps + button padding + border)
-  /// `SegmentedButton` adds around each segment's label, in logical pixels.
-  /// A deliberately generous estimate — this only has to decide *which*
-  /// layout to use, never has to match Material's segmented-button layout
-  /// algorithm exactly, and overestimating just means falling back to a
-  /// smaller/vertical layout slightly earlier than the true limit, never
-  /// picking a layout that actually overflows.
-  static const _chromeWithIcon = 72.0;
-  static const _chromeTextOnly = 40.0;
-
-  bool _fits(BuildContext context, {required bool withIcons}) {
-    final textScaler = MediaQuery.textScalerOf(context);
-    final style =
-        Theme.of(context).textTheme.labelLarge ?? const TextStyle(fontSize: 14);
-    final chrome = withIcons ? _chromeWithIcon : _chromeTextOnly;
-    var total = 0.0;
-    for (final option in _alertModeOptions) {
-      final label = withIcons ? option.fullLabel : option.compactLabel;
-      final painter = TextPainter(
-        text: TextSpan(text: label, style: style),
-        textDirection: Directionality.of(context),
-        textScaler: textScaler,
-        maxLines: 1,
-      )..layout();
-      total += painter.width + chrome;
-    }
-    return total <= maxWidth;
-  }
 
   @override
   Widget build(BuildContext context) {
-    if (_fits(context, withIcons: true)) {
-      return _segmentedButton(withIcons: true);
-    }
-    if (_fits(context, withIcons: false)) {
-      return _segmentedButton(withIcons: false);
-    }
-    return _verticalChoices();
-  }
-
-  Widget _segmentedButton({required bool withIcons}) {
-    return SegmentedButton<_ExclusiveAlertChoice>(
-      segments: [
-        for (final option in _alertModeOptions)
-          ButtonSegment(
-            value: option.value,
-            label: Text(withIcons ? option.fullLabel : option.compactLabel),
-            icon: withIcons ? Icon(option.icon) : null,
-          ),
-      ],
-      selected: {selected},
-      onSelectionChanged: enabled ? (value) => onChanged(value.first) : null,
-    );
-  }
-
-  Widget _verticalChoices() {
     return RadioGroup<_ExclusiveAlertChoice>(
       groupValue: selected,
       onChanged: (value) {
         if (value != null) onChanged(value);
       },
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: [
           for (final option in _alertModeOptions)
             RadioListTile<_ExclusiveAlertChoice>(
-              contentPadding: EdgeInsets.zero,
-              title: Text(option.fullLabel),
-              secondary: Icon(option.icon),
               value: option.value,
               enabled: enabled,
+              secondary: Icon(option.icon),
+              title: Text(
+                option.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text(option.description),
+              isThreeLine: true,
             ),
         ],
       ),

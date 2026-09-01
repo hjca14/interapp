@@ -72,9 +72,14 @@ class MainActivity : FlutterFragmentActivity() {
     // "payload" extra strictly validates as a RingCallIntent v2 payload (set
     // exclusively by IncomingCallNotificationService.present — see
     // ring_call_intent.dart and RingCallLaunchPayload.kt) so an ordinary app
-    // open, any other local notification (including a NOTIFICATION_ONLY tap,
-    // a different payload shape entirely), or an arbitrary Intent from
-    // another app (this Activity is exported) never bypasses the keyguard.
+    // open or an arbitrary Intent from another app (this Activity is
+    // exported) never bypasses the keyguard. A NOTIFICATION_ONLY tap now
+    // carries the same RingCallIntent payload shape as a call (both open the
+    // same IncomingCallPage — see ring_detected_event.dart's
+    // RingPresentationIntentCall.isCall doc) and so validates/bypasses the
+    // same way an explicit tap deserves to; only the automatic full-screen
+    // presentation itself is call-mode-only, decided entirely on the Dart
+    // side before either notification kind is ever shown.
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         applyRingCallLockScreenPresentation(intent)

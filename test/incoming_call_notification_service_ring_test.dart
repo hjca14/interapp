@@ -1,7 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:interapp/core/push/device_event_notification_intent.dart';
 import 'package:interapp/core/push/full_screen_intent_access.dart';
 import 'package:interapp/core/push/ring_call_intent.dart';
 import 'package:interapp/core/push/ring_detected_event.dart';
@@ -278,6 +277,39 @@ void main() {
       });
     }
 
+    // NOTIFICATION_ONLY represents the same live call session as RING_ONLY,
+    // just presented differently (see IncomingCallNotificationService's doc)
+    // — so it shares the id/payload behavior above, checked separately here
+    // since its full-screen-intent behavior differs (checked below).
+    test('NOTIFICATION_ONLY is also id\'d by call_id, so RING_ENDED can cancel '
+        'it the same way as a call-mode notification', () async {
+      final args = await capturePresentedShow(
+        eventFor(
+          RingPresentationIntent.notificationOnly,
+          callId: 'call-${'d' * 32}',
+        ),
+        fullScreenIntentChecker: () async => false,
+      );
+
+      expect(args['id'], ringNotificationId('call-${'d' * 32}'));
+    });
+
+    test('NOTIFICATION_ONLY attaches a RingCallIntent payload restorable by '
+        'RingCallIntent.tryRestore, exactly like RING_ONLY — tapping it must '
+        'open IncomingCallPage, not a separate device destination', () async {
+      final args = await capturePresentedShow(
+        eventFor(RingPresentationIntent.notificationOnly),
+        fullScreenIntentChecker: () async => false,
+      );
+
+      final restored = RingCallIntent.tryRestore(
+        args['payload'] as String?,
+        now: DateTime.utc(2026, 1, 1),
+      );
+      expect(restored, isNotNull);
+      expect(restored!.callId, 'call-${'c' * 32}');
+    });
+
     test('a call-mode present() notifies onCallPresented — production wiring '
         'uses this to open IncomingCallPage directly when InterBridge is '
         'already in foreground, without waiting for a tap or Android\'s own '
@@ -293,6 +325,44 @@ void main() {
       await service.present(eventFor(RingPresentationIntent.ringOnly));
 
       expect(presented?.callId, 'call-${'c' * 32}');
+    });
+
+    test('RING_ONLY presenting when automatic presentation is allowed still '
+        'shows the notification too — a single alert with two entry points '
+        '(the automatic open, and the notification as fallback/reopen '
+        'surface), never two independent alerts', () async {
+      MethodCall? shown;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(notificationsChannel, (call) async {
+            if (call.method == 'show') shown = call;
+            return null;
+          });
+      RingDetectedEvent? presented;
+      final service = IncomingCallNotificationService(
+        FlutterLocalNotificationsPlugin(),
+        onCallPresented: (event) => presented = event,
+      );
+
+      await service.present(eventFor(RingPresentationIntent.ringOnly));
+
+      expect(
+        presented,
+        isNotNull,
+        reason: 'the automatic-open shortcut still fires',
+      );
+      expect(
+        shown,
+        isNotNull,
+        reason: 'the notification itself is still shown as well',
+      );
+      final args = shown!.arguments as Map<Object?, Object?>;
+      expect(
+        args['id'],
+        ringNotificationId('call-${'c' * 32}'),
+        reason:
+            'same call_id-derived id as the automatic open — one '
+            'session, not two',
+      );
     });
 
     test(
@@ -328,21 +398,6 @@ void main() {
       expect(platformSpecifics['category'], isNot('call'));
     });
 
-    test('NOTIFICATION_ONLY attaches a DeviceEventNotificationIntent payload, '
-        'never a RingCallIntent — tapping it must open a device destination, '
-        'not IncomingCallPage', () async {
-      final args = await capturePresentedShow(
-        eventFor(RingPresentationIntent.notificationOnly),
-        fullScreenIntentChecker: () async => false,
-      );
-
-      final payload = args['payload'] as String?;
-      expect(RingCallIntent.tryRestore(payload), isNull);
-      final deviceEvent = DeviceEventNotificationIntent.tryRestore(payload);
-      expect(deviceEvent, isNotNull);
-      expect(deviceEvent!.deviceId, 'ib-${'b' * 32}');
-    });
-
     test('endCall cancels the notification for that call_id and reports '
         'onCallEnded', () async {
       MethodCall? captured;
@@ -371,6 +426,48 @@ void main() {
       expect(args['id'], ringNotificationId('call-${'c' * 32}'));
       expect(endedCallId, 'call-${'c' * 32}');
     });
+
+    test(
+      'RING_ENDED cancels a NOTIFICATION_ONLY notification for the same '
+      'call_id exactly the same way as a call-mode one — end to end: the '
+      'id present() actually showed is the id endCall actually cancels',
+      () async {
+        Map<Object?, Object?>? shownArgs;
+        Map<Object?, Object?>? canceledArgs;
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(notificationsChannel, (call) async {
+              if (call.method == 'show') {
+                shownArgs = call.arguments as Map<Object?, Object?>;
+              }
+              if (call.method == 'cancel') {
+                canceledArgs = call.arguments as Map<Object?, Object?>;
+              }
+              return null;
+            });
+        final service = IncomingCallNotificationService(
+          FlutterLocalNotificationsPlugin(),
+        );
+
+        await service.present(
+          eventFor(
+            RingPresentationIntent.notificationOnly,
+            callId: 'call-${'f' * 32}',
+          ),
+        );
+        await service.endCall(
+          RingEndedEvent(
+            eventId: 'evt-${'e' * 32}',
+            callId: 'call-${'f' * 32}',
+            deviceId: 'ib-${'b' * 32}',
+            occurredAt: DateTime.utc(2026, 1, 1),
+          ),
+        );
+
+        expect(shownArgs, isNotNull);
+        expect(canceledArgs, isNotNull);
+        expect(canceledArgs!['id'], shownArgs!['id']);
+      },
+    );
 
     test('cancelNotificationById cancels exactly the given OS id, never a '
         'value recomputed from any call_id/payload — used by the safe-'

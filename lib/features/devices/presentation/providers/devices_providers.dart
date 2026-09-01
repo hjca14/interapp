@@ -5,7 +5,6 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:interapp/core/config/app_environment.dart';
 import 'package:interapp/core/network/interbridge_api_client.dart';
-import 'package:interapp/core/push/device_event_navigation.dart';
 import 'package:interapp/core/push/notification_tap_router.dart';
 import 'package:interapp/core/push/ring_call_intent.dart';
 import 'package:interapp/core/push/ring_call_lock_screen_channel.dart';
@@ -121,22 +120,16 @@ final incomingCallNotificationServiceProvider =
       late final IncomingCallNotificationService service;
       service = IncomingCallNotificationService(
         FlutterLocalNotificationsPlugin(),
-        // Only a call-mode payload (RingCallIntent) reaches the navigation
-        // coordinator/IncomingCallPage. A NOTIFICATION_ONLY tap
-        // (DeviceEventNotificationIntent) instead goes through
-        // deviceEventNavigationCoordinatorProvider, which preserves it until
-        // authentication is confirmed rather than navigating immediately —
-        // see DeviceEventNavigationCoordinator's doc. See
-        // `routeNotificationTap`.
+        // Both RING_ONLY and NOTIFICATION_ONLY taps carry a RingCallIntent
+        // payload (see IncomingCallNotificationService.present's doc — both
+        // represent the same live call session) and reach the same
+        // navigation coordinator/IncomingCallPage. See `routeNotificationTap`.
         onRingNotificationTap: (payload, notificationId) =>
             routeNotificationTap(
               payload,
               onCallTap: ref
                   .read(ringCallNavigationCoordinatorProvider)
                   .acceptSerialized,
-              onDeviceEventTap: (deviceId) => ref
-                  .read(deviceEventNavigationCoordinatorProvider)
-                  .acceptDeviceId(deviceId),
               // The payload had a call notification's shape but failed to
               // restore (expired past the ring-timeout, malformed, foreign
               // version) — recover safely without opening IncomingCallPage:
@@ -177,33 +170,12 @@ final incomingCallNotificationServiceProvider =
       return service;
     });
 
-Future<bool> _deviceExistsAndIsAuthorized(Ref ref, String deviceId) async {
-  await ref.read(deviceRepositoryProvider).getDeviceDetails(deviceId);
-  return true;
-}
-
 final ringCallNavigationCoordinatorProvider =
     Provider<RingCallNavigationCoordinator>((ref) {
-      final coordinator = RingCallNavigationCoordinator(
-        (deviceId) => _deviceExistsAndIsAuthorized(ref, deviceId),
-      );
-      ref.onDispose(coordinator.dispose);
-      return coordinator;
-    });
-
-/// See [DeviceEventNavigationCoordinator]'s doc comment — the `deviceId`
-/// counterpart to [ringCallNavigationCoordinatorProvider], for a
-/// `NOTIFICATION_ONLY` tap instead of a call.
-final deviceEventNavigationCoordinatorProvider =
-    Provider<DeviceEventNavigationCoordinator>((ref) {
-      final coordinator = DeviceEventNavigationCoordinator(
-        (deviceId) => _deviceExistsAndIsAuthorized(ref, deviceId),
-        onDiagnostic: (diagnostic) {
-          if (kDebugMode) {
-            debugPrint(diagnostic.toLogLine());
-          }
-        },
-      );
+      final coordinator = RingCallNavigationCoordinator((deviceId) async {
+        await ref.read(deviceRepositoryProvider).getDeviceDetails(deviceId);
+        return true;
+      });
       ref.onDispose(coordinator.dispose);
       return coordinator;
     });

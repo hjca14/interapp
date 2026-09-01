@@ -249,11 +249,11 @@ permanecem explicitamente pendentes.
     explícito), e — em Kotlin (`RingCallLaunchPayloadTest.kt`) — que só um
     `payload` estritamente válido do contrato `RingCallIntent` v2 habilita o
     comportamento de lock screen, enquanto payload ausente, malformado,
-    incompleto, com campo extra, de versão anterior (v1) ou do formato de
-    `NOTIFICATION_ONLY` (`DeviceEventNotificationIntent`, uma forma
-    diferente por completo) nunca habilita; `flutter analyze`/`flutter
-    test` verdes — ver `docs/APP_COMMUNICATION_STATUS.md` para o resultado
-    exato;
+    incompleto, com campo extra ou de versão anterior (v1) nunca habilita
+    (um toque em `NOTIFICATION_ONLY` carrega esse mesmo formato de payload,
+    já que representa a mesma sessão de chamada — ver bullet abaixo);
+    `flutter analyze`/`flutter test` verdes — ver
+    `docs/APP_COMMUNICATION_STATUS.md` para o resultado exato;
   - **3B.9d — toque contínuo, modos exclusivos, `RING_ENDED`/`call_id`,
     overlay de navegação e correções de UX reportadas em teste manual
     (Android 17; implementação completa, validação manual física ainda
@@ -272,13 +272,18 @@ permanecem explicitamente pendentes.
       mais forçada a silenciosa) — canais Android congelam som/vibração/
       importância na primeira criação, então qualquer mudança semântica
       futura exige novo id versionado, nunca editar o canal existente;
-    - **modo Notificação não navega mais para `IncomingCallPage`:**
-      `NOTIFICATION_ONLY` agora carrega um payload de toque próprio e
-      distinto (`DeviceEventNotificationIntent`, `lib/core/push/
-      device_event_notification_intent.dart` — nunca o formato
-      `RingCallIntent`), e o toque abre o destino do dispositivo
-      (`/devices/{deviceId}`) em vez de uma tela de atender/dispensar para
-      uma chamada que não existe;
+    - **modo Notificação também leva a `IncomingCallPage`:** `RING_ONLY` e
+      `NOTIFICATION_ONLY` representam a mesma sessão de chamada viva, só
+      apresentada de forma diferente (toque contínuo + tela automática vs.
+      notificação comum tocável, sem full-screen, sem toque contínuo) — os
+      dois carregam o mesmo payload `RingCallIntent`, o toque em qualquer um
+      leva ao mesmo `IncomingCallPage`, e `RING_ENDED`/timeout/`expires_at`/
+      tombstone se aplicam igualmente aos dois, já que é a mesma sessão sob
+      o mesmo `call_id`. (Uma iteração anterior desta entrega havia feito
+      `NOTIFICATION_ONLY` navegar apenas para o destino do dispositivo
+      `/devices/{deviceId}` com um payload próprio e distinto — corrigido
+      após confirmar em teste manual que a expectativa correta é abrir a
+      chamada, não um evento já encerrado.)
     - **preferências exclusivas:** as duas opções independentes de alerta
       viraram uma escolha exclusiva de três estados ("Chamada" /
       "Notificação" / "Desativado") em `NotificationPreferencesPage`. O app

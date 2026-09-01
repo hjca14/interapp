@@ -14,10 +14,17 @@
 enum RingPresentationIntent { ringOnly, notificationOnly, ringAndNotification }
 
 extension RingPresentationIntentCall on RingPresentationIntent {
-  /// Whether this intent should present the call experience (full-screen,
-  /// continuous ringtone, `IncomingCallPage`) rather than a plain
-  /// notification. True for [RingPresentationIntent.ringOnly] and the
-  /// legacy [RingPresentationIntent.ringAndNotification].
+  /// Whether this intent should try to present automatically — full-screen
+  /// intent, continuous/insistent ringtone — rather than only a plain,
+  /// tappable notification. True for [RingPresentationIntent.ringOnly] and
+  /// the legacy [RingPresentationIntent.ringAndNotification].
+  ///
+  /// This governs *presentation style only*, not whether the notification
+  /// leads to a live call: [RingPresentationIntent.notificationOnly] also
+  /// opens `IncomingCallPage` once tapped, while the session is still valid
+  /// — see `IncomingCallNotificationService.present`'s doc. `isCall` here
+  /// really means "isCall.isAutomaticallyPresented", kept short since every
+  /// call site already reads it in that presentation-decision context.
   bool get isCall =>
       this == RingPresentationIntent.ringOnly ||
       this == RingPresentationIntent.ringAndNotification;

@@ -189,8 +189,8 @@ void main() {
       await tester.pump();
 
       expect(
-        find.byWidgetPredicate((widget) => widget is SegmentedButton),
-        findsOneWidget,
+        find.byWidgetPredicate((widget) => widget is RadioListTile),
+        findsNWidgets(3),
         reason: 'the alert-mode control is still on screen while saving',
       );
 

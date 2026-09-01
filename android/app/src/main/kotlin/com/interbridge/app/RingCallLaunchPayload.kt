@@ -25,9 +25,12 @@ private val RING_CALL_INTENT_KEYS =
  * ([android.app.Activity.setShowWhenLocked]/
  * [android.app.Activity.setTurnScreenOn]); real authorization and
  * Atender/Dispensar stay entirely inside `IncomingCallPage`. A
- * `NOTIFICATION_ONLY` tap's payload (`DeviceEventNotificationIntent`, a
- * different shape entirely — see device_event_notification_intent.dart)
- * never matches this and so never grants the lock-screen bypass either.
+ * `NOTIFICATION_ONLY` tap carries this exact same payload shape (both
+ * presentation modes represent the same live call session — see
+ * ring_detected_event.dart's `RingPresentationIntentCall.isCall` doc) and so
+ * validates the same way; whether a `RING_DETECTED` requests the automatic
+ * full-screen presentation in the first place is decided entirely on the
+ * Dart side before this validator ever runs.
  *
  * Never throws and never logs [payload] — any malformed or unexpected input
  * simply resolves to `false`.

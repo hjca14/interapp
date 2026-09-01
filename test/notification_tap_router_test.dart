@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:interapp/core/push/device_event_notification_intent.dart';
 import 'package:interapp/core/push/notification_tap_diagnostic.dart';
 import 'package:interapp/core/push/notification_tap_router.dart';
 import 'package:interapp/core/push/ring_call_intent.dart';
@@ -27,17 +26,13 @@ void main() {
     'occurred_at': DateTime.utc(2000).toIso8601String(),
   });
 
-  final deviceEventPayload = DeviceEventNotificationIntent(
-    deviceId: 'ib-${List.filled(32, 'd').join()}',
-  ).serialize();
-
-  test('a valid call payload calls onCallTap and reports callAccepted', () {
+  test('a valid payload (RING_ONLY or NOTIFICATION_ONLY — both share the same '
+      'RingCallIntent shape) calls onCallTap and reports callAccepted', () {
     String? tapped;
     NotificationTapDiagnostic? diagnostic;
     routeNotificationTap(
       validCallPayload,
       onCallTap: (payload) => tapped = payload,
-      onDeviceEventTap: (_) => fail('must not reach device-event tap'),
       onInvalidCallTap: () => fail('must not reach invalid-call recovery'),
       onDiagnostic: (value) => diagnostic = value,
     );
@@ -46,14 +41,13 @@ void main() {
     expect(diagnostic?.reason, 'call_accepted');
   });
 
-  test('a shaped-but-expired call payload calls onInvalidCallTap and reports '
-      'callRejected, never onCallTap/onDeviceEventTap', () {
+  test('a shaped-but-expired payload calls onInvalidCallTap and reports '
+      'callRejected, never onCallTap', () {
     var invalidCallTapCalled = false;
     NotificationTapDiagnostic? diagnostic;
     routeNotificationTap(
       expiredButShapedCallPayload,
       onCallTap: (_) => fail('must not reach onCallTap'),
-      onDeviceEventTap: (_) => fail('must not reach onDeviceEventTap'),
       onInvalidCallTap: () => invalidCallTapCalled = true,
       onDiagnostic: (value) => diagnostic = value,
     );
@@ -62,29 +56,12 @@ void main() {
     expect(diagnostic?.reason, 'call_rejected');
   });
 
-  test('a valid device-event payload calls onDeviceEventTap and reports '
-      'deviceNotificationAccepted', () {
-    String? tappedDeviceId;
-    NotificationTapDiagnostic? diagnostic;
-    routeNotificationTap(
-      deviceEventPayload,
-      onCallTap: (_) => fail('must not reach onCallTap'),
-      onDeviceEventTap: (deviceId) => tappedDeviceId = deviceId,
-      onInvalidCallTap: () => fail('must not reach invalid-call recovery'),
-      onDiagnostic: (value) => diagnostic = value,
-    );
-
-    expect(tappedDeviceId, isNotNull);
-    expect(diagnostic?.reason, 'device_notification_accepted');
-  });
-
   test('a payload matching neither shape calls nothing and reports no '
       'diagnostic', () {
     var anyCallbackCalled = false;
     routeNotificationTap(
       '{"unexpected":"shape"}',
       onCallTap: (_) => anyCallbackCalled = true,
-      onDeviceEventTap: (_) => anyCallbackCalled = true,
       onInvalidCallTap: () => anyCallbackCalled = true,
       onDiagnostic: (_) => anyCallbackCalled = true,
     );
@@ -97,7 +74,6 @@ void main() {
     routeNotificationTap(
       null,
       onCallTap: (_) => anyCallbackCalled = true,
-      onDeviceEventTap: (_) => anyCallbackCalled = true,
       onInvalidCallTap: () => anyCallbackCalled = true,
       onDiagnostic: (_) => anyCallbackCalled = true,
     );
@@ -111,7 +87,6 @@ void main() {
       () => routeNotificationTap(
         expiredButShapedCallPayload,
         onCallTap: (_) => fail('must not reach onCallTap'),
-        onDeviceEventTap: (_) => fail('must not reach onDeviceEventTap'),
       ),
       returnsNormally,
     );
@@ -123,8 +98,8 @@ void main() {
       expect(looksLikeRingCallPayload(expiredButShapedCallPayload), isTrue);
     });
 
-    test('false for a device-event payload, malformed JSON, or null', () {
-      expect(looksLikeRingCallPayload(deviceEventPayload), isFalse);
+    test('false for malformed JSON, an unrelated shape, or null', () {
+      expect(looksLikeRingCallPayload('{"unexpected":"shape"}'), isFalse);
       expect(looksLikeRingCallPayload('{bad'), isFalse);
       expect(looksLikeRingCallPayload(null), isFalse);
     });
@@ -136,10 +111,6 @@ void main() {
       final reasons = [
         NotificationTapDiagnostic.callAccepted().reason,
         NotificationTapDiagnostic.callRejected().reason,
-        NotificationTapDiagnostic.deviceNotificationAccepted().reason,
-        NotificationTapDiagnostic.pendingAwaitingAuthentication().reason,
-        NotificationTapDiagnostic.deviceNotAuthorized().reason,
-        NotificationTapDiagnostic.destinationOpened().reason,
       ];
 
       for (final reason in reasons) {

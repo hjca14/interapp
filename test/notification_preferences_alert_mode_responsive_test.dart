@@ -71,21 +71,9 @@ Future<void> _pumpPage(WidgetTester tester, _Repository repository) async {
   await tester.pumpAndSettle();
 }
 
-/// No text should ever overflow its own render box — this is the actual,
-/// literal meaning of "no overflow, no mid-word wrap, no truncation": any of
-/// those would make the rendered [Text] wider/taller than the box Flutter
-/// laid out for it, which shows up as a render overflow error during the
-/// test regardless of which of the three causes produced it.
 void _expectNoOverflow(WidgetTester tester) {
   expect(tester.takeException(), isNull);
 }
-
-/// `_ExclusiveAlertChoice` (the widgets' generic type argument) is private
-/// to the page, so `find.byType(SegmentedButton<_ExclusiveAlertChoice>)`
-/// cannot be spelled here — match by runtime type name instead.
-Finder _findByTypeName(String name) => find.byWidgetPredicate(
-  (widget) => widget.runtimeType.toString().startsWith(name),
-);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -95,69 +83,70 @@ void main() {
   });
 
   for (final width in [320.0, 360.0, 400.0]) {
-    testWidgets('${width.toInt()} dp: no overflow, all three modes remain '
-        'selectable', (tester) async {
-      _setViewport(tester, width: width);
-      await _pumpPage(tester, _Repository());
+    for (final textScaleFactor in [1.0, 1.3, 2.0]) {
+      testWidgets(
+        '${width.toInt()} dp at text scale $textScaleFactor: no overflow, '
+        'all three modes remain selectable, labels never break mid-word',
+        (tester) async {
+          _setViewport(tester, width: width, textScaleFactor: textScaleFactor);
+          await _pumpPage(tester, _Repository());
 
-      _expectNoOverflow(tester);
-      expect(find.text('Chamada'), findsOneWidget);
-      expect(
-        find.text('Notificação').evaluate().isNotEmpty ||
-            find.text('Aviso').evaluate().isNotEmpty,
-        isTrue,
-        reason: 'either the full or the compact label must be shown',
+          _expectNoOverflow(tester);
+          expect(find.text('Chamada'), findsOneWidget);
+          expect(find.text('Notificação'), findsOneWidget);
+          expect(find.text('Desativado'), findsOneWidget);
+          expect(
+            find.byWidgetPredicate((widget) => widget is RadioListTile),
+            findsNWidgets(3),
+            reason:
+                'the vertical, one-per-row selector is always used, at '
+                'every width and text scale — never a horizontal control '
+                'that could run out of room',
+          );
+        },
       );
-      expect(find.text('Desativado'), findsOneWidget);
-    });
+    }
   }
 
-  testWidgets('text scale 1.3 (accessible): no overflow', (tester) async {
-    _setViewport(tester, width: 360, textScaleFactor: 1.3);
-    await _pumpPage(tester, _Repository());
-
-    _expectNoOverflow(tester);
-    expect(find.text('Chamada'), findsOneWidget);
-    expect(find.text('Desativado'), findsOneWidget);
-  });
-
-  testWidgets(
-    'text scale 2.0: falls back to the vertical, one-per-row layout — no '
-    'SegmentedButton at all, no overflow',
-    (tester) async {
-      _setViewport(tester, width: 360, textScaleFactor: 2.0);
-      await _pumpPage(tester, _Repository());
-
-      _expectNoOverflow(tester);
-      expect(_findByTypeName('SegmentedButton'), findsNothing);
-      expect(_findByTypeName('RadioListTile'), findsNWidgets(3));
-      expect(find.text('Chamada'), findsOneWidget);
-      expect(find.text('Notificação'), findsOneWidget);
-      expect(find.text('Desativado'), findsOneWidget);
-    },
-  );
-
-  testWidgets('a wide/tablet width uses the full-label, icon segmented '
-      'button', (tester) async {
+  testWidgets('a wide/tablet width also uses the same vertical selector — no '
+      'overflow, no separate wide-screen layout to keep in sync', (
+    tester,
+  ) async {
     _setViewport(tester, width: 900);
     await _pumpPage(tester, _Repository());
 
     _expectNoOverflow(tester);
-    expect(_findByTypeName('SegmentedButton'), findsOneWidget);
-    expect(find.text('Chamada'), findsOneWidget);
-    expect(find.text('Notificação'), findsOneWidget);
-    expect(find.text('Desativado'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate((widget) => widget is RadioListTile),
+      findsNWidgets(3),
+    );
   });
 
   testWidgets(
-    'the vertical fallback still lets the user select each of the three '
-    'modes, exclusively',
+    'each option shows a short description of the difference between modes',
     (tester) async {
-      _setViewport(tester, width: 360, textScaleFactor: 2.0);
+      _setViewport(tester, width: 360);
+      await _pumpPage(tester, _Repository());
+
+      expect(
+        find.text('Toca continuamente e tenta abrir a tela de chamada.'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Mostra um aviso com som; toque nele para abrir a chamada.'),
+        findsOneWidget,
+      );
+      expect(find.text('Não avisa quando o interfone tocar.'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'the vertical selector still lets the user select each of the three '
+    'modes, exclusively, at a narrow width and high text scale',
+    (tester) async {
+      _setViewport(tester, width: 320, textScaleFactor: 2.0);
       final repository = _Repository();
       await _pumpPage(tester, repository);
-
-      expect(_findByTypeName('RadioListTile'), findsNWidgets(3));
 
       await tester.tap(find.text('Notificação'));
       await tester.pump(
@@ -172,7 +161,7 @@ void main() {
   testWidgets('semantics expose which alert mode is currently selected', (
     tester,
   ) async {
-    _setViewport(tester, width: 900);
+    _setViewport(tester, width: 360);
     await _pumpPage(tester, _Repository());
 
     final semantics = tester.getSemantics(
