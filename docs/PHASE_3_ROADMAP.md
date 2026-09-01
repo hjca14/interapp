@@ -355,6 +355,23 @@ permanecem explicitamente pendentes.
       overlay Flutter, então cobrir visualmente não bastaria. Uma tentativa
       automática represada é retomada exatamente uma vez quando a chamada
       termina, nunca duas;
+    - **bug encontrado em rodada de teste manual posterior, corrigido nesta
+      branch: a mesma exceção precisa cobrir a *decisão* de bloquear, não só
+      o prompt.** Com bloqueio biométrico "imediato", um app já desbloqueado
+      em foreground voltava a pedir biometria só por causa da própria
+      apresentação da chamada (central de notificações abrindo/fechando,
+      full-screen intent, `MainActivity` alternando `showWhenLocked`) emitir
+      `inactive`/`paused`/`resumed` no Flutter sem o usuário realmente ter
+      saído do app. `BiometricLockGate.didChangeAppLifecycleState` agora
+      classifica cada `resumed` pelo estado real da apresentação
+      (`_callInFlight`, o mesmo já usado para o prompt) em vez do último
+      `AppLifecycleState` bruto: enquanto uma chamada está pendente/ativa,
+      o tempo decorrido é descartado, nunca avaliado. Não é um bypass
+      permanente — só evita *bloquear de novo* nesta janela específica; um
+      app já bloqueado antes da chamada (cold start, sobre o keyguard)
+      permanece bloqueado, já que nada aqui jamais define `_locked = false`
+      fora de uma autenticação bem-sucedida, e uma janela de fundo genuína
+      logo depois continua avaliada normalmente;
     - **retorno ao keyguard ao encerrar sobre tela bloqueada:** novo canal
       `interapp/ring_call_presentation` (`MainActivity.endRingCallPresentation`)
       derruba `setShowWhenLocked`/`setTurnScreenOn` e, se o aparelho ainda

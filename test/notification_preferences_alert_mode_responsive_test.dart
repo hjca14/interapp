@@ -43,8 +43,9 @@ void _setViewport(
   WidgetTester tester, {
   required double width,
   double textScaleFactor = 1.0,
+  double height = 800,
 }) {
-  tester.view.physicalSize = Size(width, 800);
+  tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1.0;
   tester.platformDispatcher.textScaleFactorTestValue = textScaleFactor;
   addTearDown(() {
@@ -170,5 +171,48 @@ void main() {
           .first,
     );
     expect(semantics, isNotNull);
+  });
+
+  group('with the schedule ("Programação de alertas") also expanded', () {
+    _Repository repositoryWithExpandedSchedule() => _Repository(
+      value: DeviceNotificationPreferences(
+        quietSchedule: QuietSchedule(
+          enabled: true,
+          timezone: 'America/Sao_Paulo',
+          days: const {1, 2, 3},
+          startTime: ClockTime(hour: 22, minute: 0),
+          endTime: ClockTime(hour: 7, minute: 0),
+        ),
+      ),
+    );
+
+    for (final width in [320.0, 360.0, 400.0]) {
+      for (final textScaleFactor in [1.0, 1.3, 2.0]) {
+        testWidgets(
+          '${width.toInt()} dp at text scale $textScaleFactor: the whole '
+          'page — Alertas plus the expanded schedule (Horário, weekdays, '
+          '"Durante esses horários") — has no overflow',
+          (tester) async {
+            // A generous height — well beyond any real phone — so the
+            // ListView's lazy sliver machinery builds every child straight
+            // away regardless of text scale, instead of leaving the second
+            // card (Programação de alertas) outside the initial cache
+            // extent of a phone-sized viewport.
+            _setViewport(
+              tester,
+              width: width,
+              textScaleFactor: textScaleFactor,
+              height: 3000,
+            );
+            await _pumpPage(tester, repositoryWithExpandedSchedule());
+
+            _expectNoOverflow(tester);
+            expect(find.text('Programação de alertas'), findsOneWidget);
+            expect(find.text('Somente notificação'), findsOneWidget);
+            expect(find.text('Não avisar'), findsOneWidget);
+          },
+        );
+      }
+    }
   });
 }

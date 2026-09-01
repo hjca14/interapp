@@ -33,7 +33,12 @@ válida; troca as duas opções de alerta
 independentes por uma escolha exclusiva Chamada/Notificação/Desativado,
 gravando somente `NONE`/`RING_ONLY`/`NOTIFICATION_ONLY` e continuando a ler
 `RING_AND_NOTIFICATION` legado como "Chamada"; renomeia "Horários sem
-ligação" para "Horários de silêncio"; introduz o consumo do futuro contrato
+ligação" para "Programação de alertas" (nome final, após passar por
+"Horários de silêncio"), com "Somente notificação" reduzindo — nunca
+bloqueando totalmente — Chamada/Notificação a uma notificação acionável
+durante o período, e "Não avisar" como o único comportamento que bloqueia
+tudo (contrato `quiet_schedule`/`NOTIFICATION_ONLY`/`BLOCK_ALL` inalterado,
+só os rótulos da UI mudaram); introduz o consumo do futuro contrato
 `RING_ENDED` correlacionado por `call_id` (extensão retrocompatível ainda não
 implantada pelo backend — ver `docs/PHASE_3_ROADMAP.md` 3B.9d para o contrato
 exato esperado) com timeout local de 60s como fallback sempre ativo; substitui

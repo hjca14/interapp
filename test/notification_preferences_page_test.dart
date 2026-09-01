@@ -335,7 +335,7 @@ void main() {
 
       expect(find.text('23:00'), findsOneWidget);
 
-      await tester.tap(find.text('Ativar horários de silêncio'));
+      await tester.tap(find.text('Usar programação'));
       await tester.pump(
         DeviceNotificationPreferencesController.debounceDuration,
       );
@@ -348,7 +348,7 @@ void main() {
         reason: 'collapsed while disabled',
       );
 
-      await tester.tap(find.text('Ativar horários de silêncio'));
+      await tester.tap(find.text('Usar programação'));
       await tester.pumpAndSettle();
 
       expect(
@@ -382,7 +382,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Ativar horários de silêncio'));
+    await tester.tap(find.text('Usar programação'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('fuso horário'), findsOneWidget);
@@ -406,10 +406,10 @@ void main() {
       );
       await _pumpPage(tester, repository);
 
-      expect(find.text('Horários de silêncio'), findsOneWidget);
+      expect(find.text('Programação de alertas'), findsOneWidget);
       expect(find.text('Horários sem ligação'), findsNothing);
-      expect(find.text('Só notificação'), findsOneWidget);
-      expect(find.text('Bloquear tudo'), findsOneWidget);
+      expect(find.text('Somente notificação'), findsOneWidget);
+      expect(find.text('Não avisar'), findsOneWidget);
       expect(find.text('Presença'), findsNothing);
       expect(find.text('Notificação sem som'), findsNothing);
       expect(find.text('Receber ligação'), findsNothing);
@@ -418,6 +418,112 @@ void main() {
       expect(find.textContaining('Não Perturbe'), findsNothing);
     },
   );
+
+  group('"Durante esses horários" — reduced interruption, never a full '
+      'block for Chamada/Notificação', () {
+    testWidgets(
+      '"Somente notificação" text never suggests a call is fully blocked — '
+      'it is described as reduced to an actionable notification',
+      (tester) async {
+        final repository = _Repository(
+          value: DeviceNotificationPreferences(
+            quietSchedule: QuietSchedule(
+              enabled: true,
+              timezone: 'America/Recife',
+              days: const {1},
+              startTime: ClockTime(hour: 22, minute: 0),
+              endTime: ClockTime(hour: 7, minute: 0),
+              behavior: QuietScheduleBehavior.notificationOnly,
+            ),
+          ),
+        );
+        await _pumpPage(tester, repository);
+
+        expect(find.text('Durante esses horários'), findsOneWidget);
+        expect(
+          find.textContaining('reduzida a uma notificação acionável'),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('nunca totalmente bloqueada'),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('nenhuma chamada ou notificação'),
+          findsNothing,
+          reason: 'that full-block wording belongs only to "Não avisar"',
+        );
+      },
+    );
+
+    testWidgets('"Não avisar" text is the one that describes blocking every '
+        'presentation, regardless of the main Alertas mode', (tester) async {
+      final repository = _Repository(
+        value: DeviceNotificationPreferences(
+          quietSchedule: QuietSchedule(
+            enabled: true,
+            timezone: 'America/Recife',
+            days: const {1},
+            startTime: ClockTime(hour: 22, minute: 0),
+            endTime: ClockTime(hour: 7, minute: 0),
+            behavior: QuietScheduleBehavior.blockAll,
+          ),
+        ),
+      );
+      await _pumpPage(tester, repository);
+
+      expect(
+        find.textContaining('nenhuma chamada ou notificação'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('reduzida a uma notificação acionável'),
+        findsNothing,
+      );
+    });
+
+    testWidgets('switching to "Não avisar" writes BLOCK_ALL, switching back to '
+        '"Somente notificação" writes NOTIFICATION_ONLY — the same wire '
+        'contract as before, only the labels changed', (tester) async {
+      final repository = _Repository(
+        value: DeviceNotificationPreferences(
+          quietSchedule: QuietSchedule(
+            enabled: true,
+            timezone: 'America/Recife',
+            days: const {1},
+            startTime: ClockTime(hour: 22, minute: 0),
+            endTime: ClockTime(hour: 7, minute: 0),
+            behavior: QuietScheduleBehavior.notificationOnly,
+          ),
+        ),
+      );
+      await _pumpPage(tester, repository);
+
+      await tester.ensureVisible(find.text('Não avisar'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Não avisar'));
+      await tester.pump(
+        DeviceNotificationPreferencesController.debounceDuration,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        repository.lastPatchDraft?.quietSchedule.behavior,
+        QuietScheduleBehavior.blockAll,
+      );
+
+      await tester.ensureVisible(find.text('Somente notificação'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Somente notificação'));
+      await tester.pump(
+        DeviceNotificationPreferencesController.debounceDuration,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        repository.lastPatchDraft?.quietSchedule.behavior,
+        QuietScheduleBehavior.notificationOnly,
+      );
+    });
+  });
 
   testWidgets(
     'the reset dialog uses friendly, name-agnostic wording, "Cancelar" '

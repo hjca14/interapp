@@ -435,10 +435,10 @@ class _QuietScheduleCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return SettingsSection(
       icon: Icons.schedule,
-      title: 'Horários de silêncio',
+      title: 'Programação de alertas',
       children: [
         SwitchListTile(
-          title: const Text('Ativar horários de silêncio'),
+          title: const Text('Usar programação'),
           value: schedule.enabled,
           onChanged: enabled ? onEnabled : null,
           secondary: resolvingTimezone
@@ -457,16 +457,31 @@ class _QuietScheduleCard extends StatelessWidget {
             ),
           ),
         if (schedule.enabled) ...[
-          ListTile(
-            title: const Text('Horário'),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
+          // A ListTile.trailing Row (the previous layout here) has a fixed,
+          // fairly narrow slot — cramming two TextButtons plus a dash into
+          // it overflowed ("trailing widget consumes the entire tile
+          // width") at an accessible text scale, a pre-existing bug found
+          // while validating this same card's responsiveness. A label above
+          // a Wrap given the full row width fixes it the same way as the
+          // Alertas/schedule-behavior selectors above: Wrap reflows to a
+          // second line instead of overflowing if it ever needs to.
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Text('Horário'),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+            child: Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 TextButton(
                   onPressed: enabled ? () => _pick(context, true) : null,
                   child: Text(schedule.startTime?.wireValue ?? '--:--'),
                 ),
-                const Text('—'),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4),
+                  child: Text('—'),
+                ),
                 TextButton(
                   onPressed: enabled ? () => _pick(context, false) : null,
                   child: Text(schedule.endTime?.wireValue ?? '--:--'),
@@ -491,35 +506,69 @@ class _QuietScheduleCard extends StatelessWidget {
             title: const Text('Fuso horário'),
             subtitle: Text(schedule.timezone ?? 'Indisponível'),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: SegmentedButton<QuietScheduleBehavior>(
-              segments: const [
-                ButtonSegment(
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Text('Durante esses horários'),
+          ),
+          // A vertical, one-per-row selector — not a SegmentedButton — for
+          // the same reason as the Alertas selector above: each option gets
+          // the full row width, so a label never competes for horizontal
+          // space and can never overflow or wrap mid-word at any width or
+          // text scale (confirmed: the segmented version of this exact
+          // control did overflow at an accessible text scale once these
+          // labels were lengthened for clarity).
+          RadioGroup<QuietScheduleBehavior>(
+            groupValue: schedule.behavior,
+            onChanged: enabled
+                ? (value) {
+                    if (value != null) {
+                      onChanged(schedule.copyWith(behavior: value));
+                    }
+                  }
+                : (_) {},
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                RadioListTile<QuietScheduleBehavior>(
                   value: QuietScheduleBehavior.notificationOnly,
-                  label: Text('Só notificação'),
+                  enabled: enabled,
+                  title: const Text(
+                    'Somente notificação',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-                ButtonSegment(
+                RadioListTile<QuietScheduleBehavior>(
                   value: QuietScheduleBehavior.blockAll,
-                  label: Text('Bloquear tudo'),
+                  enabled: enabled,
+                  title: const Text(
+                    'Não avisar',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ],
-              selected: {schedule.behavior},
-              onSelectionChanged: enabled
-                  ? (value) =>
-                        onChanged(schedule.copyWith(behavior: value.first))
-                  : null,
             ),
           ),
           Padding(
             padding: const EdgeInsets.all(16),
             child: Text(
+              // "Somente notificação" reduces the interruption level — it
+              // never fully blocks Chamada: a call still becomes an
+              // actionable notification (no continuous ring), exactly like
+              // Notificação already is. "Não avisar" is the only behavior
+              // that blocks every presentation. Neither ever reactivates
+              // "Desativado" — that mode stays silent regardless. See the
+              // mode × schedule matrix in the PR description.
               schedule.behavior == QuietScheduleBehavior.notificationOnly
-                  ? 'Durante esse horário, o celular não tocará como ligação. '
-                        'A notificação continua disponível se estiver ativada '
-                        'em Alertas.'
-                  : 'Durante esse horário, ligações e notificações desse '
-                        'InterBridge não serão exibidas.',
+                  ? 'Durante esses horários, uma chamada é reduzida a uma '
+                        'notificação acionável (sem toque contínuo) — nunca '
+                        'totalmente bloqueada. Uma notificação continua '
+                        'chegando normalmente. "Desativado" continua sem '
+                        'nenhum aviso.'
+                  : 'Durante esses horários, nenhuma chamada ou notificação '
+                        'é mostrada, qualquer que seja o modo selecionado em '
+                        'Alertas.',
             ),
           ),
         ],

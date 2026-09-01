@@ -22,6 +22,18 @@ import '../providers/biometric_lock_providers.dart';
 /// this gate started one underneath; the point of this exception is to
 /// never start one while a call is in flight in the first place, not to
 /// rely on being visually covered.
+///
+/// The same exception extends to the lock *decision* itself, not only the
+/// prompt: [didChangeAppLifecycleState] never treats an inactive/paused/
+/// resumed cycle observed while [_callInFlight] as the user backgrounding
+/// the app — the call's own presentation (notification shade, a tap,
+/// full-screen intent, `MainActivity` toggling `showWhenLocked`, the system
+/// prompt over it, returning from the call screen) can emit exactly that
+/// transition on its own. Without this, an app the user was already using
+/// unlocked would re-lock the moment a call ends, purely from that noise —
+/// see that method's doc for the precise, scoped-per-resume rule (never a
+/// permanent bypass, and never grants access to an app that was already
+/// locked before the call).
 class BiometricLockGate extends ConsumerStatefulWidget {
   const BiometricLockGate({super.key, required this.child, this.now});
 
@@ -91,9 +103,29 @@ class _BiometricLockGateState extends ConsumerState<BiometricLockGate>
     if (state != AppLifecycleState.resumed || _backgroundedAt == null) {
       return;
     }
-    final settings = ref.read(biometricLockSettingsProvider).value;
     final elapsed = _now.difference(_backgroundedAt!);
     _backgroundedAt = null;
+    if (_callInFlight) {
+      // A call's own presentation — the notification shade opening, a tap,
+      // full-screen intent, MainActivity toggling showWhenLocked, the
+      // native system prompt over it, returning from the call screen — can
+      // transiently emit inactive/paused/resumed on its own, with no real
+      // backgrounding by the user at all. Classifying this resume by
+      // whether a call is actually pending/active right now (not merely by
+      // the raw lifecycle transition) is what keeps that noise from ever
+      // counting as "the user left the app": elapsed time is discarded
+      // rather than evaluated.
+      //
+      // This is not a persistent bypass: it only ever *skips newly
+      // locking* for this one resume — an already-[_locked] app (cold
+      // start, over the keyguard, or locked before the call arrived) stays
+      // exactly as locked as it was, since nothing here ever sets `_locked
+      // = false`. The next resume that is not itself call-related is
+      // evaluated normally, with a fresh [_backgroundedAt] and no memory of
+      // this one.
+      return;
+    }
+    final settings = ref.read(biometricLockSettingsProvider).value;
     if (settings != null && shouldLockAfterBackground(settings, elapsed)) {
       setState(() {
         _locked = true;
