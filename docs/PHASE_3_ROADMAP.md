@@ -136,8 +136,10 @@ permanecem explicitamente pendentes.
     teste final usou pull-down externo de aproximadamente 10 kΩ para GND e
     jumper momentâneo de 3V3 no GPIO4, não o Linker Button. O GPIO4 continua
     provisório e não constitui decisão de hardware de produção.
-- [ ] **3B.9 — Experiência de chamada no Android (antecipação mínima
-  entregue; fase continua aberta)**
+- [x] **3B.9 — Experiência de chamada no Android (validada em DEV para o
+  escopo atual de apresentação de chamada/notificação — ver 3B.9f abaixo;
+  áudio bidirecional, integração nativa de chamada e produção seguem fora
+  de escopo)**
   - **3B.9a — notificação mínima (PR #22):** parser estrito, deduplicação,
     apresentação local e diagnósticos sanitizados implementados e validados
     por uma notificação `RING_DETECTED` real na cadeia ponta a ponta;
@@ -177,7 +179,8 @@ permanecem explicitamente pendentes.
     informa honestamente que o áudio ainda não está disponível e não envia
     comando nem cria uma chamada ativa;
   - **3B.9c — full-screen intent e comportamento sobre lock screen
-    (implementação completa; validação manual física pendente):**
+    (implementação completa; validada manualmente em Android físico — ver
+    3B.9f abaixo):**
     `RING_ONLY`/`RING_AND_NOTIFICATION` passam a usar categoria
     `CATEGORY_CALL` e `fullScreenIntent` no canal de chamada (renomeado
     para `incoming_call_v2` na 3B.9d abaixo, junto da mudança para toque
@@ -256,8 +259,8 @@ permanecem explicitamente pendentes.
     `docs/APP_COMMUNICATION_STATUS.md` para o resultado exato;
   - **3B.9d — toque contínuo, modos exclusivos, `RING_ENDED`/`call_id`,
     overlay de navegação e correções de UX reportadas em teste manual
-    (Android 17; implementação completa, validação manual física ainda
-    pendente):**
+    (Android 17; implementação completa, validada manualmente em Android
+    físico — ver 3B.9f abaixo):**
     - **toque contínuo e canais versionados:** `RING_ONLY`/
       `RING_AND_NOTIFICATION` passam a usar `Notification.FLAG_INSISTENT`
       (API pública e estável do Android, o mecanismo anterior ao
@@ -295,13 +298,13 @@ permanecem explicitamente pendentes.
       silêncio" (nome mais preciso: a agenda também pode silenciar
       notificações comuns, não só a chamada);
     - **contrato `RING_ENDED` e correlação por `call_id` (consumo
-      implementado no app; backend ainda não envia):** `RingDetectedEvent`/
-      o novo `RingEndedEvent` (`lib/core/push/ring_detected_event.dart`)
-      compartilham um `call_id` que correlaciona um `RING_DETECTED` ao seu
-      eventual `RING_ENDED`. **Extensão mínima e retrocompatível esperada
-      do backend** (ainda não implantada — este PR só implementa o consumo
-      e o ciclo de vida local, ver `lib/core/push/
-      ring_detected_push_parser.dart`):
+      implementado no app; extensão coordenada e implantada pelo backend
+      em DEV — interBackend PR #27, validada na 3B.9f abaixo):**
+      `RingDetectedEvent`/o novo `RingEndedEvent`
+      (`lib/core/push/ring_detected_event.dart`) compartilham um `call_id`
+      que correlaciona um `RING_DETECTED` ao seu eventual `RING_ENDED`,
+      conforme a extensão mínima e retrocompatível abaixo (ver
+      `lib/core/push/ring_detected_push_parser.dart`):
       - `call_id` **opcional** em `RING_DETECTED`, casando
         `^call-[0-9a-f]{32}$`; ausente, o app deriva `call-<32 hex>` a partir
         do sufixo do `event_id` (nenhum push antigo quebra, e o valor
@@ -425,16 +428,18 @@ permanecem explicitamente pendentes.
       em vez de deixá-la aberta indefinidamente — ver lá o motivo;
     - **Si3050 e força-encerramento continuam fora do critério de
       conclusão desta entrega:** nada aqui exige hardware físico do
-      interfone — o cancelamento remoto simulado (`RING_ENDED` sintético
-      via teste automatizado/fake, já que o backend ainda não o envia) é
-      suficiente para validar o ciclo de vida local. Força-encerramento
-      segue com a mesma ressalva já registrada na 3B.9a: o Android pode
-      bloquear mensagens em segundo plano até reabertura manual, o que não
-      é garantia do FCM/Android e por isso nunca é cobrado como validado.
+      interfone — Si3050, linha analógica real, detecção física de ringing
+      e o Linker Button seguem fora de escopo mesmo após a 3B.9f abaixo.
+      `RING_ENDED` real do backend passou a ser validado ponta a ponta (ver
+      3B.9f), mas isso não implica áudio real nem hardware de produção.
+      Força-encerramento segue com a mesma ressalva já registrada na 3B.9a:
+      o Android pode bloquear mensagens em segundo plano até reabertura
+      manual, o que não é garantia do FCM/Android e por isso nunca é
+      cobrado como validado.
   - **3B.9e — ordenação fora de sequência, `expires_at` e "Atender" honesto
     até o fim (revisão pós-CI conjunto com interBackend PR #27 e
-    firmware/protocolo PR #23; implementação completa, validação manual
-    física ainda pendente):**
+    firmware/protocolo PR #23; implementação completa, validada
+    manualmente em Android físico — ver 3B.9f abaixo):**
     - **tombstone persistente por `call_id`:** FCM, o isolate de background
       e o app encerrado não garantem que `RING_DETECTED(call_id=X)` seja
       processado antes do seu próprio `RING_ENDED(call_id=X)` — são
@@ -546,21 +551,44 @@ permanecem explicitamente pendentes.
     `test/auth_pages_reset_flow_test.dart`. A causa raiz exata do Cognito
     (qual `failure_type` real aparece) **ainda não foi confirmada** — depende
     de uma nova tentativa manual controlada com o novo log de diagnóstico.
-  - **validação manual física (lock screen real, toque contínuo audível,
-    retorno ao keyguard, ambos em Android 13 e 14+ em aparelho físico)
-    permanece pendente** — não foi executada neste ambiente de
-    desenvolvimento, que não tem acesso a um aparelho físico bloqueável. A
-    3B.9 segue tecnicamente implementada, não "concluída", até essa
-    validação física real ser executada e registrada aqui — os novos
-    comportamentos da 3B.9e (ordenação fora de sequência, `expires_at`,
-    "Atender" honesto até o fim) também aguardam essa validação manual em
-    Android 17 físico. `RING_ENDED`/`expires_at` reais do backend
-    (interBackend PR #27) e a validação física do Si3050 (firmware/protocolo
-    PR #23), também permanecem pendentes e fora do escopo desta entrega —
-    ver acima o que já está coberto por teste automatizado/fake enquanto
-    isso. Áudio bidirecional
-    continua uma frente totalmente separada, ainda não iniciada; iOS/APNs
-    permanece na 3B.10.
+  - **3B.9f — validação manual física ponta a ponta, após o deploy
+    coordenado do backend (interBackend PR #27) e o flash do firmware
+    coordenado (interBridge PR #23) — ambiente DEV:** confirmado em
+    aparelho Android físico, com `RING_DETECTED` real chegando pelo
+    pipeline AWS IoT → backend → FCM e `RING_ENDED` real (mesmo `call_id`)
+    encerrando a chamada/apresentação correspondente; uma nova chamada pôde
+    começar normalmente depois do término da anterior; modo Chamada
+    apresentou a experiência de chamada conforme permitido pelo Android;
+    modo Notificação mostrou notificação audível e acionável, e tocar nela
+    abriu a experiência de chamada (não apenas o detalhe do dispositivo);
+    "Programação de alertas → Somente notificação" reduziu Chamada a
+    notificação acionável sem bloquear totalmente o alerta, e "Não avisar"
+    seguiu sendo o único comportamento que bloqueia tudo; o layout vertical
+    dos seletores não quebrou os rótulos; e, ao encerrar uma chamada com o
+    app previamente desbloqueado, a biometria não foi pedida de novo
+    indevidamente (ver o hardening de `BiometricLockGate` acima). Com isso,
+    a 3B.9 está validada em DEV para o escopo atual de apresentação de
+    chamada/notificação — infraestrutura de backend DEV implantada,
+    firmware DEV coordenado, app e contrato `RING_ENDED`/`call_id`
+    confirmados ponta a ponta.
+    - **o que essa validação confirma, e o que não confirma:** o app
+      valida a *apresentação* de uma sessão de chamada simulada — nenhum
+      áudio real trafega nesta fase, `ConnectionService`/integração
+      completa com a UI nativa de chamada do Android segue não iniciada
+      (ver 3B.9d acima), e os GPIOs usados no firmware para gerar os
+      eventos (`GPIO3`/`GPIO4`) são entradas DEV provisórias, não decisão
+      de hardware de produção — mesma ressalva já registrada para o GPIO4
+      na 3B.8. Si3050, linha analógica real, detecção física de ringing e o
+      Linker Button continuam fora de escopo (ver bullet acima). Não foi
+      testado, e não deve ser lido como validado: comportamento após
+      força-encerramento (`adb shell am force-stop`), modo Não perturbe,
+      permissão/canal de notificação revogados ou outras restrições do
+      sistema; validação em múltiplos fabricantes/versões de Android além
+      do aparelho usado neste teste; troca de som/toque configurável pelo
+      usuário (fica para trabalho futuro); e nada disto é validação de
+      produção — o backend e o firmware envolvidos são implantações DEV.
+      Áudio bidirecional continua uma frente totalmente separada, ainda não
+      iniciada; iOS/APNs permanece na 3B.10.
 - [ ] **3B.10 — iOS, APNs e chamada**
   - cadastrar o app iOS no Firebase e configurar APNs;
   - capabilities, background modes e validação em aparelho físico;

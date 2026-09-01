@@ -38,10 +38,10 @@ ligação" para "Programação de alertas" (nome final, após passar por
 bloqueando totalmente — Chamada/Notificação a uma notificação acionável
 durante o período, e "Não avisar" como o único comportamento que bloqueia
 tudo (contrato `quiet_schedule`/`NOTIFICATION_ONLY`/`BLOCK_ALL` inalterado,
-só os rótulos da UI mudaram); introduz o consumo do futuro contrato
-`RING_ENDED` correlacionado por `call_id` (extensão retrocompatível ainda não
-implantada pelo backend — ver `docs/PHASE_3_ROADMAP.md` 3B.9d para o contrato
-exato esperado) com timeout local de 60s como fallback sempre ativo; substitui
+só os rótulos da UI mudaram); introduz o consumo do contrato `RING_ENDED`
+correlacionado por `call_id` (extensão retrocompatível — ver
+`docs/PHASE_3_ROADMAP.md` 3B.9d para o contrato exato) com timeout local de
+60s como fallback sempre ativo; substitui
 a rota `/incoming-call` por um overlay (`RingCallOverlay`) que nunca navega,
 corrigindo o flash da tela anterior antes da chamada, a perda da rota/pilha
 ao dispensar, e o prompt biométrico duplicado (`BiometricLockGate` agora trata
@@ -74,21 +74,30 @@ anterior/keyguard), só com a mensagem honesta de áudio indisponível antes —
 `RingCallNavigationCoordinator.markAnswered` foi removido por não ter mais
 função.
 
-`flutter analyze`, `flutter test` (736 testes) e os testes unitários Kotlin
+`flutter analyze`, `flutter test` e os testes unitários Kotlin
 (`RingCallLaunchPayloadTest`) estão verdes nesta branch. A validação manual
-física sobre tela bloqueada real, toque contínuo audível, retorno ao keyguard
-e os comportamentos novos da 3B.9e (Android 13 e 14+ em aparelho) não foi
-executada neste ambiente de desenvolvimento e permanece pendente, assim como
-`RING_ENDED`/`expires_at` reais do backend e a validação física do Si3050 —
-nenhum dos dois é necessário para validar o ciclo de vida local, já coberto
-por teste automatizado/fake. Força-encerramento (`adb shell am force-stop`) é
-deliberadamente fora da validação de conclusão — o Android pode bloquear
-mensagens em segundo plano até reabertura manual, o que não é garantia do
-FCM/Android. Integração Android de chamada via `ConnectionService`/
-`TelecomManager` foi avaliada e deliberadamente adiada para quando existir
-uma sessão de áudio/chamada real a registrar — ver o roadmap para o
-raciocínio completo. Áudio bidirecional continua pendente, frente própria
-ainda não iniciada.
+física em Android real foi executada após o deploy coordenado do backend
+(interBackend PR #27) e o flash do firmware coordenado (interBridge PR #23),
+ambos em DEV: `RING_DETECTED` chegou pelo pipeline AWS IoT → backend → FCM,
+`RING_ENDED` com o mesmo `call_id` encerrou a chamada/apresentação
+correspondente, uma nova chamada pôde começar após o término da anterior, os
+modos Chamada e Notificação apresentaram a experiência esperada (o segundo
+com notificação audível e acionável, abrindo a experiência de chamada, não
+só o detalhe do dispositivo), "Somente notificação" reduziu Chamada sem
+bloquear o alerta e "Não avisar" seguiu como o único bloqueio total, o
+layout vertical dos seletores não quebrou, e a biometria não foi pedida de
+novo indevidamente ao encerrar uma chamada com o app já desbloqueado — ver
+`docs/PHASE_3_ROADMAP.md` 3B.9f para o detalhamento completo. Essa validação
+cobre a apresentação de uma sessão simulada em ambiente DEV, nunca produção,
+e nunca áudio real: força-encerramento (`adb shell am force-stop`), Não
+perturbe, permissão/canal de notificação revogados, outras restrições do
+sistema, e validação em outros fabricantes/versões de Android além do
+aparelho testado permanecem fora do escopo validado. Integração Android de
+chamada via `ConnectionService`/`TelecomManager` foi avaliada e
+deliberadamente adiada para quando existir uma sessão de áudio/chamada real a
+registrar — ver o roadmap para o raciocínio completo. Áudio bidirecional
+continua pendente, frente própria ainda não iniciada; iOS/APNs permanece na
+3B.10.
 
 O detalhamento e os critérios de conclusão estão no
 [roadmap canônico da Fase 3](PHASE_3_ROADMAP.md). A Fase 3A reúne os fundamentos
