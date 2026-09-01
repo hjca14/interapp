@@ -2,7 +2,10 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:interapp/core/config/app_environment.dart';
 import 'package:interapp/core/network/interbridge_api_client.dart';
+import 'package:interapp/core/push/notification_tap_router.dart';
+import 'package:interapp/core/push/ring_call_intent.dart';
 import 'package:interapp/core/push/ring_call_navigation.dart';
+import 'package:interapp/core/router/app_router.dart';
 import 'package:interapp/features/auth/presentation/providers/auth_providers.dart';
 import 'package:interapp/features/devices/data/repositories/http_device_repository.dart';
 import 'package:interapp/features/devices/data/repositories/http_device_notification_preferences_repository.dart';
@@ -107,9 +110,33 @@ final incomingCallNotificationServiceProvider =
     Provider<IncomingCallNotificationService>(
       (ref) => IncomingCallNotificationService(
         FlutterLocalNotificationsPlugin(),
-        onRingNotificationTap: ref
+        // Only a call-mode payload (RingCallIntent) reaches the navigation
+        // coordinator/IncomingCallPage. A NOTIFICATION_ONLY tap
+        // (DeviceEventNotificationIntent) instead opens the device's own
+        // detail route — it names an event that already happened, not a
+        // live call to answer/dismiss. See `routeNotificationTap`.
+        onRingNotificationTap: (payload) => routeNotificationTap(
+          payload,
+          onCallTap: ref
+              .read(ringCallNavigationCoordinatorProvider)
+              .acceptSerialized,
+          onDeviceEventTap: (deviceId) =>
+              ref.read(appRouterProvider).go('/devices/$deviceId'),
+        ),
+        // A RING_ENDED/local ring-timeout cancels the notification here,
+        // and must also close an already-open IncomingCallPage/abort a
+        // pending one — see IncomingCallNotificationService.endCall's doc.
+        onCallEnded: (callId) =>
+            ref.read(ringCallNavigationCoordinatorProvider).endCall(callId),
+        // This instance is the one the *foreground* listener presents
+        // through (see push_providers.dart's _handleForegroundRingPush) —
+        // reaching this callback means InterBridge is already in
+        // foreground, so open IncomingCallPage directly instead of waiting
+        // on a tap/Android's own full-screen-intent decision. See
+        // IncomingCallNotificationService.onCallPresented's doc.
+        onCallPresented: (event) => ref
             .read(ringCallNavigationCoordinatorProvider)
-            .acceptSerialized,
+            .acceptSerialized(RingCallIntent.fromEvent(event).serialize()),
       ),
     );
 
@@ -125,8 +152,12 @@ final ringCallNavigationCoordinatorProvider =
 
 /// Read-only status for `SecuritySettingsPage`. `ref.invalidate` this after
 /// [requestFullScreenIntentAccess] resolves to reflect a just-granted (or
-/// still-denied) result — never polled or refreshed on any timer.
-final fullScreenIntentAccessProvider = FutureProvider<bool>(
+/// still-denied) result, and also on every app resume and re-entry to the
+/// screen — see `_FullScreenCallAccessSectionState`. `autoDispose` so that
+/// re-entry actually re-queries the OS instead of showing a value cached
+/// from a previous visit: once `SecuritySettingsPage` is popped and nothing
+/// else watches this, its cached result is dropped.
+final fullScreenIntentAccessProvider = FutureProvider.autoDispose<bool>(
   (ref) => ref
       .read(incomingCallNotificationServiceProvider)
       .hasFullScreenIntentAccess(),

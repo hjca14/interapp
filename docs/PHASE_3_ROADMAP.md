@@ -179,9 +179,9 @@ permanecem explicitamente pendentes.
   - **3B.9c — full-screen intent e comportamento sobre lock screen
     (implementação completa; validação manual física pendente):**
     `RING_ONLY`/`RING_AND_NOTIFICATION` passam a usar categoria
-    `CATEGORY_CALL` e `fullScreenIntent` no mesmo canal `incoming_call`
-    (nenhuma propriedade de canal — importância, som — mudou, então o canal
-    existente foi evoluído sem quebrar instalações antigas). A decisão de
+    `CATEGORY_CALL` e `fullScreenIntent` no canal de chamada (renomeado
+    para `incoming_call_v2` na 3B.9d abaixo, junto da mudança para toque
+    contínuo — ver lá o motivo do versionamento). A decisão de
     pedir tela cheia é **incondicional** para esses dois intents — `present()`
     nunca consulta nenhuma checagem de acesso do SO para decidir isso, e o
     próprio Android aplica o fallback documentado para heads-up quando
@@ -207,9 +207,11 @@ permanecem explicitamente pendentes.
     no mesmo `RingCallNavigationCoordinator` sem caminho paralelo;
     `MainActivity` só aplica `setShowWhenLocked`/`setTurnScreenOn` (Android
     27+) quando a própria intent de lançamento carrega um extra `payload`
-    que valida estritamente contra o formato mínimo `RingCallIntent` v1
-    (`RingCallLaunchPayload.kt`: estrutura/tipos, `v=1`, `event_id`/
-    `device_id` nos padrões do contrato, `occurred_at` UTC válido) — nunca
+    que valida estritamente contra o formato mínimo `RingCallIntent` v2
+    (`RingCallLaunchPayload.kt`: estrutura/tipos, `v=2`, `event_id`/
+    `call_id`/`device_id` nos padrões do contrato, `occurred_at` UTC válido;
+    versão elevada de v1 para v2 na 3B.9d abaixo, junto da adição de
+    `call_id`) — nunca
     em abertura comum do app, de outra notificação, ou de uma Intent externa
     arbitrária carregando um extra chamado `payload` (a Activity é
     exportada). O payload nunca é logado por essa validação;
@@ -245,23 +247,146 @@ permanecem explicitamente pendentes.
     nativo de acesso nunca alterando a apresentação do push, a UI voluntária
     de acesso da `SecuritySettingsPage` (nunca solicita sozinha, só ao toque
     explícito), e — em Kotlin (`RingCallLaunchPayloadTest.kt`) — que só um
-    `payload` estritamente válido do contrato `RingCallIntent` v1 habilita o
+    `payload` estritamente válido do contrato `RingCallIntent` v2 habilita o
     comportamento de lock screen, enquanto payload ausente, malformado,
-    incompleto, com campo extra ou fora do contrato nunca habilita;
-    `flutter analyze`/`flutter test` verdes — ver
-    `docs/APP_COMMUNICATION_STATUS.md` para o resultado exato;
-  - **validação manual física (lock screen real, Android 13 e 14+ em
-    aparelho físico) permanece pendente** — não foi executada neste ambiente
-    de desenvolvimento, que não tem acesso a um aparelho físico bloqueável
-    para observar o comportamento real sobre a tela de bloqueio. Força-
-    encerramento (`adb shell am force-stop`) é deliberadamente **fora** dessa
-    validação: o Android pode bloquear mensagens em segundo plano até o
-    usuário reabrir o app manualmente, o que não é uma garantia do FCM/Android
-    e por isso nunca é exigido como critério de conclusão da 3B.9 — ver a nota
-    correspondente na 3B.9a acima. A 3B.9 segue tecnicamente implementada, não
-    "concluída", até a validação física real (não a de força-encerramento) ser
-    executada e registrada aqui. Áudio bidirecional continua uma frente
-    totalmente separada, ainda não iniciada; iOS/APNs permanece na 3B.10.
+    incompleto, com campo extra, de versão anterior (v1) ou do formato de
+    `NOTIFICATION_ONLY` (`DeviceEventNotificationIntent`, uma forma
+    diferente por completo) nunca habilita; `flutter analyze`/`flutter
+    test` verdes — ver `docs/APP_COMMUNICATION_STATUS.md` para o resultado
+    exato;
+  - **3B.9d — toque contínuo, modos exclusivos, `RING_ENDED`/`call_id`,
+    overlay de navegação e correções de UX reportadas em teste manual
+    (Android 17; implementação completa, validação manual física ainda
+    pendente):**
+    - **toque contínuo e canais versionados:** `RING_ONLY`/
+      `RING_AND_NOTIFICATION` passam a usar `Notification.FLAG_INSISTENT`
+      (API pública e estável do Android, o mecanismo anterior ao
+      `ConnectionService` para repetir som/vibração até a notificação ser
+      cancelada — nenhuma dependência nova), `AudioAttributesUsage
+      .notificationRingtone`, `ongoing: true`/`autoCancel: false` (não
+      some com toque acidental) e `timeoutAfter: 60000` (auto-cancelamento
+      pelo próprio Android, garantido mesmo com o processo do app morto).
+      O canal de chamada foi renomeado para `incoming_call_v2` e o antigo
+      canal silencioso `ring_notification_silent` foi substituído por
+      `device_notification_v1`, uma notificação normal e audível (nunca
+      mais forçada a silenciosa) — canais Android congelam som/vibração/
+      importância na primeira criação, então qualquer mudança semântica
+      futura exige novo id versionado, nunca editar o canal existente;
+    - **modo Notificação não navega mais para `IncomingCallPage`:**
+      `NOTIFICATION_ONLY` agora carrega um payload de toque próprio e
+      distinto (`DeviceEventNotificationIntent`, `lib/core/push/
+      device_event_notification_intent.dart` — nunca o formato
+      `RingCallIntent`), e o toque abre o destino do dispositivo
+      (`/devices/{deviceId}`) em vez de uma tela de atender/dispensar para
+      uma chamada que não existe;
+    - **preferências exclusivas:** as duas opções independentes de alerta
+      viraram uma escolha exclusiva de três estados ("Chamada" /
+      "Notificação" / "Desativado") em `NotificationPreferencesPage`. O app
+      só grava `NONE`/`RING_ONLY`/`NOTIFICATION_ONLY`; o valor legado
+      `RING_AND_NOTIFICATION` continua sendo lido e exibido como "Chamada"
+      selecionada (nunca reescrito), preservando compatibilidade com contas
+      não tocadas desde antes desta migração ou com o rollout do próprio
+      backend. "Horários sem ligação" foi renomeado para "Horários de
+      silêncio" (nome mais preciso: a agenda também pode silenciar
+      notificações comuns, não só a chamada);
+    - **contrato `RING_ENDED` e correlação por `call_id` (consumo
+      implementado no app; backend ainda não envia):** `RingDetectedEvent`/
+      o novo `RingEndedEvent` (`lib/core/push/ring_detected_event.dart`)
+      compartilham um `call_id` que correlaciona um `RING_DETECTED` ao seu
+      eventual `RING_ENDED`. **Extensão mínima e retrocompatível esperada
+      do backend** (ainda não implantada — este PR só implementa o consumo
+      e o ciclo de vida local, ver `lib/core/push/
+      ring_detected_push_parser.dart`):
+      - `call_id` **opcional** em `RING_DETECTED`, casando
+        `^call-[0-9a-f]{32}$`; ausente, o app usa o próprio `event_id` como
+        `call_id` (equivalente ao comportamento atual — nenhum push antigo
+        quebra);
+      - `RING_ENDED`: mesmo envelope de `RING_DETECTED` (`push_contract_version`,
+        `event_id`, `device_id`, `event`, `occurred_at`), **sem**
+        `presentation_intent` e com `call_id` **obrigatório**;
+      - dedup por `event_id` já cobre um `RING_ENDED` duplicado de graça
+        (idempotente);
+      - `endCall` ignora silenciosamente um `call_id` que não é o
+        pendente/ativo no momento (chamada antiga já superada nunca cancela
+        uma nova; um fim que nunca corresponde a nada aqui — por exemplo
+        para `NOTIFICATION_ONLY`, que não tem `call_id` rastreado — também
+        não faz nada);
+    - **timeout local de 60s como fallback (independe do backend enviar
+      `RING_ENDED`):** `RingCallNavigationCoordinator` agenda um único
+      timer a partir de `occurredAt` (mesmo antes de autenticar/abrir a
+      tela) que encerra a chamada localmente aos 60s se nada mais a
+      encerrar antes — mesma duração usada no `timeoutAfter` da notificação,
+      então os dois se cancelam juntos mesmo que o app esteja em foreground
+      (ver `ringCallEndIntegrationProvider`, que também cobre o caso desse
+      timer interno, que sozinho não cancela nada);
+    - **navegação por overlay, não mais rota `/incoming-call`:**
+      `RingCallOverlay` (`lib/features/devices/presentation/widgets/
+      ring_call_overlay.dart`) fica empilhado sobre o conteúdo atual do
+      `GoRouter` via `MaterialApp.router.builder`, nunca trocando de rota.
+      Isso corrige três problemas reportados no teste manual: a tela
+      anterior (`HomePage`/`BiometricLockGate`) não aparece mais
+      brevemente e interativa antes da tela de chamada (o overlay cobre a
+      partir do primeiro frame em que a chamada fica pendente, com uma
+      superfície neutra "Validando chamada…" — `RingCallNavigationCoordinator
+      .isValidating`); dispensar a chamada nunca mais navega para `/`,
+      revelando de novo exatamente a rota/pilha anterior; e como
+      `HomePage`/`BiometricLockGate` nunca são reconstruídos por causa da
+      chamada, o bloqueio biométrico não é acionado duas vezes;
+    - **chamada em foreground não depende do full-screen intent do
+      Android:** quando o próprio app já está em primeiro plano,
+      `IncomingCallNotificationService.onCallPresented` abre a
+      `IncomingCallPage` diretamente pelo mesmo coordenador usado pelo
+      toque na notificação — nunca esperando o Android decidir abrir tela
+      cheia, algo que o próprio SO pode legitimamente não fazer com o app
+      já em uso. Esse retorno só é usado pela instância que o listener de
+      *foreground* usa para apresentar (`_handleForegroundRingPush`); a
+      instância do isolate de background nunca o recebe, então esse
+      comportamento nunca ocorre a partir de push processado com o app
+      fechado;
+    - **bloqueio biométrico é exceção durante uma chamada:**
+      `BiometricLockGate` nunca inicia um prompt biométrico nativo enquanto
+      `RingCallNavigationCoordinator` tem uma chamada pendente ou ativa —
+      necessário porque um prompt nativo aparece por cima de qualquer
+      overlay Flutter, então cobrir visualmente não bastaria. Uma tentativa
+      automática represada é retomada exatamente uma vez quando a chamada
+      termina, nunca duas;
+    - **retorno ao keyguard ao encerrar sobre tela bloqueada:** novo canal
+      `interapp/ring_call_presentation` (`MainActivity.endRingCallPresentation`)
+      derruba `setShowWhenLocked`/`setTurnScreenOn` e, se o aparelho ainda
+      estiver de fato bloqueado (`KeyguardManager#isKeyguardLocked`), chama
+      `moveTaskToBack(true)` para devolver o usuário ao bloqueio do
+      sistema — nunca deixando conteúdo comum do app visível sobre uma tela
+      ainda bloqueada;
+    - **status de tela cheia se atualiza de verdade:** `fullScreenIntentAccessProvider`
+      agora é `autoDispose` (reconsulta ao reentrar na tela) e
+      `SecuritySettingsPage` reconsulta também a cada retomada do app
+      (`WidgetsBindingObserver`), corrigindo o texto "Ativado" que antes
+      podia ficar desatualizado depois de o usuário mexer nas configurações
+      do Android e voltar;
+    - **"Atender" honesto:** continua sem áudio real — agora também para o
+      toque local (cancela a notificação/o `FLAG_INSISTENT`) mas
+      deliberadamente não encerra a chamada nem fecha a tela, já que não há
+      sessão de áudio para "atender de fato"; só "Dispensar" (ou
+      `RING_ENDED`/timeout) encerra;
+    - **Si3050 e força-encerramento continuam fora do critério de
+      conclusão desta entrega:** nada aqui exige hardware físico do
+      interfone — o cancelamento remoto simulado (`RING_ENDED` sintético
+      via teste automatizado/fake, já que o backend ainda não o envia) é
+      suficiente para validar o ciclo de vida local. Força-encerramento
+      segue com a mesma ressalva já registrada na 3B.9a: o Android pode
+      bloquear mensagens em segundo plano até reabertura manual, o que não
+      é garantia do FCM/Android e por isso nunca é cobrado como validado.
+  - **validação manual física (lock screen real, toque contínuo audível,
+    retorno ao keyguard, ambos em Android 13 e 14+ em aparelho físico)
+    permanece pendente** — não foi executada neste ambiente de
+    desenvolvimento, que não tem acesso a um aparelho físico bloqueável. A
+    3B.9 segue tecnicamente implementada, não "concluída", até essa
+    validação física real ser executada e registrada aqui. `RING_ENDED` real
+    do backend, e a validação física do Si3050, também permanecem
+    pendentes e fora do escopo desta entrega — ver acima o que já está
+    coberto por teste automatizado/fake enquanto isso. Áudio bidirecional
+    continua uma frente totalmente separada, ainda não iniciada; iOS/APNs
+    permanece na 3B.10.
 - [ ] **3B.10 — iOS, APNs e chamada**
   - cadastrar o app iOS no Firebase e configurar APNs;
   - capabilities, background modes e validação em aparelho físico;

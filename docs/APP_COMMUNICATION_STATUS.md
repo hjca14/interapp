@@ -18,21 +18,45 @@ permanece exclusivamente para uma seção voluntária em `SecuritySettingsPage`
 mostrar status e permitir que o usuário conceda o acesso quando quiser, nunca
 para decidir a apresentação do push. `MainActivity` só aplica
 `setShowWhenLocked`/`setTurnScreenOn` quando o extra `payload` da intent de
-lançamento valida estritamente contra o formato mínimo `RingCallIntent` v1
-(nunca para um extra `payload` arbitrário, já que a Activity é exportada) —
-implementação completa, `flutter analyze` e `flutter test` verdes nesta
-branch (ver contagem atual no histórico de CI), assim como os testes
-unitários Kotlin da validação de payload, mas a validação manual física sobre
-tela bloqueada real (Android 13 e 14+ em aparelho) não foi executada neste
-ambiente de desenvolvimento e permanece pendente. Força-encerramento
-(`adb shell am force-stop`) é deliberadamente fora dessa validação — o
-Android pode bloquear mensagens em segundo plano até reabertura manual, o que
-não é garantia do FCM/Android e por isso nunca é cobrado como critério de
-conclusão da 3B.9. Integração Android de chamada via `ConnectionService`/
-`TelecomManager` foi avaliada e deliberadamente adiada para quando existir uma
-sessão de áudio/chamada real a registrar — ver o roadmap para o raciocínio
-completo. Áudio bidirecional continua pendente, frente própria ainda não
-iniciada.
+lançamento valida estritamente contra o formato mínimo `RingCallIntent` v2
+(nunca para um extra `payload` arbitrário, já que a Activity é exportada).
+
+A 3B.9d (mesmo PR #24, revisão pós-teste manual em Android 17) corrige o
+toque, que agora é contínuo (`FLAG_INSISTENT` + `notificationRingtone` +
+`ongoing`/`timeoutAfter` 60s) em vez de um único alerta curto; separa
+definitivamente Modo Chamada de Modo Notificação (canais versionados
+`incoming_call_v2`/`device_notification_v1` — este último audível, nunca mais
+silencioso — e payloads de toque distintos, com `NOTIFICATION_ONLY` abrindo o
+dispositivo em vez de `IncomingCallPage`); troca as duas opções de alerta
+independentes por uma escolha exclusiva Chamada/Notificação/Desativado,
+gravando somente `NONE`/`RING_ONLY`/`NOTIFICATION_ONLY` e continuando a ler
+`RING_AND_NOTIFICATION` legado como "Chamada"; renomeia "Horários sem
+ligação" para "Horários de silêncio"; introduz o consumo do futuro contrato
+`RING_ENDED` correlacionado por `call_id` (extensão retrocompatível ainda não
+implantada pelo backend — ver `docs/PHASE_3_ROADMAP.md` 3B.9d para o contrato
+exato esperado) com timeout local de 60s como fallback sempre ativo; substitui
+a rota `/incoming-call` por um overlay (`RingCallOverlay`) que nunca navega,
+corrigindo o flash da tela anterior antes da chamada, a perda da rota/pilha
+ao dispensar, e o prompt biométrico duplicado (`BiometricLockGate` agora trata
+uma chamada em curso como exceção); volta ao keyguard do sistema ao dispensar
+uma chamada aberta sobre tela bloqueada; e corrige o status de tela cheia em
+`SecuritySettingsPage` para reconsultar a cada retomada do app e reentrada na
+tela, em vez de um valor potencialmente desatualizado.
+
+`flutter analyze`, `flutter test` (702 testes) e os testes unitários Kotlin
+(`RingCallLaunchPayloadTest`) estão verdes nesta branch. A validação manual
+física sobre tela bloqueada real, toque contínuo audível e retorno ao
+keyguard (Android 13 e 14+ em aparelho) não foi executada neste ambiente de
+desenvolvimento e permanece pendente, assim como `RING_ENDED` real do backend
+e a validação física do Si3050 — nenhum dos dois é necessário para validar o
+ciclo de vida local, já coberto por teste automatizado/fake. Força-
+encerramento (`adb shell am force-stop`) é deliberadamente fora da validação
+de conclusão — o Android pode bloquear mensagens em segundo plano até
+reabertura manual, o que não é garantia do FCM/Android. Integração Android de
+chamada via `ConnectionService`/`TelecomManager` foi avaliada e
+deliberadamente adiada para quando existir uma sessão de áudio/chamada real a
+registrar — ver o roadmap para o raciocínio completo. Áudio bidirecional
+continua pendente, frente própria ainda não iniciada.
 
 O detalhamento e os critérios de conclusão estão no
 [roadmap canônico da Fase 3](PHASE_3_ROADMAP.md). A Fase 3A reúne os fundamentos

@@ -34,11 +34,16 @@ void main() {
         );
 
         expect(result, isA<RingPushParsed>());
-        final event = (result as RingPushParsed).event;
+        final event = (result as RingPushParsed).event as RingDetectedEvent;
         expect(event.presentationIntent, intent.$2);
         expect(event.eventId, 'evt-0123456789abcdef0123456789abcdef');
         expect(event.deviceId, 'ib-fedcba9876543210fedcba9876543210');
         expect(event.occurredAt, DateTime.parse('2026-08-30T12:00:00Z'));
+        expect(
+          event.callId,
+          'evt-0123456789abcdef0123456789abcdef',
+          reason: 'defaults call_id to event_id when the backend omits it',
+        );
       });
     }
 
@@ -51,10 +56,117 @@ void main() {
       final result = parseRingDetectedPush(payload, now: _fixedNow);
 
       expect(result, isA<RingPushParsed>());
-      final event = (result as RingPushParsed).event;
+      final event = (result as RingPushParsed).event as RingDetectedEvent;
       expect(event.eventId, 'evt-0123456789abcdef0123456789abcdef');
       expect(event.deviceId, 'ib-fedcba9876543210fedcba9876543210');
       expect(event.presentationIntent, RingPresentationIntent.ringOnly);
+    });
+
+    test('a present call_id is used verbatim instead of defaulting to '
+        'event_id', () {
+      final payload = _validPayload()
+        ..['call_id'] = 'call-0123456789abcdef0123456789abcdef';
+
+      final result = parseRingDetectedPush(payload, now: _fixedNow);
+
+      expect(result, isA<RingPushParsed>());
+      final event = (result as RingPushParsed).event as RingDetectedEvent;
+      expect(event.callId, 'call-0123456789abcdef0123456789abcdef');
+    });
+
+    test('rejects a malformed call_id', () {
+      final payload = _validPayload()..['call_id'] = 'not-a-call-id';
+
+      final result = parseRingDetectedPush(payload, now: _fixedNow);
+
+      expect(
+        result,
+        isA<RingPushRejected>().having(
+          (r) => r.reason,
+          'reason',
+          RingPushRejectionReason.invalidCallId,
+        ),
+      );
+    });
+  });
+
+  group('RING_ENDED', () {
+    Map<String, dynamic> validEnded({
+      String eventId = 'evt-abcdef0123456789abcdef0123456789',
+      String callId = 'call-0123456789abcdef0123456789abcdef',
+    }) => {
+      'push_contract_version': '1',
+      'event': 'RING_ENDED',
+      'event_id': eventId,
+      'device_id': 'ib-fedcba9876543210fedcba9876543210',
+      'call_id': callId,
+      'occurred_at': '2026-08-30T12:00:00Z',
+    };
+
+    test('parses a valid RING_ENDED', () {
+      final result = parseRingDetectedPush(validEnded(), now: _fixedNow);
+
+      expect(result, isA<RingPushParsed>());
+      final event = (result as RingPushParsed).event as RingEndedEvent;
+      expect(event.eventId, 'evt-abcdef0123456789abcdef0123456789');
+      expect(event.callId, 'call-0123456789abcdef0123456789abcdef');
+      expect(event.deviceId, 'ib-fedcba9876543210fedcba9876543210');
+    });
+
+    test('rejects a RING_ENDED missing call_id', () {
+      final payload = validEnded()..remove('call_id');
+
+      final result = parseRingDetectedPush(payload, now: _fixedNow);
+
+      expect(
+        result,
+        isA<RingPushRejected>().having(
+          (r) => r.reason,
+          'reason',
+          RingPushRejectionReason.missingField,
+        ),
+      );
+    });
+
+    test('rejects a RING_ENDED with a malformed call_id', () {
+      final result = parseRingDetectedPush(
+        validEnded(callId: 'not-a-call-id'),
+        now: _fixedNow,
+      );
+
+      expect(
+        result,
+        isA<RingPushRejected>().having(
+          (r) => r.reason,
+          'reason',
+          RingPushRejectionReason.invalidCallId,
+        ),
+      );
+    });
+
+    test('does not require presentation_intent', () {
+      final payload = validEnded();
+      expect(payload.containsKey('presentation_intent'), isFalse);
+
+      final result = parseRingDetectedPush(payload, now: _fixedNow);
+
+      expect(result, isA<RingPushParsed>());
+    });
+
+    test('an old RING_ENDED is still rejected as too old', () {
+      final result = parseRingDetectedPush({
+        ...validEnded(),
+        'occurred_at': '2020-01-01T00:00:00Z',
+      }, now: _fixedNow);
+
+      expect(
+        result,
+        isA<RingPushRejected>().having(
+          (r) => r.reason,
+          'reason',
+          RingPushRejectionReason.timestampTooOld,
+        ),
+      );
     });
   });
 

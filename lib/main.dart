@@ -37,6 +37,7 @@ Future<void> main() async {
     unawaited(container.read(pushNotificationServiceProvider).initialize());
     container.read(pushInstallationIntegrationProvider);
     container.read(ringCallNavigationIntegrationProvider);
+    container.read(ringCallEndIntegrationProvider);
   } on Object {
     runApp(const _ConfigurationErrorApp());
   }

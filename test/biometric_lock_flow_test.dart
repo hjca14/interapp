@@ -3,12 +3,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:interapp/core/push/ring_call_intent.dart';
+import 'package:interapp/core/push/ring_call_navigation.dart';
 import 'package:interapp/features/auth/data/repositories/local_auth_repository.dart';
 import 'package:interapp/features/auth/domain/entities/auth_session.dart';
 import 'package:interapp/features/auth/domain/services/biometric_lock.dart';
 import 'package:interapp/features/auth/presentation/providers/auth_providers.dart';
 import 'package:interapp/features/auth/presentation/providers/biometric_lock_providers.dart';
 import 'package:interapp/features/auth/presentation/widgets/biometric_lock_gate.dart';
+import 'package:interapp/features/devices/presentation/providers/devices_providers.dart';
 
 void main() {
   group('biometric lock activation', () {
@@ -272,6 +275,55 @@ void main() {
       expect((await auth.currentSession).isSignedIn, isFalse);
     });
 
+    testWidgets(
+      'never opens an automatic prompt while a call is pending/active, '
+      'and opens exactly one once the call ends — never two stacked '
+      'prompts (before showing the call, and again on dismiss)',
+      (tester) async {
+        final biometrics = _FakeBiometrics(
+          result: BiometricAuthenticationResult.canceled,
+        );
+        final callIntent = RingCallIntent(
+          eventId: 'evt-${List.filled(32, 'a').join()}',
+          callId: 'call-${List.filled(32, 'c').join()}',
+          deviceId: 'ib-${List.filled(32, 'b').join()}',
+          occurredAt: DateTime(2026),
+        );
+        final coordinator = RingCallNavigationCoordinator(
+          (_) async => true,
+          now: () => DateTime(2026),
+        );
+        coordinator.setAuthenticated(true);
+        coordinator.acceptSerialized(callIntent.serialize());
+        expect(coordinator.hasPending, isTrue);
+
+        await _pumpGate(
+          tester,
+          biometrics: biometrics,
+          ringCallCoordinator: coordinator,
+        );
+
+        expect(
+          biometrics.authenticateCalls,
+          0,
+          reason: 'no prompt while the call is still pending/active',
+        );
+        expect(find.text('Conteúdo protegido'), findsOneWidget);
+        expect(find.text('Desbloqueie para continuar'), findsNothing);
+
+        coordinator.endCall(callIntent.callId);
+        await tester.pump();
+        await tester.pump();
+
+        expect(
+          biometrics.authenticateCalls,
+          1,
+          reason: 'the deferred prompt now runs exactly once',
+        );
+        coordinator.dispose();
+      },
+    );
+
     testWidgets('large text scale does not overflow', (tester) async {
       await _pumpLockedGate(
         tester,
@@ -323,6 +375,7 @@ Future<void> _pumpGate(
   bool simulateBackground = false,
   bool settle = true,
   BiometricLockSettingsRepository? repository,
+  RingCallNavigationCoordinator? ringCallCoordinator,
 }) async {
   var now = DateTime(2026);
   await tester.pumpWidget(
@@ -344,6 +397,10 @@ Future<void> _pumpGate(
                 initial: const AuthSession(isSignedIn: true, userId: 'user'),
               ),
         ),
+        if (ringCallCoordinator != null)
+          ringCallNavigationCoordinatorProvider.overrideWithValue(
+            ringCallCoordinator,
+          ),
       ],
       child: MaterialApp(
         builder: (context, child) => MediaQuery(

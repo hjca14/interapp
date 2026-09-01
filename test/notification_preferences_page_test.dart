@@ -123,7 +123,7 @@ void main() {
     repository.pendingGet!.complete(DeviceNotificationPreferences());
     await tester.pumpAndSettle();
 
-    expect(find.text('Receber ligação'), findsOneWidget);
+    expect(find.text('Chamada'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, 'Salvar'), findsNothing);
     expect(find.text('Salvar'), findsNothing);
   });
@@ -142,7 +142,7 @@ void main() {
     repository.getError = null;
     await tester.tap(find.widgetWithText(FilledButton, 'Tentar novamente'));
     await tester.pumpAndSettle();
-    expect(find.text('Receber ligação'), findsOneWidget);
+    expect(find.text('Chamada'), findsOneWidget);
   });
 
   testWidgets(
@@ -156,7 +156,7 @@ void main() {
       expect(find.textContaining('Salvo'), findsNothing);
       expect(find.byType(SnackBar), findsNothing);
 
-      await tester.tap(find.text('Receber ligação'));
+      await tester.tap(find.text('Notificação'));
       await tester.pump();
       expect(find.text('Salvando...'), findsNothing);
       expect(find.textContaining('Salvo'), findsNothing);
@@ -182,22 +182,21 @@ void main() {
       final repository = _Repository()..pendingPatch = pending;
       await _pumpPage(tester, repository);
 
-      await tester.tap(find.text('Receber ligação'));
+      await tester.tap(find.text('Notificação'));
       await tester.pump(
         DeviceNotificationPreferencesController.debounceDuration,
       );
       await tester.pump();
 
-      final switchTile = tester.widget<SwitchListTile>(
-        find.widgetWithText(SwitchListTile, 'Receber notificação'),
-      );
       expect(
-        switchTile.onChanged,
-        isNotNull,
-        reason: 'autosave must never disable the controls',
+        find.byWidgetPredicate((widget) => widget is SegmentedButton),
+        findsOneWidget,
+        reason: 'the alert-mode control is still on screen while saving',
       );
 
-      await tester.tap(find.text('Receber notificação'));
+      // Behavioral proof that it is not disabled: this second tap must
+      // actually register a new edit, not be a no-op ignored input.
+      await tester.tap(find.text('Desativado'));
       await tester.pump();
 
       // Clear pendingPatch before completing so the follow-up flush the
@@ -207,7 +206,7 @@ void main() {
       final firstPatch = repository.pendingPatch!;
       repository.pendingPatch = null;
       firstPatch.complete(
-        DeviceNotificationPreferences(alertMode: AlertMode.ringOnly),
+        DeviceNotificationPreferences(alertMode: AlertMode.notificationOnly),
       );
       await tester.pumpAndSettle();
 
@@ -224,7 +223,7 @@ void main() {
         ..patchError = const ApiFailure(ApiFailureKind.offline, 'Offline');
       await _pumpPage(tester, repository);
 
-      await tester.tap(find.text('Receber ligação'));
+      await tester.tap(find.text('Notificação'));
       await tester.pump(
         DeviceNotificationPreferencesController.debounceDuration,
       );
@@ -255,7 +254,7 @@ void main() {
         ..patchError = const ApiFailure(ApiFailureKind.offline, 'Offline');
       await _pumpPage(tester, repository);
 
-      await tester.tap(find.text('Receber ligação'));
+      await tester.tap(find.text('Notificação'));
       await tester.pump(
         DeviceNotificationPreferencesController.debounceDuration,
       );
@@ -284,7 +283,7 @@ void main() {
         ..patchError = const ApiFailure(ApiFailureKind.offline, 'Offline');
       await _pumpPage(tester, repository);
 
-      await tester.tap(find.text('Receber ligação'));
+      await tester.tap(find.text('Notificação'));
       await tester.pump(
         DeviceNotificationPreferencesController.debounceDuration,
       );
@@ -307,7 +306,7 @@ void main() {
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Receber ligação'));
+    await tester.tap(find.text('Notificação'));
     await tester.pump();
 
     await tester.pageBack();
@@ -336,7 +335,7 @@ void main() {
 
       expect(find.text('23:00'), findsOneWidget);
 
-      await tester.tap(find.text('Ativar horários sem ligação'));
+      await tester.tap(find.text('Ativar horários de silêncio'));
       await tester.pump(
         DeviceNotificationPreferencesController.debounceDuration,
       );
@@ -349,7 +348,7 @@ void main() {
         reason: 'collapsed while disabled',
       );
 
-      await tester.tap(find.text('Ativar horários sem ligação'));
+      await tester.tap(find.text('Ativar horários de silêncio'));
       await tester.pumpAndSettle();
 
       expect(
@@ -383,16 +382,16 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Ativar horários sem ligação'));
+    await tester.tap(find.text('Ativar horários de silêncio'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('fuso horário'), findsOneWidget);
-    expect(find.text('Receber ligação'), findsOneWidget);
+    expect(find.text('Chamada'), findsOneWidget);
   });
 
   testWidgets(
-    'no obsolete wording (local network, its own "silent" option) ever '
-    'appears',
+    'no obsolete wording (local network, its own "silent" option, the old '
+    'independent switches) ever appears',
     (tester) async {
       final repository = _Repository(
         value: DeviceNotificationPreferences(
@@ -407,11 +406,14 @@ void main() {
       );
       await _pumpPage(tester, repository);
 
-      expect(find.text('Horários sem ligação'), findsOneWidget);
+      expect(find.text('Horários de silêncio'), findsOneWidget);
+      expect(find.text('Horários sem ligação'), findsNothing);
       expect(find.text('Só notificação'), findsOneWidget);
       expect(find.text('Bloquear tudo'), findsOneWidget);
       expect(find.text('Presença'), findsNothing);
       expect(find.text('Notificação sem som'), findsNothing);
+      expect(find.text('Receber ligação'), findsNothing);
+      expect(find.text('Receber notificação'), findsNothing);
       expect(find.textContaining('rede local'), findsNothing);
       expect(find.textContaining('Não Perturbe'), findsNothing);
     },
@@ -425,7 +427,7 @@ void main() {
       await _pumpPage(tester, repository);
 
       // Diverge from defaults first so a reset has something real to do.
-      await tester.tap(find.text('Receber ligação'));
+      await tester.tap(find.text('Notificação'));
       await tester.pump(
         DeviceNotificationPreferencesController.debounceDuration,
       );
@@ -474,4 +476,109 @@ void main() {
       );
     },
   );
+
+  group('exclusive alert mode (Chamada / Notificação / Desativado)', () {
+    testWidgets('all three choices are always visible', (tester) async {
+      final repository = _Repository();
+      await _pumpPage(tester, repository);
+
+      expect(find.text('Chamada'), findsOneWidget);
+      expect(find.text('Notificação'), findsOneWidget);
+      expect(find.text('Desativado'), findsOneWidget);
+    });
+
+    testWidgets(
+      'the legacy RING_AND_NOTIFICATION value is read as Chamada already '
+      'selected — tapping Chamada again is a no-op, never a write',
+      (tester) async {
+        final repository = _Repository(
+          value: DeviceNotificationPreferences(
+            alertMode: AlertMode.ringAndNotification,
+          ),
+        );
+        await _pumpPage(tester, repository);
+
+        await tester.tap(find.text('Chamada'));
+        await tester.pump(
+          DeviceNotificationPreferencesController.debounceDuration,
+        );
+        await tester.pumpAndSettle();
+
+        expect(repository.patchCalls, 0);
+      },
+    );
+
+    testWidgets(
+      'switching to Chamada from a different mode writes RING_ONLY, never '
+      'the legacy RING_AND_NOTIFICATION',
+      (tester) async {
+        final repository = _Repository(
+          value: DeviceNotificationPreferences(
+            alertMode: AlertMode.notificationOnly,
+          ),
+        );
+        await _pumpPage(tester, repository);
+
+        await tester.tap(find.text('Chamada'));
+        await tester.pump(
+          DeviceNotificationPreferencesController.debounceDuration,
+        );
+        await tester.pumpAndSettle();
+
+        expect(repository.patchCalls, 1);
+        expect(repository.lastPatchDraft?.alertMode, AlertMode.ringOnly);
+      },
+    );
+
+    testWidgets('switching to Notificação writes NOTIFICATION_ONLY', (
+      tester,
+    ) async {
+      final repository = _Repository();
+      await _pumpPage(tester, repository);
+
+      await tester.tap(find.text('Notificação'));
+      await tester.pump(
+        DeviceNotificationPreferencesController.debounceDuration,
+      );
+      await tester.pumpAndSettle();
+
+      expect(repository.lastPatchDraft?.alertMode, AlertMode.notificationOnly);
+    });
+
+    testWidgets('switching to Desativado writes NONE', (tester) async {
+      final repository = _Repository();
+      await _pumpPage(tester, repository);
+
+      await tester.tap(find.text('Desativado'));
+      await tester.pump(
+        DeviceNotificationPreferencesController.debounceDuration,
+      );
+      await tester.pumpAndSettle();
+
+      expect(repository.lastPatchDraft?.alertMode, AlertMode.none);
+    });
+
+    testWidgets(
+      'this app never writes RING_AND_NOTIFICATION regardless of which '
+      'choice is picked',
+      (tester) async {
+        final repository = _Repository(
+          value: DeviceNotificationPreferences(alertMode: AlertMode.none),
+        );
+        await _pumpPage(tester, repository);
+
+        for (final label in ['Chamada', 'Notificação', 'Desativado']) {
+          await tester.tap(find.text(label));
+          await tester.pump(
+            DeviceNotificationPreferencesController.debounceDuration,
+          );
+          await tester.pumpAndSettle();
+          expect(
+            repository.lastPatchDraft?.alertMode,
+            isNot(AlertMode.ringAndNotification),
+          );
+        }
+      },
+    );
+  });
 }

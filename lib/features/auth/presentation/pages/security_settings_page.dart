@@ -94,11 +94,45 @@ class SecuritySettingsPage extends ConsumerWidget {
 /// never triggered automatically on boot/login/push — the user must open
 /// this screen and tap the button themselves. See
 /// `IncomingCallNotificationService.requestFullScreenIntentAccess`.
-class _FullScreenCallAccessSection extends ConsumerWidget {
+///
+/// The status shown here is re-checked, never just read from a stale cache:
+/// [fullScreenIntentAccessProvider] is `autoDispose`, so leaving this screen
+/// and coming back always re-queries the OS, and a [WidgetsBindingObserver]
+/// also re-queries on every app resume — covering the common flow of
+/// backgrounding the app to toggle the permission in Android Settings and
+/// coming straight back without ever leaving this screen.
+class _FullScreenCallAccessSection extends ConsumerStatefulWidget {
   const _FullScreenCallAccessSection();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_FullScreenCallAccessSection> createState() =>
+      _FullScreenCallAccessSectionState();
+}
+
+class _FullScreenCallAccessSectionState
+    extends ConsumerState<_FullScreenCallAccessSection>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.invalidate(fullScreenIntentAccessProvider);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final status = ref.watch(fullScreenIntentAccessProvider);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),

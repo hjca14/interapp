@@ -6,7 +6,9 @@ import 'package:interapp/core/push/ring_push_diagnostic.dart';
 
 class FakeRingNotificationPresenter implements RingNotificationPresenter {
   final List<RingDetectedEvent> presented = [];
+  final List<RingEndedEvent> ended = [];
   Object? presentError;
+  Object? endCallError;
 
   @override
   Future<void> present(RingDetectedEvent event) async {
@@ -14,6 +16,14 @@ class FakeRingNotificationPresenter implements RingNotificationPresenter {
       throw presentError!;
     }
     presented.add(event);
+  }
+
+  @override
+  Future<void> endCall(RingEndedEvent event) async {
+    if (endCallError != null) {
+      throw endCallError!;
+    }
+    ended.add(event);
   }
 }
 
@@ -100,6 +110,60 @@ void main() {
       presenter.presented.single.presentationIntent,
       RingPresentationIntent.notificationOnly,
     );
+  });
+
+  group('RING_ENDED', () {
+    Map<String, dynamic> endedPayload({
+      String eventId = 'evt-1111111111111111111111111111111a',
+      String callId = 'call-0123456789abcdef0123456789abcdef',
+    }) => {
+      'push_contract_version': '1',
+      'event': 'RING_ENDED',
+      'event_id': eventId,
+      'device_id': 'ib-fedcba9876543210fedcba9876543210',
+      'call_id': callId,
+      'occurred_at': '2026-08-30T12:00:00Z',
+    };
+
+    test('reaches endCall, not present', () async {
+      await run(endedPayload());
+
+      expect(presenter.ended, hasLength(1));
+      expect(
+        presenter.ended.single.callId,
+        'call-0123456789abcdef0123456789abcdef',
+      );
+      expect(presenter.presented, isEmpty);
+      expect(
+        diagnostics.single,
+        isA<RingPushDiagnostic>()
+            .having((d) => d.presented, 'presented', isTrue)
+            .having((d) => d.eventName, 'eventName', 'RING_ENDED'),
+      );
+    });
+
+    test('a duplicate RING_ENDED (same event_id) is idempotent — endCall '
+        'runs only once', () async {
+      final payload = endedPayload();
+
+      await run(payload);
+      await run(payload);
+
+      expect(presenter.ended, hasLength(1));
+      expect(diagnostics.last.reason, 'duplicate_event_id');
+    });
+
+    test('an endCall failure releases the reservation for retry', () async {
+      presenter.endCallError = Exception('plugin exploded');
+
+      await run(endedPayload());
+      expect(presenter.ended, isEmpty);
+
+      presenter.endCallError = null;
+      await run(endedPayload());
+
+      expect(presenter.ended, hasLength(1));
+    });
   });
 
   test('an invalid payload never reaches the presenter', () async {

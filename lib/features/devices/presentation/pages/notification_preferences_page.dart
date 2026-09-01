@@ -236,6 +236,38 @@ class _NotificationPreferencesBody extends StatelessWidget {
   }
 }
 
+/// The three states the user is offered — mutually exclusive on purpose (see
+/// [_AlertsCard]'s doc comment on why the old two independent switches were
+/// replaced). Distinct from [AlertMode]: this is only a UI-facing choice,
+/// mapped to/from the wire enum by [_fromAlertMode]/[_toAlertMode].
+enum _ExclusiveAlertChoice { call, notification, off }
+
+_ExclusiveAlertChoice _fromAlertMode(AlertMode mode) => switch (mode) {
+  // RING_AND_NOTIFICATION is a legacy value this app no longer writes (see
+  // AlertMode's doc comment) but must still read/display correctly: from
+  // the user's perspective it behaves exactly like "Chamada" (ringing
+  // already includes the notification), so it is shown selected as such.
+  AlertMode.ringOnly ||
+  AlertMode.ringAndNotification => _ExclusiveAlertChoice.call,
+  AlertMode.notificationOnly => _ExclusiveAlertChoice.notification,
+  AlertMode.none => _ExclusiveAlertChoice.off,
+};
+
+AlertMode _toAlertMode(_ExclusiveAlertChoice choice) => switch (choice) {
+  // Never RING_AND_NOTIFICATION: once the user actively picks a choice here
+  // — including re-picking "Chamada" starting from a legacy value — this
+  // app writes only NONE/RING_ONLY/NOTIFICATION_ONLY going forward.
+  _ExclusiveAlertChoice.call => AlertMode.ringOnly,
+  _ExclusiveAlertChoice.notification => AlertMode.notificationOnly,
+  _ExclusiveAlertChoice.off => AlertMode.none,
+};
+
+/// Exclusive by design: a call and a plain notification are two different
+/// experiences (one is a live, answerable/dismissable ringing event; the
+/// other names something that already happened — see
+/// `IncomingCallNotificationService`'s "Modo Chamada"/"Modo Notificação"
+/// doc comments), so "get both at once" is no longer offered as a
+/// combination of independent toggles.
 class _AlertsCard extends StatelessWidget {
   const _AlertsCard({
     required this.preferences,
@@ -249,45 +281,51 @@ class _AlertsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final mode = preferences.alertMode;
+    final selected = _fromAlertMode(preferences.alertMode);
 
-    void change({bool? ring, bool? notification}) {
-      onChanged(
-        preferences.copyWith(
-          alertMode: AlertMode.from(
-            ring: ring ?? mode.includesRing,
-            notification: notification ?? mode.includesNotification,
-          ),
-        ),
-      );
+    void change(_ExclusiveAlertChoice choice) {
+      onChanged(preferences.copyWith(alertMode: _toAlertMode(choice)));
     }
 
     return SettingsSection(
       icon: Icons.notifications_outlined,
       title: 'Alertas',
       children: [
-        SwitchListTile(
-          title: const Text('Receber ligação'),
-          subtitle: const Text(
-            'Mostra a tela de chamada quando o interfone tocar.',
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+          child: SegmentedButton<_ExclusiveAlertChoice>(
+            segments: const [
+              ButtonSegment(
+                value: _ExclusiveAlertChoice.call,
+                label: Text('Chamada'),
+                icon: Icon(Icons.call),
+              ),
+              ButtonSegment(
+                value: _ExclusiveAlertChoice.notification,
+                label: Text('Notificação'),
+                icon: Icon(Icons.notifications),
+              ),
+              ButtonSegment(
+                value: _ExclusiveAlertChoice.off,
+                label: Text('Desativado'),
+                icon: Icon(Icons.notifications_off),
+              ),
+            ],
+            selected: {selected},
+            onSelectionChanged: enabled ? (value) => change(value.first) : null,
           ),
-          value: mode.includesRing,
-          onChanged: enabled ? (value) => change(ring: value) : null,
         ),
-        SwitchListTile(
-          title: const Text('Receber notificação'),
-          subtitle: const Text(
-            'Mostra uma notificação relacionada ao toque do interfone.',
-          ),
-          value: mode.includesNotification,
-          onChanged: enabled ? (value) => change(notification: value) : null,
-        ),
-        const Padding(
-          padding: EdgeInsets.fromLTRB(16, 4, 16, 12),
-          child: Text(
-            'As preferências já ficam salvas. Elas passarão a controlar os '
-            'alertas quando a integração de notificações for ativada.',
-          ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+          child: Text(switch (selected) {
+            _ExclusiveAlertChoice.call =>
+              'Mostra a tela de chamada quando o interfone tocar.',
+            _ExclusiveAlertChoice.notification =>
+              'Mostra uma notificação sonora quando o interfone tocar, sem '
+                  'abrir a tela de chamada.',
+            _ExclusiveAlertChoice.off =>
+              'Nenhum aviso é mostrado quando o interfone tocar.',
+          }),
         ),
       ],
     );
@@ -349,10 +387,10 @@ class _QuietScheduleCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return SettingsSection(
       icon: Icons.schedule,
-      title: 'Horários sem ligação',
+      title: 'Horários de silêncio',
       children: [
         SwitchListTile(
-          title: const Text('Ativar horários sem ligação'),
+          title: const Text('Ativar horários de silêncio'),
           value: schedule.enabled,
           onChanged: enabled ? onEnabled : null,
           secondary: resolvingTimezone
