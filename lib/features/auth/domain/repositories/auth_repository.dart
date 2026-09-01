@@ -61,6 +61,18 @@ enum AuthFailureKind {
   notAuthenticated,
   sessionExpired,
   unavailable,
+
+  /// A password-reset-confirmation exception that cannot be detailed further
+  /// without risking account-enumeration or reusing an unrelated context's
+  /// message (e.g. login's "e-mail ou senha inválidos").
+  invalidResetState,
+
+  /// [AuthRepository.beginPasswordReset] reports the reset is already
+  /// complete rather than requiring a confirmation code — not a real
+  /// failure, but the only channel available to signal a different outcome
+  /// than the common "a code was sent" path without widening this method's
+  /// return type.
+  passwordResetComplete,
   unknown,
 }
 

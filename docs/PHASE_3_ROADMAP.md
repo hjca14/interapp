@@ -465,6 +465,30 @@ permanecem explicitamente pendentes.
       `test/ring_detected_presenter_test.dart`,
       `test/ring_detected_push_parser_test.dart` e
       `test/incoming_call_page_test.dart`.
+  - **bloqueio de autenticação encontrado na validação manual do PR #24,
+    corrigido na mesma branch (fora do escopo funcional da 3B.9):**
+    redefinição de senha (`beginPasswordReset`/`confirmPasswordReset`)
+    falhava com a mensagem genérica "Não foi possível concluir a operação"
+    mesmo com um código real enviado pelo Cognito, sem nenhum detalhe de
+    diagnóstico em debug — `_runGuarded`/`_mapAuthException` em
+    `CognitoAuthRepository` mapeavam qualquer `AuthException` não
+    reconhecida para `AuthFailureKind.unknown` silenciosamente. Corrigido
+    com: mapeamento de exceção **contextual por operação** (o mesmo
+    `NotAuthorizedServiceException` não vira mais a mensagem de login
+    "e-mail ou senha inválidos" durante a confirmação de reset); um
+    diagnóstico sanitizado de debug (`lib/features/auth/data/repositories/auth_diagnostic.dart`,
+    formato `[AUTH] operation=confirm_password_reset
+    failure_type=InvalidParameterException` — nunca e-mail, senha, código,
+    token ou mensagem bruta do provedor; nunca emitido em release); extensão
+    do `CognitoAuthGateway` para cobrir `resetPassword`/`confirmResetPassword`
+    (testável sem Cognito real); tratamento do próximo passo real do
+    `resetPassword` (`AuthResetPasswordStep.done` não navega mais cegamente
+    para a tela de código); e um botão "Enviar novo código" dedicado na tela
+    de reset (nunca reaproveitando `resendSignUpCode`, que é do fluxo de
+    cadastro). Cobertura em `test/cognito_password_reset_test.dart` e
+    `test/auth_pages_reset_flow_test.dart`. A causa raiz exata do Cognito
+    (qual `failure_type` real aparece) **ainda não foi confirmada** — depende
+    de uma nova tentativa manual controlada com o novo log de diagnóstico.
   - **validação manual física (lock screen real, toque contínuo audível,
     retorno ao keyguard, ambos em Android 13 e 14+ em aparelho físico)
     permanece pendente** — não foi executada neste ambiente de

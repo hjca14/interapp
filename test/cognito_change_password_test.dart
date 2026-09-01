@@ -47,6 +47,20 @@ class _FakeGateway implements CognitoAuthGateway {
     }
     return sessionCheckResult;
   }
+
+  @override
+  Future<ResetPasswordResult> resetPassword({required String username}) {
+    throw UnimplementedError('not exercised by this test file');
+  }
+
+  @override
+  Future<void> confirmResetPassword({
+    required String username,
+    required String newPassword,
+    required String confirmationCode,
+  }) {
+    throw UnimplementedError('not exercised by this test file');
+  }
 }
 
 void main() {
