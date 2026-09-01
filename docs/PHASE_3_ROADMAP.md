@@ -367,23 +367,46 @@ permanecem explicitamente pendentes.
       `resumed` ainda deixava uma corrida real.** No Android real,
       `endCall()` (Atender, Dispensar, `RING_ENDED`, o ring-timeout local)
       pode chegar *antes* do `resumed` correspondente, não só depois — nesse
-      caso `_callInFlight` já volta a `false` antes da checagem rodar, e a
-      correção anterior reaplicaria o bloqueio. `BiometricLockGate` agora
-      classifica o **ciclo** de background inteiro (`_backgroundedAt` até o
-      próximo `resumed`), não só o instante do `resumed`: um latch explícito
-      (`_backgroundCycleIsCallAssociated`) registra se uma chamada esteve
-      pendente/ativa em algum momento do ciclo atual — no início do ciclo, ou
-      quando a chamada só é aceita no meio dele (central de notificações
-      abre antes da chamada existir) — e **nunca é desmarcado só porque a
-      chamada termina antes do `resumed`**, exatamente a corrida que faltava
-      fechar. Consumido (lido e zerado) uma única vez, no próximo `resumed`,
-      com um teto de segurança de 2 minutos combinado ao latch (nunca usado
-      sozinho) para que uma associação antiga não suprima um bloqueio depois
-      de uma ausência genuinamente longa. Não é bypass permanente: nada aqui
-      jamais define `_locked = false` fora de autenticação bem-sucedida, um
-      app já bloqueado (cold start, sobre o keyguard) permanece bloqueado
-      nas duas ordens de evento, e o latch é reiniciado a cada novo ciclo e
-      ao trocar a instância do coordenador rastreado;
+      caso `_callInFlight` já volta a `false` antes da checagem rodar. A
+      primeira correção classificava o **ciclo** de background inteiro
+      (`_backgroundedAt` até o próximo `resumed`) em vez de só o instante do
+      `resumed`, mas usava um latch booleano simples: "uma chamada esteve
+      pendente/ativa em algum momento do ciclo" — **qualquer chamada no
+      ciclo bastava**, mesmo uma que só coincidiu no tempo com o usuário
+      tendo saído de fato do app;
+    - **hardening final: distinguir apresentação-da-própria-chamada de
+      background genuíno.** O latch booleano acima confundia dois eventos
+      diferentes: (1) o app estava em foreground e desbloqueado, e foi a
+      *própria apresentação* da chamada (central de notificações, toque,
+      full-screen intent, `MainActivity` alternando `showWhenLocked`) que
+      gerou o ciclo `inactive`/`paused`/`resumed` — deve preservar o
+      desbloqueio; (2) o usuário realmente saiu do app, e uma chamada por
+      acaso chegou (e talvez terminou) enquanto ele estava fora — a política
+      de bloqueio configurada deve valer normalmente, mesmo com a chamada.
+      `BiometricLockGate` agora usa uma máquina de estados explícita,
+      `_BackgroundCycleClassification` (`none` /
+      `foregroundTransientCandidate` / `callPresentationFromForeground` /
+      `genuineBackground`), em vez do latch booleano: um ciclo só pode virar
+      `callPresentationFromForeground` se começou com o app desbloqueado em
+      foreground e nenhuma evidência de `paused`/`hidden` ainda apareceu
+      quando a chamada chega; assim que `paused`/`hidden` chega antes de
+      qualquer chamada, o ciclo vira `genuineBackground` **permanentemente**
+      — nenhuma chamada posterior, por mais que apareça e termine, o
+      reclassifica de volta. No `resumed`, só `callPresentationFromForeground`
+      pula o bloqueio (com um teto de segurança de 2 minutos, salvaguarda
+      contra estado impossível/obsoleto, nunca a decisão principal);
+      `genuineBackground` sempre aplica a política configurada normalmente,
+      **mesmo que uma chamada ainda esteja ativa nesse instante** — o
+      bloqueio é decidido de qualquer forma, e a exceção já existente em
+      `build()`/`_scheduleAutomaticUnlock()` para `_callInFlight` apenas
+      adia a revelação/o prompt até a chamada terminar, sem precisar de
+      nenhum mecanismo novo de bloqueio diferido. Não é bypass permanente:
+      nada aqui jamais define `_locked = false` fora de autenticação
+      bem-sucedida, um app já bloqueado (cold start, sobre o keyguard) nunca
+      alcança `callPresentationFromForeground` e permanece bloqueado nas
+      duas ordens de evento, e a classificação é reiniciada a cada novo
+      ciclo, ao trocar a instância do coordenador rastreado, ao desabilitar
+      o bloqueio e ao desmontar o gate (logout);
     - **retorno ao keyguard ao encerrar sobre tela bloqueada:** novo canal
       `interapp/ring_call_presentation` (`MainActivity.endRingCallPresentation`)
       derruba `setShowWhenLocked`/`setTurnScreenOn` e, se o aparelho ainda
