@@ -62,6 +62,7 @@ enum OnboardingFailureKind {
   scanTimeout,
   connectionFailed,
   wifiFailed,
+  wifiProvisioningNotImplemented,
   claimFailed,
   alreadyOwned,
   invalidOrExpiredCode,

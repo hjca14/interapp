@@ -79,6 +79,7 @@ class OnboardingCoordinator extends ChangeNotifier {
     _scanSubscription = _bleTransport.scanForProvisioningDevices().listen(
       _onDeviceDiscovered,
       onError: (Object _, StackTrace _) {
+        unawaited(stopBleScan());
         _fail(
           OnboardingFailureKind.bleUnavailable,
           'Não foi possível procurar dispositivos por Bluetooth.',
@@ -88,6 +89,7 @@ class OnboardingCoordinator extends ChangeNotifier {
     _scanTimeoutTimer = Timer(_scanTimeout, () {
       if (_state.phase == OnboardingPhase.scanningBle &&
           _state.discoveredDevices.isEmpty) {
+        unawaited(stopBleScan());
         _fail(
           OnboardingFailureKind.scanTimeout,
           'Nenhum InterBridge encontrado por perto.',
@@ -150,6 +152,7 @@ class OnboardingCoordinator extends ChangeNotifier {
       await _bleTransport.connect(device.deviceId);
       await _bleTransport.establishSecureSession();
     } catch (_) {
+      await _bleTransport.disconnect();
       _fail(
         OnboardingFailureKind.connectionFailed,
         'Não foi possível conectar ao InterBridge.',
@@ -167,7 +170,16 @@ class OnboardingCoordinator extends ChangeNotifier {
     _setState(_state.copyWith(phase: OnboardingPhase.sendingWifi));
     try {
       await _bleTransport.sendWifiCredentials(ssid, password);
+    } on UnimplementedError {
+      await _bleTransport.disconnect();
+      _fail(
+        OnboardingFailureKind.wifiProvisioningNotImplemented,
+        'Sessão Bluetooth segura concluída. O envio de Wi-Fi será '
+        'implementado na etapa 3C.3.',
+      );
+      return;
     } catch (_) {
+      await _bleTransport.disconnect();
       _fail(
         OnboardingFailureKind.wifiFailed,
         'Não foi possível enviar a configuração de Wi-Fi.',
@@ -319,6 +331,8 @@ class OnboardingCoordinator extends ChangeNotifier {
   /// BLE scan retry, BLE reconnect, Wi-Fi password retry, claim restart,
   /// device-provisioning retry.
   Future<void> retry() async {
+    await stopBleScan();
+    await _bleTransport.disconnect();
     final kind = _state.failureKind;
     final selectedDevice = _state.selectedDevice;
     final claimSession = _state.claimSession;
@@ -330,6 +344,7 @@ class OnboardingCoordinator extends ChangeNotifier {
         _setState(const OnboardingState(phase: OnboardingPhase.scanningBle));
         _startScan();
       case OnboardingFailureKind.wifiFailed:
+      case OnboardingFailureKind.wifiProvisioningNotImplemented:
       case OnboardingFailureKind.claimFailed:
         _setState(
           OnboardingState(
@@ -406,6 +421,7 @@ class OnboardingCoordinator extends ChangeNotifier {
       case OnboardingFailureKind.scanTimeout:
       case OnboardingFailureKind.connectionFailed:
       case OnboardingFailureKind.wifiFailed:
+      case OnboardingFailureKind.wifiProvisioningNotImplemented:
       case OnboardingFailureKind.claimFailed:
       case OnboardingFailureKind.unknown:
         return 'Não foi possível concluir a configuração agora. Tente novamente.';
@@ -416,6 +432,8 @@ class OnboardingCoordinator extends ChangeNotifier {
   void dispose() {
     unawaited(_scanSubscription?.cancel());
     _scanTimeoutTimer?.cancel();
+    unawaited(_bleTransport.stopScan());
+    unawaited(_bleTransport.disconnect());
     super.dispose();
   }
 }

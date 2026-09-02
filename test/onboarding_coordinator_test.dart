@@ -23,6 +23,7 @@ class _FakeBleTransport implements BleOnboardingTransport {
   List<DiscoveredInterBridge> devicesToDiscover = [];
   Object? scanError;
   Object? connectError;
+  Object? secureSessionError;
   Object? wifiError;
   int connectCallCount = 0;
   int stopScanCallCount = 0;
@@ -51,7 +52,9 @@ class _FakeBleTransport implements BleOnboardingTransport {
   }
 
   @override
-  Future<void> establishSecureSession() async {}
+  Future<void> establishSecureSession() async {
+    if (secureSessionError != null) throw secureSessionError!;
+  }
 
   @override
   Future<void> requestIdentifyBlink() async {}
@@ -315,6 +318,25 @@ void main() {
       coordinator.state.failureKind,
       OnboardingFailureKind.connectionFailed,
     );
+    expect(ble.disconnectCallCount, 1);
+  });
+
+  test('a Security 1 or PoP failure disconnects and fails connection', () async {
+    final ble = _FakeBleTransport()
+      ..devicesToDiscover = [_deviceA]
+      ..secureSessionError = Exception('sanitized handshake failure');
+    final coordinator = _coordinator(ble: ble);
+    await coordinator.startBleOnboarding();
+    await Future<void>.delayed(Duration.zero);
+    coordinator.selectDevice(_deviceA);
+
+    await coordinator.confirmDevice();
+
+    expect(
+      coordinator.state.failureKind,
+      OnboardingFailureKind.connectionFailed,
+    );
+    expect(ble.disconnectCallCount, 1);
   });
 
   test(
@@ -347,6 +369,26 @@ void main() {
 
     expect(coordinator.state.phase, OnboardingPhase.error);
     expect(coordinator.state.failureKind, OnboardingFailureKind.wifiFailed);
+  });
+
+  test('phase 3C.2 blocks Wi-Fi explicitly and releases BLE', () async {
+    final ble = _FakeBleTransport()
+      ..devicesToDiscover = [_deviceA]
+      ..wifiError = UnimplementedError();
+    final coordinator = _coordinator(ble: ble);
+    await coordinator.startBleOnboarding();
+    await Future<void>.delayed(Duration.zero);
+    coordinator.selectDevice(_deviceA);
+    await coordinator.confirmDevice();
+
+    await coordinator.submitWifi('home-network', 'password');
+
+    expect(
+      coordinator.state.failureKind,
+      OnboardingFailureKind.wifiProvisioningNotImplemented,
+    );
+    expect(coordinator.state.failureReason, contains('3C.3'));
+    expect(ble.disconnectCallCount, 1);
   });
 
   test('a claim-start backend failure surfaces claimFailed', () async {
@@ -550,6 +592,8 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     expect(coordinator.state.discoveredDevices, [_deviceA]);
+    expect(ble.stopScanCallCount, greaterThanOrEqualTo(2));
+    expect(ble.disconnectCallCount, 1);
   });
 
   test(

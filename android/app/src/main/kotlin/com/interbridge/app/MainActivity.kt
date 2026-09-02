@@ -12,8 +12,11 @@ import io.flutter.plugin.common.MethodChannel
 import java.util.TimeZone
 
 class MainActivity : FlutterFragmentActivity() {
+    private lateinit var bleProvisioningBridge: EspressifBleProvisioningBridge
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        bleProvisioningBridge = EspressifBleProvisioningBridge(this, flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "interapp/device_timezone")
             .setMethodCallHandler { call, result ->
                 if (call.method == "getIdentifier") {
@@ -54,6 +57,22 @@ class MainActivity : FlutterFragmentActivity() {
                     result.notImplemented()
                 }
             }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        if (::bleProvisioningBridge.isInitialized &&
+            bleProvisioningBridge.onRequestPermissionsResult(requestCode, grantResults)
+        ) return
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    }
+
+    override fun onDestroy() {
+        if (::bleProvisioningBridge.isInitialized) bleProvisioningBridge.dispose()
+        super.onDestroy()
     }
 
     private fun canUseFullScreenIntent(): Boolean {

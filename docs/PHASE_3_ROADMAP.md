@@ -610,14 +610,51 @@ manualmente após a validação.
 
 ## Fase 3C — onboarding BLE real
 
+- [ ] **3C.1 — firmware BLE:** implementação e CI prontas no PR de firmware;
+  validação física permanece pendente.
+- [ ] **3C.2 — transporte Android:** implementação com o SDK oficial Espressif
+  em andamento; descoberta, conexão e Protocomm Security 1 aguardam validação
+  física e não são considerados concluídos.
+- [ ] **3C.3 — credenciais Wi-Fi:** envio seguro por `prov-config` permanece
+  pendente; a 3C.2 falha explicitamente antes de iniciar configuração parcial.
+- [ ] **iOS:** adaptador nativo futuro, fora da 3C.2.
+
+### Execução DEV e validação física pendente da 3C.2
+
+O app Android usa `esp-idf-provisioning-android` `lib-2.1.3`, SDK oficial da
+Espressif para Unified Provisioning sobre BLE/Protocomm. A PoP DEV existe
+somente em memória e deve ser fornecida localmente, sem entrar em arquivo,
+log, screenshot ou controle de versão:
+
+```sh
+flutter run --dart-define=INTERBRIDGE_BLE_DEV_POP="$INTERBRIDGE_BLE_DEV_POP"
+```
+
+Sem a define, o adaptador falha fechado e o onboarding continua explicitamente
+indisponível. Distribuição/obtenção da PoP de produção não pertence a esta fase.
+O `setup_code` de 12 dígitos nunca é usado como PoP.
+
+Checklist de bancada ainda não executada:
+
+1. instalar o app Android com PoP DEV local;
+2. gravar o firmware BLE 3C.1;
+3. encontrar `InterBridge-XXXX`;
+4. conectar;
+5. concluir Security 1 com PoP correta;
+6. confirmar falha com PoP incorreta;
+7. cancelar/desconectar e reconectar;
+8. confirmar que scan e conexão não deixam recursos ativos;
+9. confirmar ausência de segredos nos logs;
+10. confirmar que Wi-Fi permanece bloqueado até a 3C.3.
+
 - [ ] Implementar `BleOnboardingTransport` real.
 - [ ] Garantir compatibilidade com ESP-IDF Unified Provisioning/Protocomm
   Security 1.
 - [ ] Validar no Android físico antigo disponível.
 - [ ] Manter QR e código manual como fallbacks.
 
-O BLE real ainda não começou e permanece como a próxima grande frente depois
-da Fase 3B.
+O adaptador Android está em implementação; nenhuma capacidade BLE desta fase
+foi validada fisicamente ou marcada como concluída.
 
 ## Trabalhos sem numeração definitiva
 

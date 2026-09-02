@@ -1,25 +1,30 @@
 /// A nearby InterBridge found during BLE onboarding scan, before it's
 /// claimed by the user.
 ///
-/// Only [friendlyName] belongs in normal user-facing UI — see
-/// PROJECT_CONTEXT.md, "setup_code vs device_id": a regular user should
-/// never need to read/type the full technical id. [deviceId] exists for the
-/// coordinator/backend and for a future diagnostics/developer view only.
+/// [transportId] is an opaque, short-lived handle issued by the radio adapter.
+/// It is stable only for the current discovery/connection attempt and must not
+/// be treated as the permanent product `device_id`. The advertised name is
+/// likewise only a discovery/deduplication hint.
 class DiscoveredInterBridge {
   const DiscoveredInterBridge({
-    required this.deviceId,
+    String? transportId,
+    @Deprecated('Use transportId; this is not a permanent product identity.')
+    String? deviceId,
     required this.friendlyName,
-  });
+  }) : transportId = transportId ?? deviceId!;
 
-  final String deviceId;
+  final String transportId;
+
+  @Deprecated('Use transportId; this is not a permanent product identity.')
+  String get deviceId => transportId;
   final String friendlyName;
 
   @override
   bool operator ==(Object other) =>
-      other is DiscoveredInterBridge && other.deviceId == deviceId;
+      other is DiscoveredInterBridge && other.transportId == transportId;
 
   @override
-  int get hashCode => deviceId.hashCode;
+  int get hashCode => transportId.hashCode;
 }
 
 /// Derives a short, human-friendly name (e.g. `InterBridge-A91C`) from a
