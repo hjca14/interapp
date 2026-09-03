@@ -15,9 +15,9 @@ import 'package:interapp/features/pairing/domain/services/onboarding_analytics.d
 ///
 /// Screens never talk to [BleOnboardingTransport]/[OnboardingClaimRepository]
 /// directly; they only read [state] and call methods here. Both fallback
-/// paths resolve into the exact same BLE scan/connect/Wi-Fi/claim sequence
-/// the primary path uses — QR/manual entry only answers "which device",
-/// never skips physically talking to it.
+/// paths still require physical BLE presence. Only QR/manual resolution can
+/// currently provide an authenticated permanent product identity; a BLE
+/// transport handle or advertised name is never sent to a claim API.
 class OnboardingCoordinator extends ChangeNotifier {
   OnboardingCoordinator({
     required this._bleTransport,
@@ -149,7 +149,7 @@ class OnboardingCoordinator extends ChangeNotifier {
     await stopBleScan();
     _setState(_state.copyWith(phase: OnboardingPhase.connectingBle));
     try {
-      await _bleTransport.connect(device.deviceId);
+      await _bleTransport.connect(device.transportId);
       await _bleTransport.establishSecureSession();
     } catch (_) {
       await _bleTransport.disconnect();
@@ -191,23 +191,16 @@ class OnboardingCoordinator extends ChangeNotifier {
   }
 
   Future<void> _startOrContinueClaim() async {
-    final device = _state.selectedDevice;
-    if (device == null) {
-      _fail(OnboardingFailureKind.unknown, 'Algo deu errado. Tente novamente.');
+    // Discovery intentionally provides no product device_id. Until firmware
+    // exposes an authenticated identity-binding mechanism, only an unexpired
+    // ClaimSession resolved through QR/manual entry can authorize this tail.
+    final session = _state.claimSession;
+    if (session == null || session.isExpired) {
+      _fail(
+        OnboardingFailureKind.permanentIdentityUnavailable,
+        'A identidade permanente do InterBridge ainda não foi autenticada.',
+      );
       return;
-    }
-    var session = _state.claimSession;
-    if (session == null ||
-        session.deviceId != device.deviceId ||
-        session.isExpired) {
-      _setState(_state.copyWith(phase: OnboardingPhase.startingClaim));
-      try {
-        session = await _claimRepository.start(deviceId: device.deviceId);
-      } on OnboardingClaimException catch (e) {
-        _failClaim(e.reason);
-        return;
-      }
-      _analytics.track('claim_started');
     }
     _setState(
       _state.copyWith(
@@ -355,6 +348,7 @@ class OnboardingCoordinator extends ChangeNotifier {
         );
       case OnboardingFailureKind.invalidOrExpiredCode:
       case OnboardingFailureKind.rateLimited:
+      case OnboardingFailureKind.permanentIdentityUnavailable:
         _setState(
           const OnboardingState(phase: OnboardingPhase.enteringSetupCode),
         );
@@ -422,6 +416,7 @@ class OnboardingCoordinator extends ChangeNotifier {
       case OnboardingFailureKind.connectionFailed:
       case OnboardingFailureKind.wifiFailed:
       case OnboardingFailureKind.wifiProvisioningNotImplemented:
+      case OnboardingFailureKind.permanentIdentityUnavailable:
       case OnboardingFailureKind.claimFailed:
       case OnboardingFailureKind.unknown:
         return 'Não foi possível concluir a configuração agora. Tente novamente.';

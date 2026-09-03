@@ -7,16 +7,12 @@
 /// likewise only a discovery/deduplication hint.
 class DiscoveredInterBridge {
   const DiscoveredInterBridge({
-    String? transportId,
-    @Deprecated('Use transportId; this is not a permanent product identity.')
-    String? deviceId,
+    required this.transportId,
     required this.friendlyName,
-  }) : transportId = transportId ?? deviceId!;
+  });
 
   final String transportId;
 
-  @Deprecated('Use transportId; this is not a permanent product identity.')
-  String get deviceId => transportId;
   final String friendlyName;
 
   @override
@@ -25,15 +21,4 @@ class DiscoveredInterBridge {
 
   @override
   int get hashCode => transportId.hashCode;
-}
-
-/// Derives a short, human-friendly name (e.g. `InterBridge-A91C`) from a
-/// technical `device_id` (e.g. `ib-7f3a91c2d84e4fa9b621b88658fdca77`), for
-/// transports that only advertise the raw id over BLE.
-String friendlyInterBridgeName(String deviceId) {
-  final hexOnly = deviceId.replaceAll(RegExp('[^0-9a-fA-F]'), '');
-  final suffix = hexOnly.length >= 4
-      ? hexOnly.substring(hexOnly.length - 4)
-      : hexOnly;
-  return 'InterBridge-${suffix.toUpperCase()}';
 }

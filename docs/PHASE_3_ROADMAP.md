@@ -634,6 +634,13 @@ Sem a define, o adaptador falha fechado e o onboarding continua explicitamente
 indisponível. Distribuição/obtenção da PoP de produção não pertence a esta fase.
 O `setup_code` de 12 dígitos nunca é usado como PoP.
 
+`DiscoveredInterBridge.transportId` é somente um handle opaco válido durante a
+tentativa BLE. Nem esse handle, nem endereço Bluetooth, UUID local, nome
+anunciado ou o sufixo `XXXX` podem alimentar uma API de claim como `device_id`.
+Até existir um vínculo autenticado específico, o fluxo de claim exige uma
+`ClaimSession` válida previamente resolvida por QR/código manual; descoberta
+BLE pura para ao fim da sessão segura sem inventar identidade de produto.
+
 Checklist de bancada ainda não executada:
 
 1. instalar o app Android com PoP DEV local;

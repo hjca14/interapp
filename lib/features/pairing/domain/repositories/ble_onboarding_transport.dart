@@ -32,7 +32,7 @@ abstract class BleOnboardingTransport {
 
   Future<void> stopScan();
 
-  Future<void> connect(String deviceId);
+  Future<void> connect(String transportId);
 
   /// Establishes the Protocomm Security 1 secure session with the
   /// already-[connect]ed device.

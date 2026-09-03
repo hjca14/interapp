@@ -27,7 +27,7 @@ class NotImplementedBleOnboardingTransport implements BleOnboardingTransport {
   Future<void> stopScan() async {}
 
   @override
-  Future<void> connect(String deviceId) {
+  Future<void> connect(String transportId) {
     throw UnimplementedError(
       'BLE onboarding is not implemented in this build yet.',
     );

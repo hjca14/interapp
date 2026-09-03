@@ -355,7 +355,8 @@ class _ErrorStep extends StatelessWidget {
   bool get _offersFallback =>
       state.failureKind == OnboardingFailureKind.bleUnavailable ||
       state.failureKind == OnboardingFailureKind.scanTimeout ||
-      state.failureKind == OnboardingFailureKind.connectionFailed;
+      state.failureKind == OnboardingFailureKind.connectionFailed ||
+      state.failureKind == OnboardingFailureKind.permanentIdentityUnavailable;
 
   @override
   Widget build(BuildContext context) {

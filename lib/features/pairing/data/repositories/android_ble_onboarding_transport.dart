@@ -39,18 +39,19 @@ class BleOperationException implements Exception {
 class AndroidBleOnboardingTransport implements BleOnboardingTransport {
   AndroidBleOnboardingTransport({
     required String developmentProofOfPossession,
-    AndroidBleProvisioningBridge bridge =
-        const MethodChannelAndroidBleProvisioningBridge(),
-  }) : _pop = developmentProofOfPossession,
-       _bridge = bridge;
+    AndroidBleProvisioningBridge? bridge,
+  }) : _developmentProofOfPossession = developmentProofOfPossession,
+       _bridge = bridge ?? const MethodChannelAndroidBleProvisioningBridge();
 
-  final String _pop;
+  final String _developmentProofOfPossession;
   final AndroidBleProvisioningBridge _bridge;
   bool _connected = false;
 
   @override
   Future<BleAvailabilityIssue?> checkAvailability() async {
-    if (_pop.isEmpty) return BleAvailabilityIssue.unsupported;
+    if (_developmentProofOfPossession.isEmpty) {
+      return BleAvailabilityIssue.unsupported;
+    }
     final status = await _bridge.invoke('checkAvailability');
     return switch (status) {
       'ready' => null,
@@ -80,10 +81,10 @@ class AndroidBleOnboardingTransport implements BleOnboardingTransport {
   Future<void> stopScan() async => _bridge.invoke('stopScan');
 
   @override
-  Future<void> connect(String deviceId) async {
+  Future<void> connect(String transportId) async {
     await stopScan();
     try {
-      await _bridge.invoke('connect', {'transportId': deviceId});
+      await _bridge.invoke('connect', {'transportId': transportId});
       _connected = true;
     } on PlatformException {
       await disconnect();
@@ -95,7 +96,9 @@ class AndroidBleOnboardingTransport implements BleOnboardingTransport {
   Future<void> establishSecureSession() async {
     if (!_connected) throw const BleOperationException('secureSession');
     try {
-      await _bridge.invoke('establishSecurity1', {'pop': _pop});
+      await _bridge.invoke('establishSecurity1', {
+        'pop': _developmentProofOfPossession,
+      });
     } on PlatformException {
       await disconnect();
       throw const BleOperationException('secureSession');

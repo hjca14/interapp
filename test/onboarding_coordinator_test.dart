@@ -44,7 +44,7 @@ class _FakeBleTransport implements BleOnboardingTransport {
   Future<void> stopScan() async => stopScanCallCount++;
 
   @override
-  Future<void> connect(String deviceId) async {
+  Future<void> connect(String transportId) async {
     connectCallCount++;
     if (connectError != null) {
       throw connectError!;
@@ -140,11 +140,11 @@ class _FakeClaimRepository implements OnboardingClaimRepository {
 }
 
 const _deviceA = DiscoveredInterBridge(
-  deviceId: 'ib-aaaa',
+  transportId: 'ble-handle-a',
   friendlyName: 'InterBridge-AAAA',
 );
 const _deviceB = DiscoveredInterBridge(
-  deviceId: 'ib-bbbb',
+  transportId: 'ble-handle-b',
   friendlyName: 'InterBridge-BBBB',
 );
 
@@ -164,11 +164,11 @@ OnboardingCoordinator _coordinator({
 
 void main() {
   test(
-    'primary BLE onboarding: idle -> ... -> success, with a completed claim session',
+    'pure BLE discovery never uses its transport handle as product identity',
     () async {
       final ble = _FakeBleTransport()..devicesToDiscover = [_deviceA];
       final claim = _FakeClaimRepository()
-        ..resolvedDeviceId = _deviceA.deviceId;
+        ..resolvedDeviceId = 'ib-authenticated-a';
       final analytics = _RecordingAnalytics();
       final coordinator = _coordinator(
         ble: ble,
@@ -192,11 +192,12 @@ void main() {
 
       await coordinator.submitWifi('home-network', 'secret-password');
 
-      expect(coordinator.state.phase, OnboardingPhase.success);
+      expect(coordinator.state.phase, OnboardingPhase.error);
       expect(
-        coordinator.state.claimSession?.status,
-        ClaimSessionStatus.completed,
+        coordinator.state.failureKind,
+        OnboardingFailureKind.permanentIdentityUnavailable,
       );
+      expect(claim.startCallCount, 0);
       expect(
         analytics.events,
         containsAllInOrder([
@@ -206,9 +207,6 @@ void main() {
           'device_confirmed',
           'ble_connected',
           'wifi_config_sent',
-          'claim_started',
-          'provisioning_started',
-          'onboarding_completed',
         ]),
       );
     },
@@ -321,23 +319,26 @@ void main() {
     expect(ble.disconnectCallCount, 1);
   });
 
-  test('a Security 1 or PoP failure disconnects and fails connection', () async {
-    final ble = _FakeBleTransport()
-      ..devicesToDiscover = [_deviceA]
-      ..secureSessionError = Exception('sanitized handshake failure');
-    final coordinator = _coordinator(ble: ble);
-    await coordinator.startBleOnboarding();
-    await Future<void>.delayed(Duration.zero);
-    coordinator.selectDevice(_deviceA);
+  test(
+    'a Security 1 or PoP failure disconnects and fails connection',
+    () async {
+      final ble = _FakeBleTransport()
+        ..devicesToDiscover = [_deviceA]
+        ..secureSessionError = Exception('sanitized handshake failure');
+      final coordinator = _coordinator(ble: ble);
+      await coordinator.startBleOnboarding();
+      await Future<void>.delayed(Duration.zero);
+      coordinator.selectDevice(_deviceA);
 
-    await coordinator.confirmDevice();
+      await coordinator.confirmDevice();
 
-    expect(
-      coordinator.state.failureKind,
-      OnboardingFailureKind.connectionFailed,
-    );
-    expect(ble.disconnectCallCount, 1);
-  });
+      expect(
+        coordinator.state.failureKind,
+        OnboardingFailureKind.connectionFailed,
+      );
+      expect(ble.disconnectCallCount, 1);
+    },
+  );
 
   test(
     'an empty Wi-Fi SSID is rejected locally, without contacting the backend',
@@ -391,28 +392,36 @@ void main() {
     expect(ble.disconnectCallCount, 1);
   });
 
-  test('a claim-start backend failure surfaces claimFailed', () async {
-    final ble = _FakeBleTransport()..devicesToDiscover = [_deviceA];
-    final claim = _FakeClaimRepository()
-      ..startFailure = OnboardingClaimFailureReason.backendUnavailable;
-    final coordinator = _coordinator(ble: ble, claim: claim);
-    await coordinator.startBleOnboarding();
-    await Future<void>.delayed(Duration.zero);
-    coordinator.selectDevice(_deviceA);
-    await coordinator.confirmDevice();
+  test(
+    'pure BLE path does not call claim start with a transport handle',
+    () async {
+      final ble = _FakeBleTransport()..devicesToDiscover = [_deviceA];
+      final claim = _FakeClaimRepository()
+        ..startFailure = OnboardingClaimFailureReason.backendUnavailable;
+      final coordinator = _coordinator(ble: ble, claim: claim);
+      await coordinator.startBleOnboarding();
+      await Future<void>.delayed(Duration.zero);
+      coordinator.selectDevice(_deviceA);
+      await coordinator.confirmDevice();
 
-    await coordinator.submitWifi('home-network', 'password');
+      await coordinator.submitWifi('home-network', 'password');
 
-    expect(coordinator.state.phase, OnboardingPhase.error);
-    expect(coordinator.state.failureKind, OnboardingFailureKind.claimFailed);
-  });
+      expect(coordinator.state.phase, OnboardingPhase.error);
+      expect(
+        coordinator.state.failureKind,
+        OnboardingFailureKind.permanentIdentityUnavailable,
+      );
+      expect(claim.startCallCount, 0);
+    },
+  );
 
   test('a claim-completion backend failure surfaces claimFailed', () async {
     final ble = _FakeBleTransport()..devicesToDiscover = [_deviceA];
     final claim = _FakeClaimRepository()
       ..completeFailure = OnboardingClaimFailureReason.backendUnavailable;
     final coordinator = _coordinator(ble: ble, claim: claim);
-    await coordinator.startBleOnboarding();
+    coordinator.startManualFallback();
+    await coordinator.submitManualCode('482719362051');
     await Future<void>.delayed(Duration.zero);
     coordinator.selectDevice(_deviceA);
     await coordinator.confirmDevice();
@@ -424,11 +433,11 @@ void main() {
   });
 
   test(
-    'an expired resolved claim session is not reused — a fresh one is started',
+    'an expired resolved identity is not replaced from a BLE transport handle',
     () async {
       final ble = _FakeBleTransport()..devicesToDiscover = [_deviceA];
       final claim = _FakeClaimRepository()
-        ..resolvedDeviceId = _deviceA.deviceId
+        ..resolvedDeviceId = 'ib-authenticated-a'
         ..resolvedSessionExpired = true;
       final coordinator = _coordinator(ble: ble, claim: claim);
 
@@ -441,9 +450,12 @@ void main() {
       await coordinator.confirmDevice();
       await coordinator.submitWifi('home-network', 'password');
 
-      expect(claim.startCallCount, 1);
-      expect(coordinator.state.claimSession?.isExpired, isFalse);
-      expect(coordinator.state.phase, OnboardingPhase.success);
+      expect(claim.startCallCount, 0);
+      expect(coordinator.state.claimSession?.isExpired, isTrue);
+      expect(
+        coordinator.state.failureKind,
+        OnboardingFailureKind.permanentIdentityUnavailable,
+      );
     },
   );
 
@@ -556,10 +568,11 @@ void main() {
       final ble = _FakeBleTransport()..devicesToDiscover = [_deviceA];
       final gate = Completer<void>();
       final claim = _FakeClaimRepository()
-        ..resolvedDeviceId = _deviceA.deviceId
+        ..resolvedDeviceId = 'ib-authenticated-a'
         ..completeGate = gate;
       final coordinator = _coordinator(ble: ble, claim: claim);
-      await coordinator.startBleOnboarding();
+      coordinator.startManualFallback();
+      await coordinator.submitManualCode('482719362051');
       await Future<void>.delayed(Duration.zero);
       coordinator.selectDevice(_deviceA);
       await coordinator.confirmDevice();
@@ -614,9 +627,11 @@ void main() {
 
   test('reaching success is the terminal, navigable state', () async {
     final ble = _FakeBleTransport()..devicesToDiscover = [_deviceA];
-    final claim = _FakeClaimRepository()..resolvedDeviceId = _deviceA.deviceId;
+    final claim = _FakeClaimRepository()
+      ..resolvedDeviceId = 'ib-authenticated-a';
     final coordinator = _coordinator(ble: ble, claim: claim);
-    await coordinator.startBleOnboarding();
+    coordinator.startManualFallback();
+    await coordinator.submitManualCode('482719362051');
     await Future<void>.delayed(Duration.zero);
     coordinator.selectDevice(_deviceA);
     await coordinator.confirmDevice();
