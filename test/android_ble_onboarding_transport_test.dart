@@ -57,7 +57,7 @@ void main() {
     },
   );
 
-  test('filters prefix and deduplicates opaque transport handles', () async {
+  test('filters prefix and deduplicates by advertised name', () async {
     final bridge = _FakeBridge();
     final transport = AndroidBleOnboardingTransport(
       developmentProofOfPossession: configuredTestValue(),
@@ -69,7 +69,7 @@ void main() {
     );
     await Future<void>.delayed(Duration.zero);
     bridge.events.add({'transportId': 'opaque-a', 'name': 'InterBridge-A91C'});
-    bridge.events.add({'transportId': 'opaque-a', 'name': 'InterBridge-A91C'});
+    bridge.events.add({'transportId': 'opaque-b', 'name': 'InterBridge-A91C'});
     await Future<void>.delayed(Duration.zero);
     expect(found, hasLength(1));
     await subscription.cancel();

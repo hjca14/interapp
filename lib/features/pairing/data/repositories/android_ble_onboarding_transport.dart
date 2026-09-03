@@ -38,10 +38,9 @@ class BleOperationException implements Exception {
 /// protobuf, endpoint, or Security 1 handshake is implemented in Dart.
 class AndroidBleOnboardingTransport implements BleOnboardingTransport {
   AndroidBleOnboardingTransport({
-    required String developmentProofOfPossession,
+    required this._developmentProofOfPossession,
     AndroidBleProvisioningBridge? bridge,
-  }) : _developmentProofOfPossession = developmentProofOfPossession,
-       _bridge = bridge ?? const MethodChannelAndroidBleProvisioningBridge();
+  }) : _bridge = bridge ?? const MethodChannelAndroidBleProvisioningBridge();
 
   final String _developmentProofOfPossession;
   final AndroidBleProvisioningBridge _bridge;
@@ -74,7 +73,7 @@ class AndroidBleOnboardingTransport implements BleOnboardingTransport {
         throw const FormatException('Invalid sanitized BLE discovery event');
       }
       return DiscoveredInterBridge(transportId: id, friendlyName: name);
-    }).where((device) => seen.add(device.transportId));
+    }).where((device) => seen.add(device.friendlyName));
   }
 
   @override
