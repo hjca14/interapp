@@ -25,3 +25,4 @@ jobs:
           echo 'Execute `dart format .` manualmente e envie as alterações antes do merge.' >> "$GITHUB_STEP_SUMMARY"
       - run: flutter analyze
       - run: flutter test
+      - run: flutter build apk --debug
