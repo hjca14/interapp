@@ -98,8 +98,15 @@ abstract class BleOnboardingTransport {
 
   Future<void> connect(String transportId);
 
-  /// Establishes the Protocomm Security 1 secure session with the
-  /// already-[connect]ed device.
+  /// Prepares the Protocomm Security 1 secure session with the
+  /// already-[connect]ed device — configures whatever the handshake needs
+  /// (proof of possession) so [sendWifiCredentials] can run it. Does not
+  /// itself guarantee a real SDK session was established: on Android, the
+  /// actual Security 1 handshake happens as part of [sendWifiCredentials]'s
+  /// own single continuous transaction with the device, so a
+  /// `sessionFailed` can still surface there instead of here — callers must
+  /// treat it as a normal, retryable outcome of [sendWifiCredentials], not
+  /// something this call rules out in advance.
   Future<void> establishSecureSession();
 
   /// Asks the connected device to blink its status LED so the user can
