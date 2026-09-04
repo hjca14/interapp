@@ -6,6 +6,11 @@ import 'package:interapp/features/pairing/domain/repositories/ble_onboarding_tra
 
 abstract interface class AndroidBleProvisioningBridge {
   Stream<Map<Object?, Object?>> get discoveries;
+
+  /// Progress/result events for an in-flight `sendWifiCredentials` call —
+  /// a separate stream from [discoveries] so Wi-Fi provisioning and BLE
+  /// discovery can never cross-deliver events to each other's listener.
+  Stream<Map<Object?, Object?>> get wifiProvisioningEvents;
   Future<Object?> invoke(String method, [Map<String, Object?>? arguments]);
 }
 
@@ -15,9 +20,16 @@ class MethodChannelAndroidBleProvisioningBridge
 
   static const _methods = MethodChannel('interapp/ble_onboarding');
   static const _events = EventChannel('interapp/ble_onboarding/discovery');
+  static const _wifiEvents = EventChannel('interapp/ble_onboarding/wifi');
 
   @override
   Stream<Map<Object?, Object?>> get discoveries => _events
+      .receiveBroadcastStream()
+      .where((event) => event is Map)
+      .cast<Map<Object?, Object?>>();
+
+  @override
+  Stream<Map<Object?, Object?>> get wifiProvisioningEvents => _wifiEvents
       .receiveBroadcastStream()
       .where((event) => event is Map)
       .cast<Map<Object?, Object?>>();
@@ -64,16 +76,20 @@ class AndroidBleOnboardingTransport implements BleOnboardingTransport {
   Stream<DiscoveredInterBridge> scanForProvisioningDevices() async* {
     await _bridge.invoke('startScan');
     final seen = <String>{};
-    yield* _bridge.discoveries.map((event) {
-      final id = event['transportId'];
-      final name = event['name'];
-      if (id is! String ||
-          name is! String ||
-          !name.startsWith('InterBridge-')) {
-        throw const FormatException('Invalid sanitized BLE discovery event');
-      }
-      return DiscoveredInterBridge(transportId: id, friendlyName: name);
-    }).where((device) => seen.add(device.friendlyName));
+    yield* _bridge.discoveries
+        .map((event) {
+          final id = event['transportId'];
+          final name = event['name'];
+          if (id is! String ||
+              name is! String ||
+              !name.startsWith('InterBridge-')) {
+            throw const FormatException(
+              'Invalid sanitized BLE discovery event',
+            );
+          }
+          return DiscoveredInterBridge(transportId: id, friendlyName: name);
+        })
+        .where((device) => seen.add(device.friendlyName));
   }
 
   @override
@@ -108,9 +124,59 @@ class AndroidBleOnboardingTransport implements BleOnboardingTransport {
   Future<void> requestIdentifyBlink() async {}
 
   @override
-  Future<void> sendWifiCredentials(String ssid, String password) async {
-    await disconnect();
-    throw UnimplementedError('Wi-Fi provisioning is reserved for phase 3C.3.');
+  Stream<WifiProvisioningProgress> sendWifiCredentials(
+    String ssid,
+    String password,
+  ) async* {
+    if (ssid.isEmpty) {
+      throw ArgumentError.value(ssid, 'ssid', 'must not be empty');
+    }
+    if (!_connected) {
+      throw const BleOperationException('sendWifiCredentials');
+    }
+    try {
+      // ssid/password only ever exist as this call's arguments — never
+      // stored in a field, logged, or included in any exception message.
+      await _bridge.invoke('sendWifiCredentials', {
+        'ssid': ssid,
+        'password': password,
+      });
+    } on PlatformException {
+      await disconnect();
+      throw const WifiProvisioningException(
+        WifiProvisioningFailureReason.sendFailed,
+      );
+    }
+    await for (final event in _bridge.wifiProvisioningEvents) {
+      switch (event['event']) {
+        case 'wifiConfigSent':
+          yield WifiProvisioningProgress.sendingConfig;
+        case 'wifiConfigApplied':
+          yield WifiProvisioningProgress.applyingConfig;
+        case 'wifiConnected':
+          return;
+        case 'wifiFailed':
+          await disconnect();
+          throw WifiProvisioningException(
+            _parseWifiFailureReason(event['reason']),
+          );
+        default:
+        // Ignore anything else — defensive against an unrelated/unknown
+        // native event reaching this stream.
+      }
+    }
+  }
+
+  WifiProvisioningFailureReason _parseWifiFailureReason(Object? reason) {
+    return switch (reason) {
+      'authFailed' => WifiProvisioningFailureReason.authFailed,
+      'networkNotFound' => WifiProvisioningFailureReason.networkNotFound,
+      'deviceDisconnected' => WifiProvisioningFailureReason.deviceDisconnected,
+      'sendFailed' => WifiProvisioningFailureReason.sendFailed,
+      'applyFailed' => WifiProvisioningFailureReason.applyFailed,
+      'sessionFailed' => WifiProvisioningFailureReason.sessionFailed,
+      _ => WifiProvisioningFailureReason.unknown,
+    };
   }
 
   @override
@@ -118,7 +184,7 @@ class AndroidBleOnboardingTransport implements BleOnboardingTransport {
     Map<String, dynamic> material,
   ) async {
     await disconnect();
-    throw UnimplementedError('Fleet provisioning is outside phase 3C.2.');
+    throw UnimplementedError('Fleet provisioning is a later phase (3C.4+).');
   }
 
   @override

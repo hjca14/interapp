@@ -615,12 +615,16 @@ manualmente após a validação.
   entrega).
 - [x] **3C.2 — transporte Android:** validado fisicamente em Galaxy A12 real
   — descoberta, conexão e Protocomm Security 1 completos com o SDK oficial
-  Espressif. O fluxo para deliberadamente ao final da sessão BLE segura,
-  antes de qualquer credencial Wi-Fi — ver 3C.3 abaixo.
-- [ ] **3C.3 — credenciais Wi-Fi:** envio seguro por `prov-config` permanece
-  **não implementado** — a 3C.2 para explicitamente no fim da sessão segura,
-  nunca implicitamente, e nunca envia configuração parcial.
-- [ ] **iOS:** adaptador nativo futuro, fora da 3C.2.
+  Espressif. O fluxo parava deliberadamente ao final da sessão BLE segura,
+  antes de qualquer credencial Wi-Fi — ver 3C.3 abaixo, agora implementada.
+- [ ] **3C.3 — credenciais Wi-Fi: implementada, aguardando validação física
+  coordenada.** Envio seguro de SSID/senha exclusivamente pelo `provision()`
+  oficial do SDK Espressif (`prov-config`), depois da sessão Security 1 já
+  validada na 3C.2. **Não marcada como concluída** — falta a bancada física
+  coordenada com a 3C.3 do firmware (PR paralelo) para confirmar o
+  dispositivo realmente conectando à rede Wi-Fi real. Ver a seção dedicada
+  abaixo para o desenho e o checklist pendente.
+- [ ] **iOS:** adaptador nativo futuro, fora da 3C.2/3C.3.
 
 ### Execução DEV e validação física da 3C.2
 
@@ -687,8 +691,81 @@ O adaptador Android está validado fisicamente para descoberta, conexão e
 Protocomm Security 1. **Continuam fora de escopo desta validação:**
 distribuição de PoP de produção, identidade/claim permanente do
 dispositivo, inventário de fabricação no backend e iOS — nenhum desses foi
-tocado por esta entrega. Envio de credenciais Wi-Fi (3C.3) permanece **não
-implementado**, não apenas não validado.
+tocado por esta entrega.
+
+### Implementação da 3C.3 — credenciais Wi-Fi (implementada; validação física ainda pendente)
+
+Depois da sessão Security 1 já estabelecida (3C.2), `AndroidBleOnboardingTransport
+.sendWifiCredentials` chama a operação oficial `ESPDevice.provision(ssid, password,
+ProvisionListener)` do SDK Espressif (`prov-config`) — nunca GATT próprio, nunca
+protobuf manual, nunca Security 0, nunca um transporte paralelo. Cada callback do
+`ProvisionListener` vira um evento sanitizado no canal nativo dedicado
+`interapp/ble_onboarding/wifi` (nunca reaproveita o canal de descoberta), mapeado
+para um dos três resultados modelados explicitamente do lado Dart
+(`WifiProvisioningProgress`/sucesso/`WifiProvisioningException`):
+
+- **envio/aplicação em andamento:** `wifiConfigSent` → `sendingConfig`;
+  `wifiConfigApplied` → `applyingConfig` — a UI mostra "Enviando configuração
+  do Wi-Fi..." e depois "Conectando o InterBridge à rede Wi-Fi...";
+- **Wi-Fi conectado:** `deviceProvisioningSuccess` → a Stream simplesmente
+  termina (nunca emite um valor para esse desfecho) — ver abaixo o que a UI
+  faz com isso;
+- **falha de configuração/conexão:** `createSessionFailed`/`wifiConfigFailed`/
+  `wifiConfigApplyFailed`/`provisioningFailedFromDevice`/`onProvisioningFailed`
+  → um único evento `wifiFailed` com um `reason` sanitizado
+  (`authFailed`/`networkNotFound`/`deviceDisconnected`/`sendFailed`/
+  `applyFailed`/`sessionFailed`/`unknown`, espelhando 1:1 o
+  `ProvisionFailureReason` do SDK quando o dispositivo classifica o motivo),
+  que vira uma mensagem específica e acionável (“Senha de Wi-Fi incorreta”,
+  “rede não encontrada”) em vez de um erro genérico.
+
+SSID/senha só existem como argumentos da chamada nativa (`ssid`/`password` no
+`MethodChannel`, parâmetros locais do `provision()` em Kotlin) — nunca viram
+campo de classe, nunca são logados, nunca entram em analytics, estado
+persistido, teste, screenshot ou documentação; senha vazia é aceita (rede
+aberta), SSID vazio é rejeitado antes de qualquer chamada nativa.
+
+**Falha permite novo envio enquanto o dispositivo ainda estiver na janela
+BLE, sem deixar nada preso:** uma falha de Wi-Fi sempre libera a conexão BLE
+(`disconnect()`, dos dois lados) em vez de tentar reaproveitá-la — o
+`transportId` de uma tentativa anterior não é mais válido depois disso, então
+"Tentar novamente" refaz a descoberta e a conexão do zero, funcionando
+enquanto o InterBridge físico continuar anunciando. Isso evita a ambiguidade
+de "a sessão ainda está realmente viva?" em vez de arriscar reusar uma
+conexão morta.
+
+**Depois de Wi-Fi conectado, o app nunca afirma "configurado com sucesso"
+nem adiciona o dispositivo a nenhuma lista** — claim permanente, identidade
+de produção, Fleet Provisioning e AWS continuam pendentes (frente futura,
+3C.4+). A tela mostra uma confirmação honesta ("Wi-Fi configurado.") e deixa
+explícito que o registro/ativação do dispositivo será uma próxima etapa; o
+app libera a conexão BLE (não há mais nada para fazer nela nesta fase) e
+nunca chama o pipeline de claim/Fleet Provisioning já existente no
+coordenador (reservado, não removido, para quando essa frente for
+implementada).
+
+Descoberta por QR/código manual continua como fallback apenas de *qual*
+dispositivo — nome BLE anunciado, MAC, UUID local ou `transportId` nunca
+alimentam `device_id`/claim, igual à 3C.2. Android continua o único alvo
+real desta fase; iOS segue fora de escopo.
+
+- [x] Chamar `ESPDevice.provision()` (SDK oficial) depois da sessão Security 1.
+- [x] Modelar envio/aplicação em andamento, Wi-Fi conectado e falha de
+  configuração/conexão como resultados distintos e claros.
+- [x] Nunca logar/persistir SSID ou senha; senha vazia permitida, SSID vazio
+  rejeitado.
+- [x] Falha permite novo envio sem deixar scan/conexão/stream nativo preso.
+- [x] Nunca apresentar "sucesso"/adicionar à lista antes do claim real.
+- [ ] **Validação física coordenada com a 3C.3 do firmware — ainda não
+  executada:** SSID/senha reais chegando a uma rede Wi-Fi de bancada real e o
+  InterBridge físico realmente conectando; falha com senha incorreta e com
+  rede fora de alcance, cada uma mostrando a mensagem específica correta;
+  retry após falha reencontrando e reconectando ao mesmo dispositivo físico;
+  confirmação de que nenhum segredo aparece em log/diagnóstico durante o
+  teste físico.
+
+**3C.3 permanece implementada, não concluída**, até essa validação física
+coordenada ser executada e registrada aqui.
 
 ## Trabalhos sem numeração definitiva
 

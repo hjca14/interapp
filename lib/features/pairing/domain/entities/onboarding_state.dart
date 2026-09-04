@@ -1,5 +1,6 @@
 import 'package:interapp/features/pairing/domain/entities/claim_session.dart';
 import 'package:interapp/features/pairing/domain/entities/discovered_interbridge.dart';
+import 'package:interapp/features/pairing/domain/repositories/ble_onboarding_transport.dart';
 
 /// The unified onboarding state machine driving all three entry paths
 /// (nearby BLE discovery, QR `setup_code`, manual `setup_code`) through
@@ -28,6 +29,13 @@ enum OnboardingPhase {
   connectingBle,
   selectingWifi,
   sendingWifi,
+
+  /// The device confirmed it joined the given Wi-Fi network
+  /// (`deviceProvisioningSuccess`). Deliberately distinct from [success]:
+  /// permanent claim, production identity, Fleet Provisioning and AWS are
+  /// still pending — this app build stops here honestly instead of
+  /// implying the device is registered/added.
+  wifiConnected,
   startingClaim,
   claimActive,
   awsProvisioning,
@@ -45,7 +53,8 @@ enum OnboardingPhase {
   enteringSetupCode,
   resolvingSetupCode;
 
-  bool get isTerminal => this == success || this == error;
+  bool get isTerminal =>
+      this == success || this == error || this == wifiConnected;
 
   bool get isFallbackOnly =>
       this == scanningQr ||
@@ -79,6 +88,7 @@ class OnboardingState {
     this.claimSession,
     this.failureKind,
     this.failureReason,
+    this.wifiProvisioningProgress,
   });
 
   final OnboardingPhase phase;
@@ -102,6 +112,11 @@ class OnboardingState {
   /// backend diagnostic string.
   final String? failureReason;
 
+  /// Only meaningful while [phase] is [OnboardingPhase.sendingWifi] — lets
+  /// the UI distinguish "sending" from "connecting" instead of one opaque
+  /// spinner. Never carries the SSID/password themselves.
+  final WifiProvisioningProgress? wifiProvisioningProgress;
+
   OnboardingState copyWith({
     OnboardingPhase? phase,
     List<DiscoveredInterBridge>? discoveredDevices,
@@ -109,6 +124,7 @@ class OnboardingState {
     ClaimSession? claimSession,
     OnboardingFailureKind? failureKind,
     String? failureReason,
+    WifiProvisioningProgress? wifiProvisioningProgress,
   }) {
     return OnboardingState(
       phase: phase ?? this.phase,
@@ -116,6 +132,8 @@ class OnboardingState {
       selectedDevice: selectedDevice ?? this.selectedDevice,
       claimSession: claimSession ?? this.claimSession,
       failureKind: failureKind ?? this.failureKind,
+      wifiProvisioningProgress:
+          wifiProvisioningProgress ?? this.wifiProvisioningProgress,
       failureReason: failureReason ?? this.failureReason,
     );
   }

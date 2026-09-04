@@ -5,6 +5,63 @@ import 'package:interapp/features/pairing/domain/entities/discovered_interbridge
 /// instead of a generic failure.
 enum BleAvailabilityIssue { bluetoothDisabled, permissionDenied, unsupported }
 
+/// A step the device reported while applying Wi-Fi credentials sent via
+/// [BleOnboardingTransport.sendWifiCredentials] — surfaced so the UI can
+/// show "sending" vs. "connecting" instead of one opaque spinner.
+enum WifiProvisioningProgress {
+  /// SSID/password were sent to the device; it has not yet confirmed
+  /// applying them.
+  sendingConfig,
+
+  /// The device accepted the config and is now attempting to join the
+  /// network.
+  applyingConfig,
+}
+
+/// Why [BleOnboardingTransport.sendWifiCredentials] failed to connect —
+/// mirrors the official Espressif SDK's `ProvisionListener` callbacks
+/// one-to-one, so the coordinator can show a specific, actionable message
+/// (wrong password vs. network not found) instead of one generic failure.
+enum WifiProvisioningFailureReason {
+  /// The device rejected the password (`ProvisionFailureReason.AUTH_FAILED`).
+  authFailed,
+
+  /// The device could not find the given network
+  /// (`ProvisionFailureReason.NETWORK_NOT_FOUND`).
+  networkNotFound,
+
+  /// The BLE connection was lost while provisioning was in progress
+  /// (`ProvisionFailureReason.DEVICE_DISCONNECTED`).
+  deviceDisconnected,
+
+  /// The config could not even be sent to the device (`wifiConfigFailed`).
+  sendFailed,
+
+  /// The device accepted the config but failed to apply/connect with it,
+  /// for a reason it did not further classify (`wifiConfigApplyFailed`).
+  applyFailed,
+
+  /// The secure session needed to send the config was not available
+  /// (`createSessionFailed`).
+  sessionFailed,
+
+  /// A terminal failure the device did not further classify
+  /// (`onProvisioningFailed`, or `ProvisionFailureReason.UNKNOWN`).
+  unknown,
+}
+
+/// Thrown (as a [Stream] error) by
+/// [BleOnboardingTransport.sendWifiCredentials] when the device fails to
+/// connect to the given network. Never carries the SSID/password that were
+/// attempted.
+class WifiProvisioningException implements Exception {
+  const WifiProvisioningException(this.reason);
+  final WifiProvisioningFailureReason reason;
+
+  @override
+  String toString() => 'WifiProvisioningException($reason)';
+}
+
 /// Raw BLE transport operations for onboarding, per
 /// `docs/communication-protocol.md` §7 (ESP-IDF Unified Provisioning /
 /// Wi-Fi Provisioning Manager over BLE, Protocomm Security 1).
@@ -44,7 +101,24 @@ abstract class BleOnboardingTransport {
   /// no-op until that firmware behavior exists.
   Future<void> requestIdentifyBlink();
 
-  Future<void> sendWifiCredentials(String ssid, String password);
+  /// Sends [ssid]/[password] to the already-[establishSecureSession]ed
+  /// device via the official Espressif SDK's `prov-config` provisioning
+  /// call, and reports its progress until the device confirms it joined
+  /// the network.
+  ///
+  /// [password] may be empty for an open network; [ssid] must not be —
+  /// callers must validate that before calling this. Emits
+  /// [WifiProvisioningProgress] as the device reports sending/applying the
+  /// config, then completes normally once Wi-Fi is connected — this never
+  /// emits a value for the final "connected" outcome, only for the
+  /// intermediate steps. Emits a [WifiProvisioningException] as a stream
+  /// error on any failure, including one reported by the device itself
+  /// (wrong password, network not found). Implementations must never log,
+  /// persist, or otherwise retain [ssid]/[password] beyond this call.
+  Stream<WifiProvisioningProgress> sendWifiCredentials(
+    String ssid,
+    String password,
+  );
 
   Future<void> sendFleetProvisioningMaterial(Map<String, dynamic> material);
 

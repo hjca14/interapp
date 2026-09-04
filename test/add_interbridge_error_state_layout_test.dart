@@ -34,7 +34,10 @@ class _NoDeviceBleTransport implements BleOnboardingTransport {
   Future<void> requestIdentifyBlink() async {}
 
   @override
-  Future<void> sendWifiCredentials(String ssid, String password) async {}
+  Stream<WifiProvisioningProgress> sendWifiCredentials(
+    String ssid,
+    String password,
+  ) => const Stream.empty();
 
   @override
   Future<void> sendFleetProvisioningMaterial(

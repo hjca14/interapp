@@ -12,11 +12,13 @@ import com.espressif.provisioning.DeviceConnectionEvent
 import com.espressif.provisioning.ESPConstants.EVENT_DEVICE_CONNECTED
 import com.espressif.provisioning.ESPConstants.EVENT_DEVICE_CONNECTION_FAILED
 import com.espressif.provisioning.ESPConstants.EVENT_DEVICE_DISCONNECTED
+import com.espressif.provisioning.ESPConstants.ProvisionFailureReason
 import com.espressif.provisioning.ESPConstants.SecurityType.SECURITY_1
 import com.espressif.provisioning.ESPConstants.TransportType.TRANSPORT_BLE
 import com.espressif.provisioning.ESPDevice
 import com.espressif.provisioning.ESPProvisionManager
 import com.espressif.provisioning.listeners.BleScanListener
+import com.espressif.provisioning.listeners.ProvisionListener
 import com.espressif.provisioning.listeners.ResponseListener
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -38,6 +40,7 @@ class EspressifBleProvisioningBridge(
     private val candidates = mutableMapOf<String, Candidate>()
     private val handlesByAddress = mutableMapOf<String, String>()
     private var eventSink: EventChannel.EventSink? = null
+    private var wifiEventSink: EventChannel.EventSink? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
     private var pendingConnectionResult: MethodChannel.Result? = null
     private var espDevice: ESPDevice? = null
@@ -46,6 +49,12 @@ class EspressifBleProvisioningBridge(
     init {
         MethodChannel(engine.dartExecutor.binaryMessenger, METHODS).setMethodCallHandler(this)
         EventChannel(engine.dartExecutor.binaryMessenger, EVENTS).setStreamHandler(this)
+        EventChannel(engine.dartExecutor.binaryMessenger, WIFI_EVENTS).setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) { wifiEventSink = events }
+                override fun onCancel(arguments: Any?) { wifiEventSink = null }
+            },
+        )
         EventBus.getDefault().register(this)
     }
 
@@ -57,6 +66,11 @@ class EspressifBleProvisioningBridge(
             "stopScan" -> { stopScan(); result.success(null) }
             "connect" -> connect(call.argument("transportId"), result)
             "establishSecurity1" -> establishSecurity1(call.argument("pop"), result)
+            "sendWifiCredentials" -> sendWifiCredentials(
+                call.argument("ssid"),
+                call.argument("password"),
+                result,
+            )
             "disconnect" -> { cleanupConnection(); result.success(null) }
             else -> result.notImplemented()
         }
@@ -149,6 +163,49 @@ class EspressifBleProvisioningBridge(
         })
     }
 
+    /** ssid/password only ever exist as local parameters here — never stored in a field or logged. */
+    private fun sendWifiCredentials(ssid: String?, password: String?, result: MethodChannel.Result) {
+        val device = espDevice ?: run { result.error("not_connected", "No BLE connection", null); return }
+        if (ssid.isNullOrEmpty()) { result.error("ssid_missing", "SSID must not be empty", null); return }
+        // password may legitimately be empty for an open network.
+        device.provision(ssid, password ?: "", object : ProvisionListener {
+            override fun createSessionFailed(e: Exception) {
+                cleanupConnection()
+                wifiEventSink?.success(mapOf("event" to "wifiFailed", "reason" to "sessionFailed"))
+            }
+            override fun wifiConfigSent() {
+                wifiEventSink?.success(mapOf("event" to "wifiConfigSent"))
+            }
+            override fun wifiConfigFailed(e: Exception) {
+                cleanupConnection()
+                wifiEventSink?.success(mapOf("event" to "wifiFailed", "reason" to "sendFailed"))
+            }
+            override fun wifiConfigApplied() {
+                wifiEventSink?.success(mapOf("event" to "wifiConfigApplied"))
+            }
+            override fun wifiConfigApplyFailed(e: Exception) {
+                cleanupConnection()
+                wifiEventSink?.success(mapOf("event" to "wifiFailed", "reason" to "applyFailed"))
+            }
+            override fun provisioningFailedFromDevice(reason: ProvisionFailureReason) {
+                cleanupConnection()
+                wifiEventSink?.success(mapOf("event" to "wifiFailed", "reason" to wifiFailureReasonCode(reason)))
+            }
+            override fun deviceProvisioningSuccess() {
+                // Deliberately does not cleanupConnection() here — Dart
+                // explicitly calls disconnect() once it has observed this
+                // event, matching connect()/establishSecurity1()'s own
+                // success paths never self-disconnecting either.
+                wifiEventSink?.success(mapOf("event" to "wifiConnected"))
+            }
+            override fun onProvisioningFailed(e: Exception) {
+                cleanupConnection()
+                wifiEventSink?.success(mapOf("event" to "wifiFailed", "reason" to "unknown"))
+            }
+        })
+        result.success(null)
+    }
+
     private fun cleanupConnection() {
         stopScan()
         espDevice?.disconnectDevice()
@@ -157,13 +214,19 @@ class EspressifBleProvisioningBridge(
         candidates.clear(); handlesByAddress.clear()
     }
 
-    fun dispose() { cleanupConnection(); eventSink = null; if (EventBus.getDefault().isRegistered(this)) EventBus.getDefault().unregister(this) }
+    fun dispose() {
+        cleanupConnection()
+        eventSink = null
+        wifiEventSink = null
+        if (EventBus.getDefault().isRegistered(this)) EventBus.getDefault().unregister(this)
+    }
     override fun onListen(arguments: Any?, events: EventChannel.EventSink?) { eventSink = events }
     override fun onCancel(arguments: Any?) { eventSink = null; stopScan() }
 
     companion object {
         private const val METHODS = "interapp/ble_onboarding"
         private const val EVENTS = "interapp/ble_onboarding/discovery"
+        private const val WIFI_EVENTS = "interapp/ble_onboarding/wifi"
         private const val PREFIX = "InterBridge-"
         private const val PERMISSION_REQUEST = 4412
     }

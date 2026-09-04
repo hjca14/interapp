@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:interapp/features/pairing/domain/entities/discovered_interbridge.dart';
 import 'package:interapp/features/pairing/domain/entities/onboarding_state.dart';
+import 'package:interapp/features/pairing/domain/repositories/ble_onboarding_transport.dart';
 import 'package:interapp/features/pairing/presentation/controllers/onboarding_coordinator.dart';
 import 'package:interapp/features/pairing/presentation/providers/pairing_providers.dart';
 
@@ -118,9 +119,16 @@ class _AddInterBridgePageState extends ConsumerState<AddInterBridgePage> {
           onSubmit: _submitWifi,
         );
       case OnboardingPhase.sendingWifi:
-        return const _ProgressStep(
-          message: 'Enviando configuração do Wi-Fi...',
+        return _ProgressStep(
+          message: switch (state.wifiProvisioningProgress) {
+            WifiProvisioningProgress.applyingConfig =>
+              'Conectando o InterBridge à rede Wi-Fi...',
+            WifiProvisioningProgress.sendingConfig ||
+            null => 'Enviando configuração do Wi-Fi...',
+          },
         );
+      case OnboardingPhase.wifiConnected:
+        return _WifiConnectedStep(onDone: () => Navigator.of(context).pop());
       case OnboardingPhase.startingClaim:
       case OnboardingPhase.claimActive:
         return const _ProgressStep(message: 'Registrando o dispositivo...');
@@ -312,6 +320,32 @@ class _WifiFormStep extends StatelessWidget {
         const SizedBox(height: 24),
         FilledButton(onPressed: onSubmit, child: const Text('Continuar')),
       ],
+    );
+  }
+}
+
+/// Honest stopping point for 3C.3: the device joined the given Wi-Fi
+/// network, but permanent claim, production identity, Fleet Provisioning
+/// and AWS are all still pending (a later phase) — deliberately distinct
+/// from [_SuccessStep], never implying the device is registered or added
+/// to the device list.
+class _WifiConnectedStep extends StatelessWidget {
+  const _WifiConnectedStep({required this.onDone});
+  final VoidCallback onDone;
+
+  @override
+  Widget build(BuildContext context) {
+    return _StepScaffold(
+      icon: Icons.wifi,
+      title: 'Wi-Fi configurado.',
+      body: const Text(
+        'O InterBridge se conectou à rede Wi-Fi informada. O registro e a '
+        'ativação do dispositivo na sua conta serão uma próxima etapa.',
+      ),
+      primaryAction: FilledButton(
+        onPressed: onDone,
+        child: const Text('Concluir'),
+      ),
     );
   }
 }
