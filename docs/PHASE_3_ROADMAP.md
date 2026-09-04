@@ -725,6 +725,24 @@ campo de classe, nunca são logados, nunca entram em analytics, estado
 persistido, teste, screenshot ou documentação; senha vazia é aceita (rede
 aberta), SSID vazio é rejeitado antes de qualquer chamada nativa.
 
+**Corrigida uma corrida entre o início do provisionamento e os eventos
+nativos** (achado em revisão, antes de qualquer validação física):
+`sendWifiCredentials` assina `wifiProvisioningEvents` *antes* de invocar
+`sendWifiCredentials` no `MethodChannel`, nunca depois — `EventChannel`/
+`MethodChannel` para a mesma plataforma são entregues na ordem de envio, mas
+um evento (`wifiConfigSent`, `wifiConfigApplied`, `wifiFailed` e sobretudo
+`wifiConnected`, que nunca se repete) emitido pelo nativo antes de o Dart
+assinar seria perdido silenciosamente — uma Stream broadcast nunca guarda
+evento para quem assina depois. Sem essa ordem, a UI podia ficar presa
+indefinidamente em "Conectando o InterBridge à rede Wi-Fi...". Mantém uma
+única tentativa ativa por vez, com limpeza determinística da assinatura em
+sucesso, falha do SDK/dispositivo, erro síncrono do `MethodChannel` e
+cancelamento — nunca polling, nunca timeout artificial. Coberto por testes
+que reproduzem exatamente essa corrida (evento síncrono, `wifiConnected`
+síncrono, falha síncrona, cancelamento) e foram confirmados falhando (dois
+deles por timeout de 30s, reproduzindo o sintoma de spinner preso) contra a
+ordem antiga antes de validar que passam com a correção.
+
 **Falha permite novo envio enquanto o dispositivo ainda estiver na janela
 BLE, sem deixar nada preso:** uma falha de Wi-Fi sempre libera a conexão BLE
 (`disconnect()`, dos dois lados) em vez de tentar reaproveitá-la — o

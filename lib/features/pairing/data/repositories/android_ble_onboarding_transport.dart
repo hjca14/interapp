@@ -123,48 +123,104 @@ class AndroidBleOnboardingTransport implements BleOnboardingTransport {
   @override
   Future<void> requestIdentifyBlink() async {}
 
+  /// Subscribes to [AndroidBleProvisioningBridge.wifiProvisioningEvents]
+  /// *before* ever invoking the native `sendWifiCredentials` method call,
+  /// then returns a single-subscription [Stream] that relays the resulting
+  /// progress/outcome.
+  ///
+  /// Order matters here in a way it doesn't for [scanForProvisioningDevices]
+  /// (whose `async*` body already awaits `startScan` before consuming
+  /// [AndroidBleProvisioningBridge.discoveries]): the native side starts
+  /// calling `ESPDevice.provision(...)`'s listener the moment
+  /// `sendWifiCredentials` is handled, which can be before the *previous*
+  /// platform message (subscribing this stream) would have been processed
+  /// if the two were sent in the other order. `EventChannel`/`MethodChannel`
+  /// messages to the same platform are delivered FIFO, so listening first
+  /// guarantees the native `wifiEventSink` is already attached — including
+  /// for `wifiConnected`, which never repeats and would otherwise strand the
+  /// UI on "Conectando..." forever if lost. A broadcast [EventChannel]
+  /// stream never buffers for a listener that subscribes late, so an
+  /// `await for` starting only after `invoke` returns is not safe here.
   @override
   Stream<WifiProvisioningProgress> sendWifiCredentials(
     String ssid,
     String password,
-  ) async* {
+  ) {
     if (ssid.isEmpty) {
       throw ArgumentError.value(ssid, 'ssid', 'must not be empty');
     }
     if (!_connected) {
       throw const BleOperationException('sendWifiCredentials');
     }
-    try {
-      // ssid/password only ever exist as this call's arguments — never
-      // stored in a field, logged, or included in any exception message.
-      await _bridge.invoke('sendWifiCredentials', {
-        'ssid': ssid,
-        'password': password,
-      });
-    } on PlatformException {
-      await disconnect();
-      throw const WifiProvisioningException(
-        WifiProvisioningFailureReason.sendFailed,
-      );
+
+    final controller = StreamController<WifiProvisioningProgress>();
+    StreamSubscription<Map<Object?, Object?>>? eventSubscription;
+    // Exactly one of succeed()/fail() may ever settle the controller — a
+    // single active attempt, cleaned up deterministically on every exit.
+    var settled = false;
+
+    Future<void> cancelSubscription() async {
+      await eventSubscription?.cancel();
+      eventSubscription = null;
     }
-    await for (final event in _bridge.wifiProvisioningEvents) {
+
+    Future<void> succeed() async {
+      if (settled) return;
+      settled = true;
+      await cancelSubscription();
+      await controller.close();
+    }
+
+    Future<void> fail(WifiProvisioningFailureReason reason) async {
+      if (settled) return;
+      settled = true;
+      await cancelSubscription();
+      await disconnect();
+      controller.addError(WifiProvisioningException(reason));
+      await controller.close();
+    }
+
+    // Cancelling the returned stream (the coordinator dropping this
+    // attempt, or a test tearing down) must release the native listener
+    // too — never leave it subscribed underneath a call nobody is
+    // listening to anymore.
+    controller.onCancel = () {
+      settled = true;
+      return cancelSubscription();
+    };
+
+    eventSubscription = _bridge.wifiProvisioningEvents.listen((event) {
       switch (event['event']) {
         case 'wifiConfigSent':
-          yield WifiProvisioningProgress.sendingConfig;
+          if (!settled) controller.add(WifiProvisioningProgress.sendingConfig);
         case 'wifiConfigApplied':
-          yield WifiProvisioningProgress.applyingConfig;
+          if (!settled) {
+            controller.add(WifiProvisioningProgress.applyingConfig);
+          }
         case 'wifiConnected':
-          return;
+          unawaited(succeed());
         case 'wifiFailed':
-          await disconnect();
-          throw WifiProvisioningException(
-            _parseWifiFailureReason(event['reason']),
-          );
+          unawaited(fail(_parseWifiFailureReason(event['reason'])));
         default:
         // Ignore anything else — defensive against an unrelated/unknown
         // native event reaching this stream.
       }
-    }
+    });
+
+    unawaited(() async {
+      try {
+        // ssid/password only ever exist as this call's arguments — never
+        // stored in a field, logged, or included in any exception message.
+        await _bridge.invoke('sendWifiCredentials', {
+          'ssid': ssid,
+          'password': password,
+        });
+      } on PlatformException {
+        await fail(WifiProvisioningFailureReason.sendFailed);
+      }
+    }());
+
+    return controller.stream;
   }
 
   WifiProvisioningFailureReason _parseWifiFailureReason(Object? reason) {
