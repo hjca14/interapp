@@ -734,14 +734,31 @@ um evento (`wifiConfigSent`, `wifiConfigApplied`, `wifiFailed` e sobretudo
 `wifiConnected`, que nunca se repete) emitido pelo nativo antes de o Dart
 assinar seria perdido silenciosamente — uma Stream broadcast nunca guarda
 evento para quem assina depois. Sem essa ordem, a UI podia ficar presa
-indefinidamente em "Conectando o InterBridge à rede Wi-Fi...". Mantém uma
-única tentativa ativa por vez, com limpeza determinística da assinatura em
-sucesso, falha do SDK/dispositivo, erro síncrono do `MethodChannel` e
-cancelamento — nunca polling, nunca timeout artificial. Coberto por testes
-que reproduzem exatamente essa corrida (evento síncrono, `wifiConnected`
-síncrono, falha síncrona, cancelamento) e foram confirmados falhando (dois
-deles por timeout de 30s, reproduzindo o sintoma de spinner preso) contra a
-ordem antiga antes de validar que passam com a correção.
+indefinidamente em "Conectando o InterBridge à rede Wi-Fi...". Coberto por
+testes que reproduzem exatamente essa corrida (evento síncrono,
+`wifiConnected` síncrono, falha síncrona, cancelamento) e foram confirmados
+falhando (dois deles por timeout de 30s, reproduzindo o sintoma de spinner
+preso) contra a ordem antiga antes de validar que passam com a correção.
+
+**Trava explícita de tentativa única** (achado em revisão adicional):
+`sendWifiCredentials` agora mantém, em um campo da instância, uma referência
+de limpeza da tentativa em curso — não apenas um `settled` local por
+chamada. Uma segunda chamada enquanto essa referência ainda existe falha de
+forma síncrona e determinística (`BleOperationException`), sem nunca criar
+um segundo listener em `wifiProvisioningEvents` nem invocar
+`sendWifiCredentials`/`ESPDevice.provision()` uma segunda vez — duas
+chamadas diretas concorrentes não podiam mais disparar dois provisionamentos
+nativos simultâneos. A referência é liberada em todo encerramento —
+`wifiConnected`, `wifiFailed`, erro síncrono do `MethodChannel`,
+cancelamento da Stream pelo chamador e `disconnect()` — inclusive quando
+`disconnect()` é chamado externamente enquanto uma tentativa ainda está em
+andamento (achado ao testar esse cenário): nesse caso a tentativa é
+encerrada com um evento terminal (`WifiProvisioningException` com motivo
+`deviceDisconnected`) em vez de deixar quem estiver ouvindo a Stream
+esperando para sempre — confirmado por teste que reproduz esse cenário
+(estouro de 30s) contra a versão sem essa limpeza antes de validar que
+passa com a correção. Continua sem polling, sem timeout artificial, sem
+GATT próprio e sem mudança de protocolo/backend.
 
 **Falha permite novo envio enquanto o dispositivo ainda estiver na janela
 BLE, sem deixar nada preso:** uma falha de Wi-Fi sempre libera a conexão BLE
