@@ -52,18 +52,14 @@ class EspressifBleProvisioningBridge(
 
     /**
      * Non-null exactly while a `sendWifiCredentials` attempt is waiting on
-     * *some* [ProvisionListener] callback. This is a secondary UX safety
-     * net, not a fix for a confirmed root cause: physical validation with
-     * the official Espressif app against this same firmware completed the
-     * full flow successfully (Security 1, credentials, apply, connect), so
-     * the protocol/firmware/SDK are not implicated by that evidence. What
-     * remains unconfirmed is why this bridge's own attempt did not observe
-     * the same outcome — see `docs/PHASE_3_ROADMAP.md` for the current
-     * state of that investigation. Whatever the eventual cause, the UI must
-     * never be left on a spinner with no way out, so every attempt still
-     * gets a bounded deadline and a recoverable, retryable error. Re-armed
-     * on every observed forward-progress callback so a legitimately slow
-     * multi-poll Wi-Fi association is not killed early.
+     * *some* [ProvisionListener] callback. A secondary UX safety net only —
+     * see [establishSecurity1] for the actual SDK-call-sequence fix for the
+     * stall a real bench run observed, and [armWifiWatchdog] for why this
+     * must never be described as that fix. The UI must never be left on a
+     * spinner with no way out regardless, so every attempt still gets a
+     * bounded deadline and a recoverable, retryable error. Re-armed on every
+     * observed forward-progress callback so a legitimately slow multi-poll
+     * Wi-Fi association is not killed early.
      */
     private var wifiWatchdog: Runnable? = null
 
@@ -174,29 +170,85 @@ class EspressifBleProvisioningBridge(
         }
     }
 
+    /**
+     * Configures the Proof-of-Possession the *upcoming* [sendWifiCredentials]
+     * call will use — it deliberately does not itself open a Security 1
+     * session or perform any BLE transaction.
+     *
+     * A real bench run against the PR #25 firmware showed the SDK accept
+     * `prov-config` (`wifiConfigSent` fired — `credentials accepted by SDK`)
+     * and then never call back again; the app-level watchdog was the only
+     * thing that ever ended the attempt. Decompiling the resolved
+     * `com.github.espressif:esp-idf-provisioning-android:lib-2.1.3` AAR
+     * (`ESPDevice.class`, `javap -c`) found the actual cause: this method
+     * used to call `device.initSession(...)` here, on its own, and only
+     * *after* it fully completed did the bridge return success to Dart —
+     * which then showed the Wi-Fi form and waited, unbounded, for the user
+     * to type SSID/password. `ESPDevice.provision(ssid, password, listener)`
+     * is the SDK's own single continuous transaction for the rest of the
+     * flow: its bytecode is
+     * ```
+     * if (session == null || !session.isEstablished()) initSession(new ResponseListener() {
+     *     onSuccess -> sendWiFiConfig(ssid, password, listener)   // ESPDevice$5
+     *     onFailure -> listener.createSessionFailed(e)
+     * }); else sendWiFiConfig(ssid, password, listener);
+     * ```
+     * and `sendWiFiConfig`'s own response handler (`ESPDevice$10.onSuccess`)
+     * unconditionally calls `applyWiFiConfig()` next in the same callback —
+     * so nothing about *that* chaining was ever under this bridge's control,
+     * and nothing about it changes here. What changes is which entry point
+     * we call: by pre-establishing the session ourselves and letting Dart
+     * hold it open across an arbitrary, user-paced UI delay, we sat outside
+     * `provision()`'s own supported request/response cycle for that whole
+     * interval — a window `BLETransport.sendConfigData()` cannot recover
+     * from if a GATT operation silently fails there (it calls
+     * `bluetoothGatt.writeCharacteristic(...)` and discards the boolean
+     * result, and guards the transport with an unbounded, no-timeout
+     * `Semaphore.acquire()`; Android's own docs and long-standing BLE stack
+     * behavior, particularly on budget Samsung chipsets like the Galaxy
+     * A12's, document `writeCharacteristic`/`readCharacteristic` returning
+     * `false` or silently not calling back when issued after the GATT
+     * client has sat idle). `provision()` is the officially-supported way
+     * to run session-establish through apply/poll as one uninterrupted
+     * transaction; not calling `initSession()` here at all is what lets
+     * [sendWifiCredentials] reach it fresh, with `session == null`, every
+     * time. An incorrect PoP is therefore now reported via `provision()`'s
+     * own `createSessionFailed` callback (already handled below) once the
+     * user submits Wi-Fi credentials, not here — this method only ever
+     * fails on a missing PoP or no BLE connection, both purely local
+     * checks. Kept as its own bridge/Dart call (rather than merged into
+     * [sendWifiCredentials]) so the app can still show its "securing
+     * connection" step as an observable UI phase between BLE connect and
+     * the Wi-Fi form, per the required UX — it just no longer gates that
+     * step on a real, separately-completed SDK transaction.
+     */
     private fun establishSecurity1(pop: String?, result: MethodChannel.Result) {
-        val device = espDevice ?: run { result.error("not_connected", "No BLE connection", null); return }
+        espDevice ?: run { result.error("not_connected", "No BLE connection", null); return }
         if (pop.isNullOrEmpty()) { cleanupConnection(); result.error("pop_missing", "Development PoP is not configured", null); return }
-        device.proofOfPossession = pop
-        device.initSession(object : ResponseListener {
-            override fun onSuccess(returnData: ByteArray?) { result.success(null) }
-            override fun onFailure(e: Exception) { cleanupConnection(); result.error("security1_failed", "Security 1 session could not be established", null) }
-        })
+        espDevice!!.proofOfPossession = pop
+        result.success(null)
     }
 
     /**
      * Re-arms the *secondary UX safety net*, cancelling any previous one
-     * first. This is not a fix for any confirmed root cause — a first
-     * physical validation with the official Espressif app (same firmware)
-     * completed the full flow successfully, so the SDK/protocol/firmware are
-     * not implicated here. This only exists so a real device — for whatever
-     * reason, on that attempt or a future one — never leaves the UI stuck
-     * on a spinner with no way out: fires [WIFI_RESPONSE_TIMEOUT_MS] after
-     * the *last* observed forward-progress callback (or after `provision()`
-     * itself if none has fired yet), ends the attempt with a recoverable
-     * error, and disconnects — the same retry path (reconnect from scratch)
-     * every other failure in this method already uses. Never logs/persists
-     * ssid, password, PoP, or any response payload — stage names only.
+     * first. This is a bounded, recoverable fallback — never the fix for
+     * the stall a real bench run observed (see [establishSecurity1] for the
+     * SDK-call-sequence fix that addresses that directly, and never claim
+     * this watchdog does). Any time it actually fires, that means the SDK
+     * produced no further [ProvisionListener] callback at all after the
+     * last observed one — a fact this must surface, not paper over: it logs
+     * `terminal timeout` precisely because the timeout itself is not a
+     * normal outcome. It exists purely so a real device — for whatever
+     * reason, on any future attempt this specific fix does not cover
+     * either — never leaves the UI stuck on a spinner with no way out:
+     * fires [WIFI_RESPONSE_TIMEOUT_MS] after the *last* observed
+     * forward-progress callback (or after `provision()` itself if none has
+     * fired yet, which now includes the SDK's own internal session
+     * establishment — see [establishSecurity1]), ends the attempt with a
+     * recoverable error, and disconnects — the same retry path (reconnect
+     * from scratch) every other failure in this method already uses. Never
+     * logs/persists ssid, password, PoP, or any response payload — stage
+     * names only.
      */
     private fun armWifiWatchdog() {
         cancelWifiWatchdog()
@@ -219,7 +271,12 @@ class EspressifBleProvisioningBridge(
      * ssid/password only ever exist as local parameters here — never stored
      * in a field or logged. Calls the official SDK's `ESPDevice.provision`
      * exactly as documented for manual SSID/password entry, on the
-     * already-connected, already-[establishSecurity1]'d device — no GATT,
+     * already-connected device. Since [establishSecurity1] no longer calls
+     * `initSession()` itself, `session` is `null` here, so this `provision()`
+     * call is where the SDK establishes Security 1 *and* sends/applies the
+     * Wi-Fi config *and* polls for the result — one continuous transaction,
+     * exactly as `ESPDevice.provision`'s own bytecode is written to do (see
+     * [establishSecurity1]'s doc comment for the decompiled proof). No GATT,
      * protobuf, or endpoint of our own, no Security 0 fallback. Log markers
      * below are the sanitized bench vocabulary for this call: "provision
      * invoked", "credentials accepted by SDK", "wifi applying", "wifi
@@ -328,9 +385,13 @@ class EspressifBleProvisioningBridge(
         /**
          * Bound on how long a `sendWifiCredentials` attempt waits for the
          * *next* [ProvisionListener] callback before the bridge gives up on
-         * its own — see [wifiWatchdog]. Comfortably above the SDK's own
-         * internal apply-retry (2s) and status-poll (5s) intervals so a
-         * legitimately slow Wi-Fi association is not cut short.
+         * its own — see [wifiWatchdog]. Since [establishSecurity1] no longer
+         * pre-establishes the session, the *first* window also covers the
+         * SDK's own internal Security 1 handshake (`initSession()`, now run
+         * as part of this same `provision()` call) before any callback has
+         * fired — comfortably above that plus the SDK's own internal
+         * apply-retry (2s) and status-poll (5s) intervals so a legitimately
+         * slow handshake or Wi-Fi association is not cut short.
          */
         private const val WIFI_RESPONSE_TIMEOUT_MS = 25_000L
     }

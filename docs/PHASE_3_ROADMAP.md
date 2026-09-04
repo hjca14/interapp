@@ -620,10 +620,10 @@ manualmente após a validação.
 - [ ] **3C.3 — credenciais Wi-Fi: implementada, aguardando validação física
   coordenada.** Envio seguro de SSID/senha exclusivamente pelo `provision()`
   oficial do SDK Espressif (`prov-config`), depois da sessão Security 1 já
-  validada na 3C.2. **Não marcada como concluída** — falta a bancada física
-  coordenada com a 3C.3 do firmware (PR paralelo) para confirmar o
-  dispositivo realmente conectando à rede Wi-Fi real. Ver a seção dedicada
-  abaixo para o desenho e o checklist pendente.
+  validada na 3C.2. Uma primeira tentativa física parou logo após
+  `wifiConfigSent`; a sequência de chamadas ao SDK foi corrigida (ver seção
+  dedicada abaixo). **Não marcada como concluída** — falta repetir a bancada
+  física no Galaxy A12 com a correção aplicada.
 - [ ] **iOS:** adaptador nativo futuro, fora da 3C.2/3C.3.
 
 ### Execução DEV e validação física da 3C.2
@@ -695,227 +695,98 @@ tocado por esta entrega.
 
 ### Implementação da 3C.3 — credenciais Wi-Fi (implementada; validação física ainda pendente)
 
-Depois da sessão Security 1 já estabelecida (3C.2), `AndroidBleOnboardingTransport
+Depois da sessão Security 1 (3C.2), `AndroidBleOnboardingTransport
 .sendWifiCredentials` chama a operação oficial `ESPDevice.provision(ssid, password,
 ProvisionListener)` do SDK Espressif (`prov-config`) — nunca GATT próprio, nunca
 protobuf manual, nunca Security 0, nunca um transporte paralelo. Cada callback do
 `ProvisionListener` vira um evento sanitizado no canal nativo dedicado
-`interapp/ble_onboarding/wifi` (nunca reaproveita o canal de descoberta), mapeado
-para um dos três resultados modelados explicitamente do lado Dart
-(`WifiProvisioningProgress`/sucesso/`WifiProvisioningException`):
+`interapp/ble_onboarding/wifi`, mapeado para os resultados modelados do lado Dart
+(`WifiProvisioningProgress`/sucesso/`WifiProvisioningException`): `wifiConfigSent`
+→ `sendingConfig`; `wifiConfigApplied` → `applyingConfig`; `deviceProvisioningSuccess`
+→ a Stream termina sem emitir valor; qualquer callback de falha do SDK
+(`createSessionFailed`/`wifiConfigFailed`/`wifiConfigApplyFailed`/
+`provisioningFailedFromDevice`/`onProvisioningFailed`) → um evento `wifiFailed`
+com `reason` sanitizado espelhando o `ProvisionFailureReason` do SDK
+(`authFailed`/`networkNotFound`/`deviceDisconnected`/`sendFailed`/`applyFailed`/
+`sessionFailed`/`unknown`), mais `noResponse` — a única exceção que não vem do
+SDK, usada pelo watchdog descrito na seção de bancada abaixo.
 
-- **envio/aplicação em andamento:** `wifiConfigSent` → `sendingConfig`;
-  `wifiConfigApplied` → `applyingConfig` — a UI mostra "Enviando configuração
-  do Wi-Fi..." e depois "Conectando o InterBridge à rede Wi-Fi...";
-- **Wi-Fi conectado:** `deviceProvisioningSuccess` → a Stream simplesmente
-  termina (nunca emite um valor para esse desfecho) — ver abaixo o que a UI
-  faz com isso;
-- **falha de configuração/conexão:** `createSessionFailed`/`wifiConfigFailed`/
-  `wifiConfigApplyFailed`/`provisioningFailedFromDevice`/`onProvisioningFailed`
-  → um único evento `wifiFailed` com um `reason` sanitizado
-  (`authFailed`/`networkNotFound`/`deviceDisconnected`/`sendFailed`/
-  `applyFailed`/`sessionFailed`/`unknown`/`noResponse`, espelhando 1:1 o
-  `ProvisionFailureReason` do SDK quando o dispositivo classifica o motivo —
-  `noResponse` é a exceção: não vem do SDK, é a própria integração desistindo
-  de esperar, ver abaixo),
-  que vira uma mensagem específica e acionável (“Senha de Wi-Fi incorreta”,
-  “rede não encontrada”) em vez de um erro genérico.
+SSID/senha só existem como argumentos locais da chamada nativa — nunca campo de
+classe, log, analytics, estado persistido, teste ou documentação; senha vazia é
+aceita (rede aberta), SSID vazio é rejeitado antes de qualquer chamada nativa.
+Uma falha sempre libera a conexão BLE (nunca tenta reaproveitá-la); a trava de
+tentativa única e o tratamento de corrida entre assinar `wifiProvisioningEvents`
+e invocar `sendWifiCredentials` estão documentados nos comentários do próprio
+código (`EspressifBleProvisioningBridge.kt`,
+`android_ble_onboarding_transport.dart`) e cobertos em
+`android_ble_onboarding_transport_test.dart` — não repetidos aqui.
 
-SSID/senha só existem como argumentos da chamada nativa (`ssid`/`password` no
-`MethodChannel`, parâmetros locais do `provision()` em Kotlin) — nunca viram
-campo de classe, nunca são logados, nunca entram em analytics, estado
-persistido, teste, screenshot ou documentação; senha vazia é aceita (rede
-aberta), SSID vazio é rejeitado antes de qualquer chamada nativa.
-
-**Corrigida uma corrida entre o início do provisionamento e os eventos
-nativos** (achado em revisão, antes de qualquer validação física):
-`sendWifiCredentials` assina `wifiProvisioningEvents` *antes* de invocar
-`sendWifiCredentials` no `MethodChannel`, nunca depois — `EventChannel`/
-`MethodChannel` para a mesma plataforma são entregues na ordem de envio, mas
-um evento (`wifiConfigSent`, `wifiConfigApplied`, `wifiFailed` e sobretudo
-`wifiConnected`, que nunca se repete) emitido pelo nativo antes de o Dart
-assinar seria perdido silenciosamente — uma Stream broadcast nunca guarda
-evento para quem assina depois. Sem essa ordem, a UI podia ficar presa
-indefinidamente em "Conectando o InterBridge à rede Wi-Fi...". Coberto por
-testes que reproduzem exatamente essa corrida (evento síncrono,
-`wifiConnected` síncrono, falha síncrona, cancelamento) e foram confirmados
-falhando (dois deles por timeout de 30s, reproduzindo o sintoma de spinner
-preso) contra a ordem antiga antes de validar que passam com a correção.
-
-**Trava explícita de tentativa única** (achado em revisão adicional):
-`sendWifiCredentials` agora mantém, em um campo da instância, uma referência
-de limpeza da tentativa em curso — não apenas um `settled` local por
-chamada. Uma segunda chamada enquanto essa referência ainda existe falha de
-forma síncrona e determinística (`BleOperationException`), sem nunca criar
-um segundo listener em `wifiProvisioningEvents` nem invocar
-`sendWifiCredentials`/`ESPDevice.provision()` uma segunda vez — duas
-chamadas diretas concorrentes não podiam mais disparar dois provisionamentos
-nativos simultâneos. A referência é liberada em todo encerramento —
-`wifiConnected`, `wifiFailed`, erro síncrono do `MethodChannel`,
-cancelamento da Stream pelo chamador e `disconnect()` — inclusive quando
-`disconnect()` é chamado externamente enquanto uma tentativa ainda está em
-andamento (achado ao testar esse cenário): nesse caso a tentativa é
-encerrada com um evento terminal (`WifiProvisioningException` com motivo
-`deviceDisconnected`) em vez de deixar quem estiver ouvindo a Stream
-esperando para sempre — confirmado por teste que reproduz esse cenário
-(estouro de 30s) contra a versão sem essa limpeza antes de validar que
-passa com a correção. Continua sem polling, sem timeout artificial, sem
-GATT próprio e sem mudança de protocolo/backend.
-
-**Falha permite novo envio enquanto o dispositivo ainda estiver na janela
-BLE, sem deixar nada preso:** uma falha de Wi-Fi sempre libera a conexão BLE
-(`disconnect()`, dos dois lados) em vez de tentar reaproveitá-la — o
-`transportId` de uma tentativa anterior não é mais válido depois disso, então
-"Tentar novamente" refaz a descoberta e a conexão do zero, funcionando
-enquanto o InterBridge físico continuar anunciando. Isso evita a ambiguidade
-de "a sessão ainda está realmente viva?" em vez de arriscar reusar uma
-conexão morta.
-
-**Depois de Wi-Fi conectado, o app nunca afirma "configurado com sucesso"
-nem adiciona o dispositivo a nenhuma lista** — claim permanente, identidade
-de produção, Fleet Provisioning e AWS continuam pendentes (frente futura,
-3C.4+). A tela mostra uma confirmação honesta ("Wi-Fi configurado.") e deixa
-explícito que o registro/ativação do dispositivo será uma próxima etapa; o
-app libera a conexão BLE (não há mais nada para fazer nela nesta fase) e
-nunca chama o pipeline de claim/Fleet Provisioning já existente no
-coordenador (reservado, não removido, para quando essa frente for
-implementada).
+**Depois de Wi-Fi conectado, o app nunca afirma "configurado com sucesso" nem
+adiciona o dispositivo a nenhuma lista** — claim permanente, identidade de
+produção, Fleet Provisioning e AWS continuam pendentes (frente futura, 3C.4+).
+A tela mostra uma confirmação honesta ("Wi-Fi configurado.") e libera a conexão
+BLE; o pipeline de claim/Fleet Provisioning existente no coordenador permanece
+reservado, não removido, para quando essa frente for implementada.
 
 Descoberta por QR/código manual continua como fallback apenas de *qual*
 dispositivo — nome BLE anunciado, MAC, UUID local ou `transportId` nunca
 alimentam `device_id`/claim, igual à 3C.2. Android continua o único alvo
 real desta fase; iOS segue fora de escopo.
 
-### Primeira validação física — firmware confirmado correto, integração Android ainda pendente
+### Bancada física — firmware validado, InterApp ainda pendente
 
-**O firmware da 3C.3 está validado fisicamente ponta a ponta**, fora deste
-repositório: ESP32-C3 apagado e regravado com a PR #25, provisionado com o
-app oficial "ESP BLE Provisioning" da Espressif (mesma PoP DEV), completou
-Security 1, recebeu as credenciais, aplicou e conectou à rede Wi-Fi real —
-serial do ESP confirmando `[BLE] Wi-Fi credentials received` →
-`Wi-Fi connecting` → `Wi-Fi connected` → `onboarding complete`. Isso
-descarta definitivamente firmware, protocolo `prov-config`/Security 1, e
-qualquer defeito do SDK oficial que impedisse esse fluxo de funcionar — o
-mesmo `.aar` (`com.github.espressif:esp-idf-provisioning-android:lib-2.1.3`)
-usado pelo app oficial é o que este bridge Android também consome.
+**Firmware validado com o app oficial:** fora deste repositório, o mesmo
+ESP32-C3/firmware (PR #25 do firmware) foi provisionado com o app oficial
+"ESP BLE Provisioning" da Espressif usando a mesma PoP DEV e completou
+Security 1 → credenciais → apply → conectado à rede Wi-Fi real, confirmado
+pelo serial do ESP. (Não confirmado: se esse app oficial usa exatamente a
+mesma versão `lib-2.1.3` do SDK que este bridge consome — apenas que o
+firmware/protocolo funcionam com um cliente Espressif oficial.)
 
-Uma tentativa anterior de validação física *com este app* (Galaxy A12, esse
-mesmo firmware) não completou o mesmo fluxo — chegou a discovery, conexão
-BLE e Security 1, mas nenhum callback do `ProvisionListener` chegou a
-disparar depois do envio das credenciais, e a UI ficou presa em "Enviando
-configuração do Wi-Fi...". Dado que o app oficial funciona com o mesmo
-firmware e o mesmo SDK, **o defeito está na integração deste bridge, não no
-SDK, protocolo ou firmware** — a causa concreta, porém, ainda não foi
-identificada.
+**InterApp ainda pendente de validação física:** uma tentativa no Galaxy A12
+com este app, mesmo firmware, chegou a discovery/conexão/Security 1, mas
+parou logo depois do envio das credenciais.
 
-Uma revisão anterior deste documento chegou a apontar, como causa provável,
-que `BLETransport$1$1.run()` (a tarefa que interpreta a leitura de resposta
-de `prov-config` no `.aar`) é despachada via `ExecutorService.submit(...)`
-com o `Future` descartado sem nunca ser consultado — verificável no
-bytecode do `.aar` (não há fonte anexada) e, em tese, capaz de engolir uma
-exceção de parsing sem chamar nenhum callback. **Essa afirmação foi
-retirada como causa raiz**: é uma leitura correta do bytecode, mas não foi
-demonstrada como o gatilho real deste incidente, e a evidência física atual
-— o mesmo `.aar` funcionando via o app oficial — não a sustenta como
-explicação suficiente sozinha. Uma nova rodada de revisão (comparando
-`ESPProvisionManager`/`ESPDevice`/`Session`/`Security1`/`BLETransport` byte
-a byte com a sequência deste bridge: `createESPDevice` →
-`connectBLEDevice` → aguardar `EVENT_DEVICE_CONNECTED` → `initSession` →
-aguardar sucesso → `provision(ssid, password, listener)`) não encontrou
-nenhuma divergência de ordem, sessão duplicada ou *ownership* de
-`ESPDevice` frente ao contrato exposto pelo SDK — em particular,
-`ESPDevice.provision()` reutiliza corretamente uma sessão já estabelecida
-(`session != null && session.isEstablished()`) em vez de reiniciar Security
-1, e `ESPProvisionManager.createESPDevice()` é o único ponto que cria e
-"possui" a instância de `ESPDevice`, sem nenhum outro caminho paralelo na
-API pública. Nenhuma alteração de sequência/lifecycle foi feita nesta
-rodada por falta de uma divergência concreta para corrigir — só
-instrumentação (abaixo) para que a próxima tentativa física produza a
-evidência que falta.
+**Evidência da falha:** `wifiConfigSent` (`credentials accepted by SDK`)
+disparou; nenhum callback do `ProvisionListener` seguinte (`wifiConfigApplied`,
+sucesso ou falha) chegou depois disso — a tentativa só terminou pelo watchdog
+de 25s, nunca por um resultado do SDK.
 
-Enquanto a causa raiz não é confirmada, a integração Android mantém apenas
-proteções que não dependem de acertar o diagnóstico, sem alterar SDK
-oficial, Security 1, `prov-config`, BLE ou protocolo algum:
+**Correção adotada:** `EspressifBleProvisioningBridge.establishSecurity1`
+chamava `device.initSession(...)` sozinho e retornava sucesso ao Dart antes
+de o usuário digitar as credenciais Wi-Fi — mantendo uma sessão já
+estabelecida aberta por um intervalo arbitrário, pautado pelo usuário, fora
+do ciclo de requisição/resposta que `ESPDevice.provision()` foi desenhado
+para conduzir sozinho. Decompilar `ESPDevice.class`/`BLETransport.class` do
+`.aar` `lib-2.1.3` (`javap -c`) confirma que `provision()` já resolve isso
+internamente (`if (session == null || !session.isEstablished()) initSession(...)
+else sendWiFiConfig(...)`, com `sendWiFiConfig`'s encadeando
+`applyWiFiConfig()` sozinho) e que `BLETransport.sendConfigData()` descarta o
+retorno de `writeCharacteristic()` e usa um `Semaphore.acquire()` sem
+timeout — um padrão sensível a operações GATT reentrantes/back-to-back em
+pilhas BLE de aparelhos como o Galaxy A12. `establishSecurity1` não chama
+mais `initSession()`; apenas configura a PoP, e `sendWifiCredentials` é
+agora o único ponto que chama `provision()`, sempre com `session == null`,
+deixando o SDK conduzir sessão → envio → apply → status como uma única
+transação. O watchdog continua existindo apenas como rede de segurança
+secundária (nunca a correção) — ver comentários em
+`EspressifBleProvisioningBridge.kt`. Detalhes e evidência completa (bytecode
+citado linha a linha) estão nos comentários de `establishSecurity1`.
 
-- **Watchdog — proteção secundária de UX, não a correção:** um `Handler` no
-  `Looper` principal arma um prazo (25s, acima dos intervalos internos do
-  SDK — 2s antes de aplicar, 5s entre consultas de status) a cada chamada
-  de `provision()` e a cada callback de progresso observado
-  (`wifiConfigSent`/`wifiConfigApplied`). Se nenhum callback seguinte
-  chegar dentro do prazo, o bridge encerra a tentativa — desconecta e emite
-  `wifiFailed` com `reason: "noResponse"`, o mesmo caminho de retry
-  (reconectar do zero) que qualquer outra falha nesta função já usa — em
-  vez de deixar a UI presa indefinidamente. Isso não diagnostica nem
-  mascara a causa real; existe apenas para que, qualquer que seja o motivo,
-  o usuário sempre tenha como tentar de novo.
-- **Chamada a `provision()` protegida:** um `try/catch` em volta da própria
-  chamada síncrona ao SDK garante que uma exceção inesperada ali também
-  termina a tentativa com erro sanitizado (`result.error(...)`) em vez de
-  deixar o `MethodChannel` sem resposta.
-- **Falha do `EventChannel` do lado Dart:** `sendWifiCredentials` agora trata
-  `onError`/`onDone` de `wifiProvisioningEvents` como terminais
-  (`WifiProvisioningException` com `reason: noResponse`) em vez de deixar um
-  erro não tratado escapar ou a Stream nunca fechar; a chamada nativa que
-  falha por qualquer exceção (não só `PlatformException`) também passou a
-  encerrar a tentativa.
-- **Marcadores sanitizados no bridge Android** (`Log.d`/`Log.w`/`Log.e`,
-  nunca `CORE_DEBUG_LEVEL` nem `Serial.setDebugOutput` no firmware) —
-  vocabulário fixo para correlacionar com o serial do ESP na próxima
-  bancada: `provision invoked`; `credentials accepted by SDK`
-  (`wifiConfigSent`); `wifi applying` (`wifiConfigApplied`); `wifi
-  connected` (`deviceProvisioningSuccess`); `wifi rejected` (qualquer
-  callback de falha do `ProvisionListener`, com o motivo sanitizado quando
-  disponível); `terminal timeout` (o watchdog). Nunca SSID, senha, PoP,
-  bytes de payload BLE, protobuf, MAC ou UUID. Essa granularidade é nova em
-  relação à evidência anterior: um log de BLE mostrando `onCharacteristicWrite`/
-  `onCharacteristicRead` com sucesso (nível GATT) **não** é o mesmo que
-  `credentials accepted by SDK` (nível `ProvisionListener`, exige a resposta
-  ter sido decodificada como `RespSetConfig{status: Success}`) — a próxima
-  bancada física deve confirmar qual dos dois efetivamente ocorre.
+**Checklist de bancada pendente (Galaxy A12, com a correção aplicada):**
 
-Cobertura de teste (`android_ble_onboarding_transport_test.dart`): a
-progressão completa `wifiConfigSent → wifiConfigApplied → wifiConnected` é
-confirmada, incluindo que aceitar a config sozinha não encerra a Stream;
-rejeição mapeia para o motivo correto e desconecta; um erro ou fechamento do
-`wifiProvisioningEvents` (o caminho "erro sem callback") termina a tentativa
-como `noResponse` e libera a trava de tentativa única para uma nova chamada
-(retry); os dois testes de `EventChannel` foram confirmados falhando (um por
-erro não tratado escapando, outro por timeout de 30s) contra a versão sem
-esses tratamentos antes de validar que passam com a correção. O watchdog em
-si (baseado em `Handler`/`Looper`, exige runtime Android) não tem teste JVM
-equivalente — mesma limitação já existente de todo o resto de
-`EspressifBleProvisioningBridge`, que depende de `Activity`/`FlutterEngine`
-reais.
-
-- [x] Chamar `ESPDevice.provision()` (SDK oficial) depois da sessão Security 1.
-- [x] Modelar envio/aplicação em andamento, Wi-Fi conectado e falha de
-  configuração/conexão como resultados distintos e claros.
-- [x] Nunca logar/persistir SSID ou senha; senha vazia permitida, SSID vazio
-  rejeitado.
-- [x] Falha permite novo envio sem deixar scan/conexão/stream nativo preso.
-- [x] Nunca apresentar "sucesso"/adicionar à lista antes do claim real.
-- [x] Nenhum callback do `ProvisionListener` (nem falha do `EventChannel`)
-  pode mais deixar a UI presa indefinidamente — watchdog de UX + tratamento
-  de `onError`/`onDone` do lado Dart (proteção secundária, não a correção).
-- [x] **Firmware 3C.3 validado fisicamente ponta a ponta** com o app oficial
-  Espressif e a mesma PoP DEV — fluxo completo (Security 1, credenciais,
-  apply, conectar) confirmado pelo serial do ESP.
-- [ ] **Validação física com o InterApp — ainda não concluída com sucesso:**
-  a causa pela qual este bridge não completa o mesmo fluxo que o app oficial
-  completa não foi identificada nesta rodada (revisão de bytecode não
-  encontrou divergência de ordem/sessão/ownership). Falta: rodar de novo no
-  Galaxy A12 com os marcadores sanitizados acima e o serial do ESP lado a
-  lado, para determinar se `credentials accepted by SDK` chega a aparecer
-  (aponta para BLE/MTU/stack, não para o SDK) ou não (aponta para
-  decodificação da resposta); SSID/senha reais conectando de fato; falha com
-  senha incorreta e com rede fora de alcance mostrando a mensagem específica
-  correta; retry após falha reencontrando e reconectando ao mesmo
-  dispositivo físico; confirmação de que nenhum segredo aparece em
-  log/diagnóstico durante o teste físico.
+- [ ] confirmar que `credentials accepted by SDK` é seguido por `wifi applying`
+  e `wifi connected` (não apenas pelo primeiro callback);
+- [ ] SSID/senha reais conectando de fato à rede;
+- [ ] falha com senha incorreta e com rede fora de alcance mostrando a
+  mensagem específica correta;
+- [ ] retry após falha reencontrando e reconectando ao mesmo dispositivo
+  físico;
+- [ ] confirmar ausência de qualquer segredo em log/diagnóstico durante o
+  teste físico.
 
 **3C.3 permanece implementada, não concluída**, até essa validação física
-com o InterApp ser executada com sucesso e registrada aqui — o firmware,
-isoladamente, já está confirmado correto (ver acima).
+com o InterApp ser executada com sucesso e registrada aqui.
 
 ## Trabalhos sem numeração definitiva
 

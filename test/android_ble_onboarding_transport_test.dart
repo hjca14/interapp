@@ -495,6 +495,55 @@ void main() {
       },
     );
 
+    test('establishSecureSession succeeding does not itself establish a real '
+        'SDK session — a sessionFailed reported only once Wi-Fi credentials '
+        'are submitted is still a normal, fully-retryable failure', () async {
+      // Native EspressifBleProvisioningBridge.establishSecurity1 only
+      // configures the PoP for the upcoming ESPDevice.provision() call
+      // now — it never calls the SDK's initSession() itself (see that
+      // method's doc comment for why, and the decompiled evidence). This
+      // fake bridge cannot model that native-internal distinction
+      // directly, but it CAN — and must — model the resulting contract:
+      // establishSecureSession() succeeding is not a guarantee a
+      // sessionFailed can no longer occur; it can now surface at the
+      // sendWifiCredentials step instead, and must be handled exactly
+      // like every other recoverable wifiFailed reason.
+      final bridge = _FakeBridge();
+      final transport = AndroidBleOnboardingTransport(
+        developmentProofOfPossession: configuredTestValue(),
+        bridge: bridge,
+      );
+      await _connectAndSecure(transport);
+
+      final firstAttempt = transport
+          .sendWifiCredentials('home-network', 'password')
+          .drain<void>();
+      await Future<void>.delayed(Duration.zero);
+      bridge.wifiEvents.add({'event': 'wifiFailed', 'reason': 'sessionFailed'});
+      await expectLater(
+        firstAttempt,
+        throwsA(
+          isA<WifiProvisioningException>().having(
+            (e) => e.reason,
+            'reason',
+            WifiProvisioningFailureReason.sessionFailed,
+          ),
+        ),
+      );
+      expect(bridge.calls.last, 'disconnect');
+
+      // Reconnect and retry, exactly as OnboardingCoordinator.retry()
+      // does for OnboardingFailureKind.wifiFailed — this must succeed
+      // normally, never stay locked out by the earlier session failure.
+      await _connectAndSecure(transport);
+      final secondAttempt = transport
+          .sendWifiCredentials('home-network', 'password')
+          .toList();
+      await Future<void>.delayed(Duration.zero);
+      bridge.wifiEvents.add({'event': 'wifiConnected'});
+      await secondAttempt;
+    });
+
     test('a new attempt is accepted normally once the previous one is '
         'cancelled by its caller', () async {
       final bridge = _FakeBridge();
