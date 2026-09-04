@@ -714,8 +714,10 @@ para um dos três resultados modelados explicitamente do lado Dart
   `wifiConfigApplyFailed`/`provisioningFailedFromDevice`/`onProvisioningFailed`
   → um único evento `wifiFailed` com um `reason` sanitizado
   (`authFailed`/`networkNotFound`/`deviceDisconnected`/`sendFailed`/
-  `applyFailed`/`sessionFailed`/`unknown`, espelhando 1:1 o
-  `ProvisionFailureReason` do SDK quando o dispositivo classifica o motivo),
+  `applyFailed`/`sessionFailed`/`unknown`/`noResponse`, espelhando 1:1 o
+  `ProvisionFailureReason` do SDK quando o dispositivo classifica o motivo —
+  `noResponse` é a exceção: não vem do SDK, é a própria integração desistindo
+  de esperar, ver abaixo),
   que vira uma mensagem específica e acionável (“Senha de Wi-Fi incorreta”,
   “rede não encontrada”) em vez de um erro genérico.
 
@@ -784,6 +786,85 @@ dispositivo — nome BLE anunciado, MAC, UUID local ou `transportId` nunca
 alimentam `device_id`/claim, igual à 3C.2. Android continua o único alvo
 real desta fase; iOS segue fora de escopo.
 
+### Primeira validação física — incompatibilidade encontrada, integração pendente
+
+Uma primeira tentativa de validação física (Galaxy A12 + ESP32-C3 apagado e
+regravado com a PR #25) chegou a: discovery, conexão BLE e Security 1
+concluídos; ao enviar Wi‑Fi, o log Android registrou escrita **e** leitura da
+característica oficial `prov-config` (`021aff52-...`) — mas nenhum callback
+do `ProvisionListener` chegou a disparar (nem `wifiConfigSent`, nem
+`wifiFailed`, nem `wifiConnected`), a UI ficou presa em "Enviando
+configuração do Wi-Fi..." e o serial do ESP nunca registrou
+`[BLE] Wi-Fi credentials received` — ou seja, `ARDUINO_EVENT_PROV_CRED_RECV`
+nunca chegou a disparar no firmware.
+
+Inspecionando o `.aar` publicado de
+`com.github.espressif:esp-idf-provisioning-android:lib-2.1.3` (bytecode —
+não há fonte anexada), `BLETransport$1$1.run()` — a tarefa que interpreta a
+leitura de resposta de `prov-config` — é despachada via
+`ExecutorService.submit(Runnable)` e o `Future` retornado é descartado sem
+nunca ser consultado (`.get()`). Qualquer exceção lançada ao decodificar uma
+resposta inesperada (por exemplo o valor antigo/vazio de uma característica
+cujo lado ESP nunca chegou a processar o `write` como um `cmd_set_config`
+válido) é silenciosamente engolida pelo SDK oficial: nenhum callback do
+`ProvisionListener` é chamado, nem sucesso, nem falha. Esse é um defeito real
+do SDK oficial, não do protocolo — a escrita/leitura BLE em si teve sucesso
+(`GATT_SUCCESS`), mas a resposta correspondente nunca chegou a ser
+interpretada pelo lado Android nem, aparentemente, o `write` a ser
+processado como credenciais válidas pelo lado do firmware. A causa exata do
+lado do firmware (por que o ESP32-C3 não tratou o `write` como
+`cmd_set_config`) **não foi confirmada** nesta rodada — é matéria para a
+3C.3 do firmware, fora deste repositório.
+
+Como não é possível corrigir o `.aar` de terceiros sem reimplementar o
+protocolo (fora de escopo, explicitamente vetado), a integração Android
+ganhou uma rede de segurança supervisora, sem alterar SDK oficial, Security
+1, `prov-config`, BLE ou protocolo algum:
+
+- **Watchdog de tentativa única** (`EspressifBleProvisioningBridge.kt`): um
+  `Handler` no `Looper` principal arma um prazo (25s, acima dos próprios
+  intervalos internos do SDK — 2s antes de aplicar, 5s entre consultas de
+  status) a cada chamada de `provision()` e a cada callback de progresso
+  observado (`wifiConfigSent`/`wifiConfigApplied`). Se nenhum callback
+  seguinte chegar dentro do prazo, o próprio bridge encerra a tentativa —
+  desconecta e emite `wifiFailed` com `reason: "noResponse"` — em vez de
+  deixar a UI presa indefinidamente. É a defesa possível contra o defeito de
+  `Future` descartado descrito acima: como não dá para capturar a exceção
+  engolida pelo SDK, a integração passa a vigiar a ausência de resposta.
+- **Chamada a `provision()` protegida:** um `try/catch` em volta da própria
+  chamada síncrona ao SDK garante que uma exceção inesperada ali também
+  termina a tentativa com erro sanitizado (`result.error(...)`) em vez de
+  deixar o `MethodChannel` sem resposta.
+- **Falha do `EventChannel` do lado Dart:** `sendWifiCredentials` agora trata
+  `onError`/`onDone` de `wifiProvisioningEvents` como terminais
+  (`WifiProvisioningException` com `reason: noResponse`) em vez de deixar um
+  erro não tratado escapar ou a Stream nunca fechar; a chamada nativa que
+  falha por qualquer exceção (não só `PlatformException`) também passou a
+  encerrar a tentativa.
+- **Logs sanitizados temporários no bridge Android** (`Log.d`/`Log.w`/
+  `Log.e`, nunca `CORE_DEBUG_LEVEL` nem `Serial.setDebugOutput` no firmware):
+  um por estágio — `provision()` iniciado; config aceita/rejeitada
+  (`wifiConfigSent`/`wifiConfigFailed`/`createSessionFailed`); apply aceito/
+  rejeitado (`wifiConfigApplied`/`wifiConfigApplyFailed`); callback terminal
+  (`deviceProvisioningSuccess`/`provisioningFailedFromDevice`/
+  `onProvisioningFailed`); e o próprio watchdog expirando. Nunca incluem
+  SSID, senha, PoP, bytes, protobuf, MAC ou UUID — apenas o nome do estágio
+  (e, quando aplicável, o `reason` já sanitizado por `wifiFailureReasonCode`)
+  — para dar visibilidade de bancada em uma próxima tentativa física sem
+  reintroduzir nenhum segredo em log.
+
+Cobertura de teste (`android_ble_onboarding_transport_test.dart`): a
+progressão completa `wifiConfigSent → wifiConfigApplied → wifiConnected` é
+confirmada, incluindo que aceitar a config sozinha não encerra a Stream; um
+erro ou fechamento do `wifiProvisioningEvents` termina a tentativa como
+`noResponse` e libera a trava de tentativa única para uma nova chamada — os
+dois testes novos foram confirmados falhando (um por erro não tratado
+escapando, outro por timeout de 30s) contra a versão sem esses tratamentos
+antes de validar que passam com a correção. O watchdog em si (baseado em
+`Handler`/`Looper`, exige runtime Android) não tem teste JVM equivalente —
+mesma limitação já existente de todo o resto de `EspressifBleProvisioningBridge`,
+que depende de `Activity`/`FlutterEngine` reais.
+
 - [x] Chamar `ESPDevice.provision()` (SDK oficial) depois da sessão Security 1.
 - [x] Modelar envio/aplicação em andamento, Wi-Fi conectado e falha de
   configuração/conexão como resultados distintos e claros.
@@ -791,16 +872,23 @@ real desta fase; iOS segue fora de escopo.
   rejeitado.
 - [x] Falha permite novo envio sem deixar scan/conexão/stream nativo preso.
 - [x] Nunca apresentar "sucesso"/adicionar à lista antes do claim real.
+- [x] Nenhum callback do `ProvisionListener` (nem falha do `EventChannel`)
+  pode mais deixar a UI presa indefinidamente — watchdog nativo + tratamento
+  de `onError`/`onDone` do lado Dart.
 - [ ] **Validação física coordenada com a 3C.3 do firmware — ainda não
-  executada:** SSID/senha reais chegando a uma rede Wi-Fi de bancada real e o
-  InterBridge físico realmente conectando; falha com senha incorreta e com
-  rede fora de alcance, cada uma mostrando a mensagem específica correta;
-  retry após falha reencontrando e reconectando ao mesmo dispositivo físico;
+  executada com sucesso:** a primeira tentativa encontrou a incompatibilidade
+  descrita acima e não chegou a validar o fluxo fim a fim. Falta: SSID/senha
+  reais chegando a uma rede Wi-Fi de bancada real e o InterBridge físico
+  realmente conectando; falha com senha incorreta e com rede fora de
+  alcance, cada uma mostrando a mensagem específica correta; retry após
+  falha reencontrando e reconectando ao mesmo dispositivo físico;
   confirmação de que nenhum segredo aparece em log/diagnóstico durante o
-  teste físico.
+  teste físico; e — caso o `noResponse`/watchdog dispare de novo — investigar
+  a causa exata do lado do firmware (por que `ARDUINO_EVENT_PROV_CRED_RECV`
+  não disparou), coordenado com a 3C.3 do firmware.
 
 **3C.3 permanece implementada, não concluída**, até essa validação física
-coordenada ser executada e registrada aqui.
+coordenada ser executada com sucesso e registrada aqui.
 
 ## Trabalhos sem numeração definitiva
 

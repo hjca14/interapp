@@ -233,23 +233,38 @@ class AndroidBleOnboardingTransport implements BleOnboardingTransport {
       await controller.close();
     };
 
-    eventSubscription = _bridge.wifiProvisioningEvents.listen((event) {
-      switch (event['event']) {
-        case 'wifiConfigSent':
-          if (!settled) controller.add(WifiProvisioningProgress.sendingConfig);
-        case 'wifiConfigApplied':
-          if (!settled) {
-            controller.add(WifiProvisioningProgress.applyingConfig);
-          }
-        case 'wifiConnected':
-          unawaited(succeed());
-        case 'wifiFailed':
-          unawaited(fail(_parseWifiFailureReason(event['reason'])));
-        default:
-        // Ignore anything else — defensive against an unrelated/unknown
-        // native event reaching this stream.
-      }
-    });
+    eventSubscription = _bridge.wifiProvisioningEvents.listen(
+      (event) {
+        switch (event['event']) {
+          case 'wifiConfigSent':
+            if (!settled) {
+              controller.add(WifiProvisioningProgress.sendingConfig);
+            }
+          case 'wifiConfigApplied':
+            if (!settled) {
+              controller.add(WifiProvisioningProgress.applyingConfig);
+            }
+          case 'wifiConnected':
+            unawaited(succeed());
+          case 'wifiFailed':
+            unawaited(fail(_parseWifiFailureReason(event['reason'])));
+          default:
+          // Ignore anything else — defensive against an unrelated/unknown
+          // native event reaching this stream.
+        }
+      },
+      // The native EventChannel itself failing or closing out from under
+      // this attempt (never a ProvisionListener callback) is exactly as
+      // terminal as a device-reported failure — without these, either
+      // would otherwise leave this stream (and the single-attempt lock)
+      // stuck forever instead of resolving with a sanitized error.
+      onError: (Object _, StackTrace _) {
+        unawaited(fail(WifiProvisioningFailureReason.noResponse));
+      },
+      onDone: () {
+        unawaited(fail(WifiProvisioningFailureReason.noResponse));
+      },
+    );
 
     unawaited(() async {
       try {
@@ -259,7 +274,10 @@ class AndroidBleOnboardingTransport implements BleOnboardingTransport {
           'ssid': ssid,
           'password': password,
         });
-      } on PlatformException {
+      } catch (_) {
+        // Any unexpected failure from the platform call itself — not just
+        // a PlatformException — must still terminate this attempt with a
+        // sanitized error rather than leave the lock held forever.
         await fail(WifiProvisioningFailureReason.sendFailed);
       }
     }());
@@ -275,6 +293,7 @@ class AndroidBleOnboardingTransport implements BleOnboardingTransport {
       'sendFailed' => WifiProvisioningFailureReason.sendFailed,
       'applyFailed' => WifiProvisioningFailureReason.applyFailed,
       'sessionFailed' => WifiProvisioningFailureReason.sessionFailed,
+      'noResponse' => WifiProvisioningFailureReason.noResponse,
       _ => WifiProvisioningFailureReason.unknown,
     };
   }

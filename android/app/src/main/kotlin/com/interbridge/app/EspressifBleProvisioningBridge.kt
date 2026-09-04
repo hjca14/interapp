@@ -7,6 +7,9 @@ import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import com.espressif.provisioning.DeviceConnectionEvent
 import com.espressif.provisioning.ESPConstants.EVENT_DEVICE_CONNECTED
@@ -45,6 +48,20 @@ class EspressifBleProvisioningBridge(
     private var pendingConnectionResult: MethodChannel.Result? = null
     private var espDevice: ESPDevice? = null
     private var scanning = false
+    private val watchdogHandler = Handler(Looper.getMainLooper())
+
+    /**
+     * Non-null exactly while a `sendWifiCredentials` attempt is waiting on
+     * *some* [ProvisionListener] callback. The official SDK can silently
+     * drop a response internally — [ExecutorService.submit] discards any
+     * exception thrown while parsing a `prov-config` response, so a
+     * malformed/stale read from the device can leave every callback
+     * (including [ProvisionListener.wifiConfigFailed]) unfired forever.
+     * This watchdog is the only thing that then still ends the attempt.
+     * Re-armed on every observed forward-progress callback so a
+     * legitimately slow multi-poll Wi-Fi association is not killed early.
+     */
+    private var wifiWatchdog: Runnable? = null
 
     init {
         MethodChannel(engine.dartExecutor.binaryMessenger, METHODS).setMethodCallHandler(this)
@@ -163,50 +180,108 @@ class EspressifBleProvisioningBridge(
         })
     }
 
+    /**
+     * Re-arms the single wifi-attempt watchdog, cancelling any previous one
+     * first. Fires [WIFI_RESPONSE_TIMEOUT_MS] after the *last* observed
+     * forward-progress callback (or after `provision()` itself if none has
+     * fired yet) if no further [ProvisionListener] callback has arrived by
+     * then — see [wifiWatchdog]'s doc for why this can genuinely happen with
+     * the official SDK. Never logs/persists ssid, password, PoP, or any
+     * response payload — stage names only.
+     */
+    private fun armWifiWatchdog() {
+        cancelWifiWatchdog()
+        val watchdog = Runnable {
+            Log.w(TAG, "sendWifiCredentials: no SDK callback observed within timeout, ending attempt")
+            wifiWatchdog = null
+            cleanupConnection()
+            wifiEventSink?.success(mapOf("event" to "wifiFailed", "reason" to "noResponse"))
+        }
+        wifiWatchdog = watchdog
+        watchdogHandler.postDelayed(watchdog, WIFI_RESPONSE_TIMEOUT_MS)
+    }
+
+    private fun cancelWifiWatchdog() {
+        wifiWatchdog?.let { watchdogHandler.removeCallbacks(it) }
+        wifiWatchdog = null
+    }
+
     /** ssid/password only ever exist as local parameters here — never stored in a field or logged. */
     private fun sendWifiCredentials(ssid: String?, password: String?, result: MethodChannel.Result) {
         val device = espDevice ?: run { result.error("not_connected", "No BLE connection", null); return }
         if (ssid.isNullOrEmpty()) { result.error("ssid_missing", "SSID must not be empty", null); return }
         // password may legitimately be empty for an open network.
-        device.provision(ssid, password ?: "", object : ProvisionListener {
-            override fun createSessionFailed(e: Exception) {
-                cleanupConnection()
-                wifiEventSink?.success(mapOf("event" to "wifiFailed", "reason" to "sessionFailed"))
-            }
-            override fun wifiConfigSent() {
-                wifiEventSink?.success(mapOf("event" to "wifiConfigSent"))
-            }
-            override fun wifiConfigFailed(e: Exception) {
-                cleanupConnection()
-                wifiEventSink?.success(mapOf("event" to "wifiFailed", "reason" to "sendFailed"))
-            }
-            override fun wifiConfigApplied() {
-                wifiEventSink?.success(mapOf("event" to "wifiConfigApplied"))
-            }
-            override fun wifiConfigApplyFailed(e: Exception) {
-                cleanupConnection()
-                wifiEventSink?.success(mapOf("event" to "wifiFailed", "reason" to "applyFailed"))
-            }
-            override fun provisioningFailedFromDevice(reason: ProvisionFailureReason) {
-                cleanupConnection()
-                wifiEventSink?.success(mapOf("event" to "wifiFailed", "reason" to wifiFailureReasonCode(reason)))
-            }
-            override fun deviceProvisioningSuccess() {
-                // Deliberately does not cleanupConnection() here — Dart
-                // explicitly calls disconnect() once it has observed this
-                // event, matching connect()/establishSecurity1()'s own
-                // success paths never self-disconnecting either.
-                wifiEventSink?.success(mapOf("event" to "wifiConnected"))
-            }
-            override fun onProvisioningFailed(e: Exception) {
-                cleanupConnection()
-                wifiEventSink?.success(mapOf("event" to "wifiFailed", "reason" to "unknown"))
-            }
-        })
+        Log.d(TAG, "sendWifiCredentials: provision() starting")
+        armWifiWatchdog()
+        try {
+            device.provision(ssid, password ?: "", object : ProvisionListener {
+                override fun createSessionFailed(e: Exception) {
+                    cancelWifiWatchdog()
+                    Log.d(TAG, "sendWifiCredentials: secure session unavailable (createSessionFailed)")
+                    cleanupConnection()
+                    wifiEventSink?.success(mapOf("event" to "wifiFailed", "reason" to "sessionFailed"))
+                }
+                override fun wifiConfigSent() {
+                    Log.d(TAG, "sendWifiCredentials: config accepted, apply requested")
+                    armWifiWatchdog()
+                    wifiEventSink?.success(mapOf("event" to "wifiConfigSent"))
+                }
+                override fun wifiConfigFailed(e: Exception) {
+                    cancelWifiWatchdog()
+                    Log.d(TAG, "sendWifiCredentials: config rejected (wifiConfigFailed)")
+                    cleanupConnection()
+                    wifiEventSink?.success(mapOf("event" to "wifiFailed", "reason" to "sendFailed"))
+                }
+                override fun wifiConfigApplied() {
+                    Log.d(TAG, "sendWifiCredentials: apply accepted, awaiting connection status")
+                    armWifiWatchdog()
+                    wifiEventSink?.success(mapOf("event" to "wifiConfigApplied"))
+                }
+                override fun wifiConfigApplyFailed(e: Exception) {
+                    cancelWifiWatchdog()
+                    Log.d(TAG, "sendWifiCredentials: apply rejected (wifiConfigApplyFailed)")
+                    cleanupConnection()
+                    wifiEventSink?.success(mapOf("event" to "wifiFailed", "reason" to "applyFailed"))
+                }
+                override fun provisioningFailedFromDevice(reason: ProvisionFailureReason) {
+                    cancelWifiWatchdog()
+                    val code = wifiFailureReasonCode(reason)
+                    Log.d(TAG, "sendWifiCredentials: terminal failure from device (reason=$code)")
+                    cleanupConnection()
+                    wifiEventSink?.success(mapOf("event" to "wifiFailed", "reason" to code))
+                }
+                override fun deviceProvisioningSuccess() {
+                    cancelWifiWatchdog()
+                    Log.d(TAG, "sendWifiCredentials: terminal success (deviceProvisioningSuccess)")
+                    // Deliberately does not cleanupConnection() here — Dart
+                    // explicitly calls disconnect() once it has observed this
+                    // event, matching connect()/establishSecurity1()'s own
+                    // success paths never self-disconnecting either.
+                    wifiEventSink?.success(mapOf("event" to "wifiConnected"))
+                }
+                override fun onProvisioningFailed(e: Exception) {
+                    cancelWifiWatchdog()
+                    Log.d(TAG, "sendWifiCredentials: terminal failure (onProvisioningFailed)")
+                    cleanupConnection()
+                    wifiEventSink?.success(mapOf("event" to "wifiFailed", "reason" to "unknown"))
+                }
+            })
+        } catch (e: Exception) {
+            // An unexpected synchronous throw from the SDK itself — must
+            // still end this attempt with a sanitized error instead of
+            // leaving the watchdog as the only thing standing between this
+            // and an infinite spinner.
+            cancelWifiWatchdog()
+            Log.e(TAG, "sendWifiCredentials: provision() threw synchronously")
+            cleanupConnection()
+            result.error("send_failed", "Unable to start Wi-Fi provisioning", null)
+            return
+        }
         result.success(null)
     }
 
     private fun cleanupConnection() {
+        cancelWifiWatchdog()
         stopScan()
         espDevice?.disconnectDevice()
         espDevice = null
@@ -224,10 +299,20 @@ class EspressifBleProvisioningBridge(
     override fun onCancel(arguments: Any?) { eventSink = null; stopScan() }
 
     companion object {
+        private const val TAG = "EspressifBleProvisioningBridge"
         private const val METHODS = "interapp/ble_onboarding"
         private const val EVENTS = "interapp/ble_onboarding/discovery"
         private const val WIFI_EVENTS = "interapp/ble_onboarding/wifi"
         private const val PREFIX = "InterBridge-"
         private const val PERMISSION_REQUEST = 4412
+
+        /**
+         * Bound on how long a `sendWifiCredentials` attempt waits for the
+         * *next* [ProvisionListener] callback before the bridge gives up on
+         * its own — see [wifiWatchdog]. Comfortably above the SDK's own
+         * internal apply-retry (2s) and status-poll (5s) intervals so a
+         * legitimately slow Wi-Fi association is not cut short.
+         */
+        private const val WIFI_RESPONSE_TIMEOUT_MS = 25_000L
     }
 }

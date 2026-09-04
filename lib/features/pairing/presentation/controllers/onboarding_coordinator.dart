@@ -415,6 +415,7 @@ class OnboardingCoordinator extends ChangeNotifier {
       case WifiProvisioningFailureReason.applyFailed:
       case WifiProvisioningFailureReason.sessionFailed:
       case WifiProvisioningFailureReason.unknown:
+      case WifiProvisioningFailureReason.noResponse:
         return 'Não foi possível configurar o Wi-Fi do InterBridge. Tente '
             'novamente.';
     }

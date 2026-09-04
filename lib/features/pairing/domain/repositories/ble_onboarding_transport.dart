@@ -48,6 +48,14 @@ enum WifiProvisioningFailureReason {
   /// A terminal failure the device did not further classify
   /// (`onProvisioningFailed`, or `ProvisionFailureReason.UNKNOWN`).
   unknown,
+
+  /// The integration gave up rather than the device explicitly reporting a
+  /// result: either the native SDK never invoked any `ProvisionListener`
+  /// callback within a bounded time (the official SDK can silently drop a
+  /// response internally without ever calling back — see the Android
+  /// bridge's own watchdog), or the native event channel itself failed or
+  /// closed unexpectedly.
+  noResponse,
 }
 
 /// Thrown (as a [Stream] error) by
