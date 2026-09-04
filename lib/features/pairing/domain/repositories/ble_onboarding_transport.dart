@@ -18,10 +18,9 @@ enum BleAvailabilityIssue { bluetoothDisabled, permissionDenied, unsupported }
 /// `OnboardingCoordinator` orchestrates the whole onboarding flow (BLE +
 /// backend claim); this interface only exists to keep the eventual
 /// BLE/ESP-IDF implementation swappable and testable without a real radio.
-/// There is no production implementation yet — see PROJECT_CONTEXT.md:
-/// before adding a Flutter BLE/ESP provisioning package, its compatibility
-/// with ESP-IDF Unified Provisioning / Protocomm Security 1 (and the
-/// firmware's pinned ESP-IDF version) must be verified first.
+/// Android uses a small platform bridge backed by Espressif's official
+/// provisioning SDK. Other platforms and Android builds without a locally
+/// supplied DEV PoP remain explicitly unavailable.
 abstract class BleOnboardingTransport {
   /// `null` when scanning/connecting can proceed.
   Future<BleAvailabilityIssue?> checkAvailability();
@@ -33,7 +32,7 @@ abstract class BleOnboardingTransport {
 
   Future<void> stopScan();
 
-  Future<void> connect(String deviceId);
+  Future<void> connect(String transportId);
 
   /// Establishes the Protocomm Security 1 secure session with the
   /// already-[connect]ed device.

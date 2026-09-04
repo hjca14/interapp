@@ -7,10 +7,9 @@ import 'package:interapp/features/pairing/domain/repositories/ble_onboarding_tra
 /// Wi-Fi credentials. Never wired into release builds — see
 /// `pairing_providers.dart`, gated by `kDebugMode`.
 class MockBleOnboardingTransport implements BleOnboardingTransport {
-  // 32 hex chars, ending in a91c to match friendlyInterBridgeName's
-  // "last 4 chars" derivation.
-  static final fakeDevice = DiscoveredInterBridge(
-    deviceId: 'ib-${''.padLeft(28, '0')}a91c',
+  // Deliberately not a product device_id: this models only a BLE handle.
+  static const fakeDevice = DiscoveredInterBridge(
+    transportId: 'mock-ble-handle-a91c',
     friendlyName: 'InterBridge-A91C',
   );
 
@@ -27,7 +26,7 @@ class MockBleOnboardingTransport implements BleOnboardingTransport {
   Future<void> stopScan() async {}
 
   @override
-  Future<void> connect(String deviceId) async {
+  Future<void> connect(String transportId) async {
     await Future<void>.delayed(const Duration(milliseconds: 500));
   }
 

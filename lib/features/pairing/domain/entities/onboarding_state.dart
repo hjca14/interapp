@@ -62,6 +62,8 @@ enum OnboardingFailureKind {
   scanTimeout,
   connectionFailed,
   wifiFailed,
+  wifiProvisioningNotImplemented,
+  permanentIdentityUnavailable,
   claimFailed,
   alreadyOwned,
   invalidOrExpiredCode,
@@ -89,8 +91,8 @@ class OnboardingState {
   /// specific device to onboard.
   final DiscoveredInterBridge? selectedDevice;
 
-  /// Set once a claim session has been started (BLE-primary path) or
-  /// resolved (QR/manual fallback path).
+  /// An authenticated permanent identity resolved by QR/manual fallback.
+  /// BLE discovery itself must never populate this from its transport handle.
   final ClaimSession? claimSession;
 
   /// Only meaningful when [phase] is [OnboardingPhase.error].

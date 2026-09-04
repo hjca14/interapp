@@ -48,6 +48,10 @@ flutter {
 }
 
 dependencies {
+    // Official Espressif Unified Provisioning SDK. This owns BLE/GATT,
+    // proto-ver, prov-session, prov-config, protobuf and Security 1.
+    implementation("com.github.espressif:esp-idf-provisioning-android:lib-2.1.3")
+    implementation("org.greenrobot:eventbus:3.3.1")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     testImplementation("junit:junit:4.13.2")
     // The android.jar used for local unit tests stubs org.json.* to throw

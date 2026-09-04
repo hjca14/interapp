@@ -3,6 +3,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   test:
@@ -25,3 +26,58 @@ jobs:
           echo 'Execute `dart format .` manualmente e envie as alterações antes do merge.' >> "$GITHUB_STEP_SUMMARY"
       - run: flutter analyze
       - run: flutter test
+
+  changes:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    outputs:
+      apk: ${{ steps.filter.outputs.apk }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect changes that can affect the Android APK
+        id: filter
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # `before` only exists on a `synchronize` push — it lets us diff
+          # just the newly pushed commits instead of the whole PR, so a
+          # docs-only follow-up push on an otherwise code-touching PR can
+          # skip the APK build. Fall back to the PR base for the first run
+          # (`opened`/`reopened`), where there is no meaningful "before".
+          FROM="$BASE_SHA"
+          if [ -n "${BEFORE_SHA:-}" ] && git cat-file -e "$BEFORE_SHA" 2>/dev/null; then
+            FROM="$BEFORE_SHA"
+          fi
+          echo "Diffing $FROM..$HEAD_SHA"
+          CHANGED=$(git diff --name-only "$FROM" "$HEAD_SHA")
+          echo "Changed files:"
+          echo "$CHANGED"
+          if echo "$CHANGED" | grep -Eq '^(android/|lib/|assets/|pubspec\.yaml$|pubspec\.lock$|\.github/workflows/flutter\.yml$)'; then
+            echo "apk=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "apk=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-apk:
+    runs-on: ubuntu-latest
+    needs: [changes]
+    # Always builds on push/workflow_dispatch (including a manual force-run);
+    # on a pull_request, only when `changes` found an APK-affecting path.
+    # `always()` is required so this still runs even though `changes` itself
+    # is skipped (not failed) for non-pull_request events.
+    if: |
+      always() &&
+      (github.event_name != 'pull_request' || needs.changes.outputs.apk == 'true')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build apk --debug

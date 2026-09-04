@@ -610,14 +610,85 @@ manualmente após a validação.
 
 ## Fase 3C — onboarding BLE real
 
-- [ ] Implementar `BleOnboardingTransport` real.
-- [ ] Garantir compatibilidade com ESP-IDF Unified Provisioning/Protocomm
-  Security 1.
-- [ ] Validar no Android físico antigo disponível.
-- [ ] Manter QR e código manual como fallbacks.
+- [ ] **3C.1 — firmware BLE:** implementação e CI prontas no PR de firmware;
+  validação física permanece pendente (frente do firmware, fora desta
+  entrega).
+- [x] **3C.2 — transporte Android:** validado fisicamente em Galaxy A12 real
+  — descoberta, conexão e Protocomm Security 1 completos com o SDK oficial
+  Espressif. O fluxo para deliberadamente ao final da sessão BLE segura,
+  antes de qualquer credencial Wi-Fi — ver 3C.3 abaixo.
+- [ ] **3C.3 — credenciais Wi-Fi:** envio seguro por `prov-config` permanece
+  **não implementado** — a 3C.2 para explicitamente no fim da sessão segura,
+  nunca implicitamente, e nunca envia configuração parcial.
+- [ ] **iOS:** adaptador nativo futuro, fora da 3C.2.
 
-O BLE real ainda não começou e permanece como a próxima grande frente depois
-da Fase 3B.
+### Execução DEV e validação física da 3C.2
+
+O app Android usa `esp-idf-provisioning-android` `lib-2.1.3`, SDK oficial da
+Espressif para Unified Provisioning sobre BLE/Protocomm. A PoP DEV existe
+somente em memória e deve ser fornecida localmente, sem entrar em arquivo,
+log, screenshot ou controle de versão:
+
+```sh
+flutter run --dart-define=INTERBRIDGE_BLE_DEV_POP="$INTERBRIDGE_BLE_DEV_POP"
+```
+
+Sem a define, o adaptador falha fechado e o onboarding continua explicitamente
+indisponível. Distribuição/obtenção da PoP de produção não pertence a esta fase.
+O `setup_code` de 12 dígitos nunca é usado como PoP.
+
+`DiscoveredInterBridge.transportId` é somente um handle opaco válido durante a
+tentativa BLE. Nem esse handle, nem endereço Bluetooth, UUID local, nome
+anunciado ou o sufixo `XXXX` podem alimentar uma API de claim como `device_id`.
+Até existir um vínculo autenticado específico, o fluxo de claim exige uma
+`ClaimSession` válida previamente resolvida por QR/código manual; descoberta
+BLE pura para ao fim da sessão segura sem inventar identidade de produto.
+
+Checklist de bancada — validado em Galaxy A12 físico real (PR #25):
+
+1. ~~instalar o app Android com PoP DEV local;~~ ✅
+2. ~~gravar o firmware BLE 3C.1;~~ ✅
+3. ~~encontrar `InterBridge-XXXX`~~ ✅ (`InterBridge-6490`);
+4. ~~conectar;~~ ✅ via transporte oficial Espressif;
+5. ~~concluir Security 1 com PoP correta;~~ ✅ — o app parou no ponto
+   intencional: "Sessão Bluetooth segura concluída. O envio de Wi-Fi será
+   implementado na etapa 3C.3.";
+6. confirmar falha com PoP incorreta — **ainda não executado**;
+7. cancelar/desconectar e reconectar — parcialmente coberto: sem
+   nenhum InterBridge anunciando por perto, o app mostrou corretamente a
+   tela de falha/fallback de descoberta;
+8. confirmar que scan e conexão não deixam recursos ativos — **ainda não
+   executado** (sem instrumentação de bancada para medir isso);
+9. confirmar ausência de segredos nos logs — **ainda não executado**;
+10. ~~confirmar que Wi-Fi permanece bloqueado até a 3C.3.~~ ✅ — confirmado
+    pela tela de parada intencional acima.
+
+Duas observações adicionais da bancada:
+
+- **um ESP já provisionado reconecta a partir do seu estado NVS persistido,
+  em vez de voltar a anunciar** — para repetir a descoberta, a bancada
+  precisou apagar esse estado persistido manualmente. Isso é um
+  procedimento de desenvolvimento, não o comportamento de produto: a ação
+  física de reset de produção (pressionar por 5 segundos) deverá reabrir o
+  modo de pareamento explicitamente, sem exigir apagar toda a flash. Apagar
+  a flash inteira nunca deve ser apresentado como comportamento de produto
+  em nenhuma documentação, exemplo ou UI;
+- o ESP parou de anunciar depois de 5 minutos, e o app corretamente deixou
+  de encontrar/conectar a ele — a janela de pareamento por tempo limitado
+  do firmware já é respeitada pelo app sem tratamento especial.
+
+- [x] Implementar `BleOnboardingTransport` real.
+- [x] Garantir compatibilidade com ESP-IDF Unified Provisioning/Protocomm
+  Security 1 — validado fisicamente.
+- [x] Validar no Android físico antigo disponível — Galaxy A12.
+- [x] Manter QR e código manual como fallbacks.
+
+O adaptador Android está validado fisicamente para descoberta, conexão e
+Protocomm Security 1. **Continuam fora de escopo desta validação:**
+distribuição de PoP de produção, identidade/claim permanente do
+dispositivo, inventário de fabricação no backend e iOS — nenhum desses foi
+tocado por esta entrega. Envio de credenciais Wi-Fi (3C.3) permanece **não
+implementado**, não apenas não validado.
 
 ## Trabalhos sem numeração definitiva
 

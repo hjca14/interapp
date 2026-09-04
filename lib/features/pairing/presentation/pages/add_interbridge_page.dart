@@ -355,7 +355,8 @@ class _ErrorStep extends StatelessWidget {
   bool get _offersFallback =>
       state.failureKind == OnboardingFailureKind.bleUnavailable ||
       state.failureKind == OnboardingFailureKind.scanTimeout ||
-      state.failureKind == OnboardingFailureKind.connectionFailed;
+      state.failureKind == OnboardingFailureKind.connectionFailed ||
+      state.failureKind == OnboardingFailureKind.permanentIdentityUnavailable;
 
   @override
   Widget build(BuildContext context) {
@@ -368,6 +369,8 @@ class _ErrorStep extends StatelessWidget {
         child: const Text('Tentar novamente'),
       ),
       secondaryAction: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           if (_offersFallback)
             _FallbackLinks(onUseQr: onUseQr, onUseManualCode: onUseManualCode),
@@ -464,9 +467,14 @@ class _FallbackLinks extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         const SizedBox(height: 8),
-        const Text('Não encontrou seu InterBridge?'),
+        const Text(
+          'Não encontrou seu InterBridge?',
+          textAlign: TextAlign.center,
+        ),
         TextButton(onPressed: onUseQr, child: const Text('Escanear código QR')),
         TextButton(
           onPressed: onUseManualCode,
@@ -497,28 +505,50 @@ class _StepScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        if (loading)
-          const CircularProgressIndicator()
-        else if (icon != null)
-          Icon(icon, size: 64),
-        const SizedBox(height: 24),
-        Text(
-          title,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.headlineSmall,
+    // A plain, non-scrollable `Column(mainAxisAlignment: center)` is fine
+    // for short content, but the error step can stack six elements (icon,
+    // title, body, primary button, fallback links, cancel) — on a narrow
+    // phone in portrait that can overflow the viewport. An overflow here
+    // doesn't just clip content; it visually reads as the whole block
+    // drifting off its centered axis. `LayoutBuilder` + `SingleChildScrollView`
+    // + `ConstrainedBox(minHeight)` keeps every step (this one included)
+    // pixel-identical when content already fits — it only changes behavior
+    // once content doesn't, trading a silent overflow for a scroll.
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                if (loading)
+                  const CircularProgressIndicator()
+                else if (icon != null)
+                  Icon(icon, size: 64),
+                const SizedBox(height: 24),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 12),
+                DefaultTextStyle.merge(
+                  textAlign: TextAlign.center,
+                  child: body,
+                ),
+                const SizedBox(height: 32),
+                ?primaryAction,
+                if (secondaryAction != null) ...[
+                  const SizedBox(height: 8),
+                  secondaryAction!,
+                ],
+              ],
+            ),
+          ),
         ),
-        const SizedBox(height: 12),
-        DefaultTextStyle.merge(textAlign: TextAlign.center, child: body),
-        const SizedBox(height: 32),
-        ?primaryAction,
-        if (secondaryAction != null) ...[
-          const SizedBox(height: 8),
-          secondaryAction!,
-        ],
-      ],
+      ),
     );
   }
 }
