@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,6 +25,52 @@ void main() {
     ],
     child: const MaterialApp(home: SecuritySettingsPage()),
   );
+
+  group('platform visibility of the full-screen call section', () {
+    testWidgets(
+      'Android keeps showing "Chamada em tela cheia" — same behavior as '
+      'before this platform split',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        final service = _RecordingNotificationService(
+          checker: () async => true,
+        );
+        await tester.pumpWidget(subject(notificationService: service));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Chamada em tela cheia'), findsOneWidget);
+        // Must be cleared before the test body returns — flutter_test
+        // verifies foundation debug variables are unset immediately after
+        // the test body runs, before any addTearDown callback fires.
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
+
+    testWidgets(
+      'iOS never shows "Chamada em tela cheia" — it documents an '
+      'Android-only special access (USE_FULL_SCREEN_INTENT) with no iOS '
+      'counterpart, so it must not appear, not even disabled or reworded',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+        final service = _RecordingNotificationService(
+          checker: () async => true,
+        );
+        await tester.pumpWidget(subject(notificationService: service));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Chamada em tela cheia'), findsNothing);
+        expect(find.text('Ativado'), findsNothing);
+        expect(find.text('Não ativado'), findsNothing);
+        expect(find.text('Abrir configuração do Android'), findsNothing);
+        expect(
+          service.requestCalls,
+          0,
+          reason: 'a hidden section must never touch the platform channel',
+        );
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
+  });
 
   testWidgets(
     'shows a loading indicator for the full-screen call section while '

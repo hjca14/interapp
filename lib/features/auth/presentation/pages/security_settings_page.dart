@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -81,8 +82,17 @@ class SecuritySettingsPage extends ConsumerWidget {
                 'normalmente com e-mail e senha.',
               ),
             ),
-            const Divider(),
-            const _FullScreenCallAccessSection(),
+            // "Chamada em tela cheia" documents USE_FULL_SCREEN_INTENT, an
+            // Android-only special access (see
+            // IncomingCallNotificationService.requestFullScreenIntentAccess)
+            // with no iOS equivalent and no iOS feature promised to replace
+            // it yet — hidden outright on iOS rather than shown disabled or
+            // reworded, so this screen never describes an Android setting to
+            // an iPhone user.
+            if (defaultTargetPlatform == TargetPlatform.android) ...[
+              const Divider(),
+              const _FullScreenCallAccessSection(),
+            ],
           ],
         ),
       ),
