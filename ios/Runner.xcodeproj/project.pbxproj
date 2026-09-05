@@ -10,12 +10,14 @@
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		0C0F5089B718EE6CA5C6E43A /* EspressifBleProvisioningBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E762674DEDDDB54DD57142B4 /* EspressifBleProvisioningBridgeTests.swift */; };
+		7CE9B13266C195D1CC5C4446 /* SecurityAttemptGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 184A093E0CA5F757AC969BCC /* SecurityAttemptGateTests.swift */; };
 		491E3E46794E149E08DB22AA /* ESPProvision in Frameworks */ = {isa = PBXBuildFile; productRef = EEC2BCA6782CB9766B2731C7 /* ESPProvision */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 		9DE1A4C6CA86D38D5C93D9A3 /* EspressifBleProvisioningBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BBBF886E2ACED25AF8E9F7A /* EspressifBleProvisioningBridge.swift */; };
+		98A8AF97BAA8AA11C37D6FF9 /* SecurityAttemptGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81730B83D267281F0FAF9BAE /* SecurityAttemptGate.swift */; };
 		49EA83AFDCE414CA7342A9F6 /* ESPProvision in Frameworks */ = {isa = PBXBuildFile; productRef = 7E7577075DD2FACE9D9D83EE /* ESPProvision */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
@@ -50,11 +52,13 @@
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		E762674DEDDDB54DD57142B4 /* EspressifBleProvisioningBridgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EspressifBleProvisioningBridgeTests.swift; sourceTree = "<group>"; };
+		184A093E0CA5F757AC969BCC /* SecurityAttemptGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityAttemptGateTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
 		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		2BBBF886E2ACED25AF8E9F7A /* EspressifBleProvisioningBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EspressifBleProvisioningBridge.swift; sourceTree = "<group>"; };
+		81730B83D267281F0FAF9BAE /* SecurityAttemptGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityAttemptGate.swift; sourceTree = "<group>"; };
 		7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = FlutterGeneratedPluginSwiftPackage; path = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
@@ -93,6 +97,7 @@
 			children = (
 				331C807B294A618700263BE5 /* RunnerTests.swift */,
 				E762674DEDDDB54DD57142B4 /* EspressifBleProvisioningBridgeTests.swift */,
+				184A093E0CA5F757AC969BCC /* SecurityAttemptGateTests.swift */,
 			);
 			path = RunnerTests;
 			sourceTree = "<group>";
@@ -139,6 +144,7 @@
 				1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */,
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				2BBBF886E2ACED25AF8E9F7A /* EspressifBleProvisioningBridge.swift */,
+				81730B83D267281F0FAF9BAE /* SecurityAttemptGate.swift */,
 				7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
@@ -298,6 +304,7 @@
 			files = (
 				331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */,
 				0C0F5089B718EE6CA5C6E43A /* EspressifBleProvisioningBridgeTests.swift in Sources */,
+				7CE9B13266C195D1CC5C4446 /* SecurityAttemptGateTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -307,6 +314,7 @@
 			files = (
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				9DE1A4C6CA86D38D5C93D9A3 /* EspressifBleProvisioningBridge.swift in Sources */,
+				98A8AF97BAA8AA11C37D6FF9 /* SecurityAttemptGate.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
 			);

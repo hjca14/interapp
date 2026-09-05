@@ -53,6 +53,30 @@ final class EspressifBleProvisioningBridge: NSObject {
     /// `disconnect()` — is never mistaken for the current attempt.
     private final class WifiAttempt {}
 
+    /// Which in-flight attempt (if any) an unexpected BLE disconnect
+    /// should resolve.
+    enum UnexpectedDisconnectTarget: Equatable {
+        case securityAttempt
+        case wifiAttempt
+        case none
+    }
+
+    /// Pure decision backing [handleUnexpectedDisconnect] — testable
+    /// without any BLE/`ESPDevice` involvement (see
+    /// `SecurityAttemptGate`'s doc for why that matters here). A Security 1
+    /// attempt takes priority: in practice the two are never simultaneously
+    /// active (`sendWifiCredentials` only starts once `establishSecurity1`
+    /// already succeeded), but resolving the earlier stage first is still
+    /// the right choice if that invariant is ever violated.
+    static func unexpectedDisconnectTarget(
+        hasSecurityAttempt: Bool,
+        hasWifiAttempt: Bool
+    ) -> UnexpectedDisconnectTarget {
+        if hasSecurityAttempt { return .securityAttempt }
+        if hasWifiAttempt { return .wifiAttempt }
+        return .none
+    }
+
     /// Forwards the Wi-Fi event channel's `onListen`/`onCancel` to [bridge]
     /// — a separate `FlutterStreamHandler` because `EspressifBleProvisioningBridge`
     /// itself already is one for the discovery channel, and one object can't
@@ -149,6 +173,18 @@ final class EspressifBleProvisioningBridge: NSObject {
 
     private var wifiAttempt: WifiAttempt?
     private var wifiWatchdog: DispatchWorkItem?
+
+    /// Tracks the in-flight `establishSecurity1` attempt (if any) and
+    /// guarantees exactly-once completion across `ESPDevice.connect`'s own
+    /// completion handler, an unexpected BLE disconnect observed through
+    /// `ESPBLEDelegate` (see `handleUnexpectedDisconnect`), and an explicit
+    /// cleanup/cancel — see `SecurityAttemptGate`'s doc for the physical
+    /// bench finding this exists to fix (the ESP32 closing the BLE
+    /// connection on a PoP/key mismatch without the SDK's own `connect`
+    /// completion handler ever firing, leaving this native call's
+    /// `FlutterResult`, and the Dart `establishSecureSession()` future
+    /// awaiting it, pending forever).
+    private let securityAttemptGate = SecurityAttemptGate()
 
     init(messenger: FlutterBinaryMessenger) {
         methodChannel = FlutterMethodChannel(name: Self.methods, binaryMessenger: messenger)
@@ -298,21 +334,29 @@ final class EspressifBleProvisioningBridge: NSObject {
             result(FlutterError(code: "pop_missing", message: "Development PoP is not configured", details: nil))
             return
         }
+        guard !securityAttemptGate.isActive else {
+            result(FlutterError(code: "busy", message: "BLE operation already active", details: nil))
+            return
+        }
         proofOfPossession = pop
         expectingDisconnect = false
         device.bleDelegate = self
+        let token = securityAttemptGate.begin(result: result)
         device.connect(delegate: self) { [weak self] status in
             DispatchQueue.main.async {
-                guard let self, self.pendingDevice === device else { return }
+                guard let self else { return }
                 switch status {
                 case .connected:
-                    self.pendingDevice = nil
-                    self.connectedDevice = device
-                    result(nil)
+                    if self.securityAttemptGate.complete(token, with: nil) {
+                        self.pendingDevice = nil
+                        self.connectedDevice = device
+                    }
                 case .disconnected, .failedToConnect:
-                    self.pendingDevice = nil
-                    self.cleanupConnection()
-                    result(FlutterError(code: "connection_failed", message: "Unable to connect to the selected InterBridge", details: nil))
+                    let error = FlutterError(code: "connection_failed", message: "Unable to connect to the selected InterBridge", details: nil)
+                    if self.securityAttemptGate.complete(token, with: error) {
+                        self.pendingDevice = nil
+                        self.cleanupConnection()
+                    }
                 }
             }
         }
@@ -413,6 +457,12 @@ final class EspressifBleProvisioningBridge: NSObject {
         cancelWifiWatchdog()
         stopScan()
         expectingDisconnect = true
+        // A pending establishSecurity1 call must never be left hanging by
+        // an external disconnect()/cleanup — a no-op via SecurityAttemptGate
+        // if nothing is actually pending.
+        securityAttemptGate.endActive(
+            with: FlutterError(code: "connection_failed", message: "Unable to connect to the selected InterBridge", details: nil)
+        )
         connectedDevice?.disconnect()
         pendingDevice?.disconnect()
         connectedDevice = nil
@@ -451,10 +501,15 @@ extension EspressifBleProvisioningBridge: ESPDeviceConnectionDelegate {
 }
 
 /// Notified of BLE-level connection loss outside of a `connect(delegate:)`
-/// call in progress — e.g. the device going out of range mid-Wi-Fi-attempt.
-/// [expectingDisconnect] filters out this bridge's own intentional
-/// disconnects so only a genuinely unexpected loss fails an in-flight
-/// `sendWifiCredentials` attempt as `deviceDisconnected`.
+/// call's own completion handler — e.g. the ESP32 closing the connection on
+/// a PoP/key mismatch during Security 1 (see [securityAttemptGate]'s doc), or
+/// the device going out of range mid-Wi-Fi-attempt. [expectingDisconnect]
+/// filters out this bridge's own intentional disconnects so only a
+/// genuinely unexpected loss completes a pending `establishSecurity1` (as
+/// `connection_failed`) or fails an in-flight `sendWifiCredentials` attempt
+/// (as `deviceDisconnected`) — never both, since the two are never pending
+/// at the same time (a Wi-Fi attempt only starts once Security 1 already
+/// succeeded).
 extension EspressifBleProvisioningBridge: ESPBLEDelegate {
     func peripheralConnected() {}
 
@@ -471,7 +526,23 @@ extension EspressifBleProvisioningBridge: ESPBLEDelegate {
     }
 
     private func handleUnexpectedDisconnect() {
-        guard !expectingDisconnect, let attempt = wifiAttempt else { return }
-        failWifiAttempt(attempt, reason: "deviceDisconnected")
+        guard !expectingDisconnect else { return }
+        switch EspressifBleProvisioningBridge.unexpectedDisconnectTarget(
+            hasSecurityAttempt: securityAttemptGate.isActive,
+            hasWifiAttempt: wifiAttempt != nil
+        ) {
+        case .securityAttempt:
+            let error = FlutterError(code: "connection_failed", message: "Unable to connect to the selected InterBridge", details: nil)
+            if securityAttemptGate.endActive(with: error) {
+                pendingDevice = nil
+                cleanupConnection()
+            }
+        case .wifiAttempt:
+            if let attempt = wifiAttempt {
+                failWifiAttempt(attempt, reason: "deviceDisconnected")
+            }
+        case .none:
+            break
+        }
     }
 }

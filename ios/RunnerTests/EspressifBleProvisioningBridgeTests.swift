@@ -97,4 +97,54 @@ final class EspressifBleProvisioningBridgeTests: XCTestCase {
       )
     }
   }
+
+  // MARK: - unexpectedDisconnectTarget
+
+  /// Requirement 3 (regression check): an unexpected BLE disconnect while
+  /// only a Wi-Fi attempt is active must keep routing to it — the shared
+  /// `handleUnexpectedDisconnect` must not seize this path just because a
+  /// Security 1 completion path now also exists.
+  func testRoutesToWifiAttemptWhenOnlyWifiIsActive() {
+    XCTAssertEqual(
+      EspressifBleProvisioningBridge.unexpectedDisconnectTarget(
+        hasSecurityAttempt: false,
+        hasWifiAttempt: true
+      ),
+      .wifiAttempt
+    )
+  }
+
+  func testRoutesToSecurityAttemptWhenOnlySecurityIsActive() {
+    XCTAssertEqual(
+      EspressifBleProvisioningBridge.unexpectedDisconnectTarget(
+        hasSecurityAttempt: true,
+        hasWifiAttempt: false
+      ),
+      .securityAttempt
+    )
+  }
+
+  func testRoutesToNoneWhenNeitherIsActive() {
+    XCTAssertEqual(
+      EspressifBleProvisioningBridge.unexpectedDisconnectTarget(
+        hasSecurityAttempt: false,
+        hasWifiAttempt: false
+      ),
+      .none
+    )
+  }
+
+  /// The two are never simultaneously active in practice (a Wi-Fi attempt
+  /// only starts once Security 1 already succeeded), but if that invariant
+  /// were ever violated, resolving the earlier stage first is still the
+  /// safer choice.
+  func testSecurityAttemptTakesPriorityIfBothWereSomehowActive() {
+    XCTAssertEqual(
+      EspressifBleProvisioningBridge.unexpectedDisconnectTarget(
+        hasSecurityAttempt: true,
+        hasWifiAttempt: true
+      ),
+      .securityAttempt
+    )
+  }
 }

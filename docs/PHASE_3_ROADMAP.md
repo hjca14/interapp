@@ -629,7 +629,10 @@ manualmente após a validação.
   contra o SDK oficial `ESPProvision` (Espressif), replicando o contrato
   Dart já validado no Android (mesmos estados/erros, mesmo
   `INTERBRIDGE_BLE_DEV_POP`) sem alterar o transporte Android nem o
-  coordenador. Nunca testado em iPhone físico — ver seção dedicada abaixo.
+  coordenador. Um primeiro teste em iPhone físico (PoP incorreta) já
+  encontrou e corrigiu um bug real de conexão travada indefinidamente —
+  ver seções dedicadas abaixo. Provisionamento Wi-Fi de ponta a ponta com
+  credenciais corretas continua sem teste físico.
 
 ### Execução DEV e validação física da 3C.2
 
@@ -882,20 +885,90 @@ nunca é tratado como Wi-Fi; retry desse caso não reusa sessão nem
 credenciais; senha incorreta e rede não encontrada continuam `wifiFailed`
 com suas mensagens específicas, sem regressão.
 
-**iOS não é afetado por este bug e não muda nesta correção:** no iOS, o
-handshake Security 1 acontece dentro de `establishSecurity1` (chamada de
-`ESPDevice.connect(delegate:)`), antes da tela de Wi-Fi ser alcançada — uma
-PoP incorreta já falha em `confirmDevice`, como `connectionFailed`, com a
-mensagem genérica já existente ali ("Não foi possível conectar ao
-InterBridge."), sem nunca chegar a `selectingWifi`. Esta correção
-compartilhada não faz o iOS avançar mais nem muda essa mensagem — apenas
-alinha o caminho Android, que tinha o problema real. **Isso não foi
-validado fisicamente em iPhone** — PoP incorreta no iOS continua sem teste
-físico, coberta apenas por teste automatizado com transporte fake
-(`secureSessionError`); a bancada real (com PoP mismatch deliberado no
-iPhone + ESP32-C3) permanece pendente, junto do restante da validação
-física iOS já registrada na seção "Implementação da 3C — transporte iOS"
-abaixo.
+**iOS foi testado fisicamente com essa mesma PoP incorreta e revelou um bug
+real do app — corrigido nesta entrega, ver bloco dedicado logo abaixo.** A
+validação física original desta correção compartilhada assumia (com razão,
+quanto à arquitetura do SDK) que o iOS falharia mais cedo, em
+`confirmDevice`, antes de `selectingWifi` — mas o teste em iPhone real
+mostrou que o app **ficava preso indefinidamente** em "Tentando conectar"
+em vez de sequer chegar a essa falha. Não é uma regressão desta correção
+do Android: é um bug pré-existente do bridge iOS, só agora exposto pelo
+primeiro teste físico com PoP incorreta. **Não deve ser lido como
+validado** até o reteste em bancada após a correção abaixo.
+
+### PoP incorreta no iOS: `establishSecurity1` ficava preso indefinidamente (corrigido)
+
+A mesma bancada com PoP DEV deliberadamente diferente entre o app e o
+ESP32-C3 foi repetida em iPhone real. O ESP rejeitou a sessão Security 1
+corretamente (mesmo serial da bancada Android, acima:
+`security1: Key mismatch. Close connection` /
+`security1: Session setup error -1` /
+`protocomm_ble: Invalid content received, killing connection`) — de novo,
+firmware e protocolo corretos. Mas o app iOS nunca reportou falha: ficou
+preso indefinidamente em "Tentando conectar".
+
+**Causa raiz:** em `EspressifBleProvisioningBridge.swift`, o `FlutterResult`
+de `establishSecurity1` só era completado dentro da closure de
+`ESPDevice.connect(delegate:)`. O ESP fechando a conexão BLE chega ao app
+como `ESPBLEDelegate.peripheralDisconnected`/`peripheralFailedToConnect`,
+que chamava `handleUnexpectedDisconnect()` — mas esse método só sabia
+resolver uma `wifiAttempt` ativa, e durante `establishSecurity1` ainda não
+existe nenhuma (só passa a existir depois que a Security 1 já teve
+sucesso). Resultado: a desconexão observada era descartada silenciosamente,
+`device.connect(delegate:)` nunca chamava sua própria closure de volta (o
+SDK aparentemente não trata esse encerramento de baixo nível como uma
+conclusão de sessão), e o `FlutterResult` — e o `Future` do
+`establishSecureSession()` no Dart esperando por ele — nunca era resolvido.
+
+**Corrigido nesta entrega**, na menor extensão possível:
+
+- `SecurityAttemptGate` (`ios/Runner/SecurityAttemptGate.swift`), nova
+  classe pequena e pura (sem `CBPeripheral`/`ESPDevice`, que não têm
+  inicializador público utilizável em teste) que garante conclusão
+  exatamente uma vez de uma tentativa de `establishSecurity1`, com o mesmo
+  espírito do `WifiAttemptDispatcher` já existente no lado Android — testada
+  sem depender de hardware/simulador real (`SecurityAttemptGateTests.swift`).
+- `handleUnexpectedDisconnect()` agora também sabe resolver uma tentativa de
+  Security 1 pendente: encerra a sessão nativa e completa
+  `establishSecurity1` com `FlutterError(code: "connection_failed", ...)`,
+  que o lado Dart já converte em `BleOperationException('secureSession')` —
+  reaproveitando o caminho já existente no coordenador
+  (`connectionFailed`, mensagem genérica seguindo o padrão já descrito
+  acima, botão "Tentar novamente" que volta ao scan). Nenhuma mudança no
+  tratamento de desconexão durante envio de Wi-Fi, que continua
+  `deviceDisconnected` — coberto por `unexpectedDisconnectTarget`
+  (`EspressifBleProvisioningBridgeTests.swift`), que prova que o roteamento
+  para o caminho de Wi-Fi não regrediu.
+- Nenhum timeout artificial foi adicionado como "solução" — o firmware já
+  fornece o sinal real e observável de falha (a própria desconexão BLE); um
+  timeout aqui esconderia a causa real em vez de reagir a ela.
+- Proteção contra corrida: a conclusão da closure de `connect(delegate:)`,
+  a desconexão inesperada e uma limpeza explícita (`disconnect()`,
+  `cleanupConnection()`, `dispose()`) competem pela mesma tentativa através
+  do `SecurityAttemptGate` — qualquer uma que chegue primeiro "vence"; as
+  demais (inclusive uma chamada tardia de `connect(delegate:)` depois de
+  uma nova tentativa já ter começado) são no-ops, nunca uma segunda
+  conclusão nem a resolução de uma tentativa mais nova por uma mais antiga.
+- Nenhum PoP, chave, Security 1, material criptográfico ou payload BLE é
+  exposto no app ou em log — nenhuma linha de log foi adicionada nesta
+  correção.
+
+Testes (`ios/RunnerTests/`, todos passando no simulador iOS real via
+`xcodebuild test-without-building`): desconexão inesperada durante Security
+1 completa a tentativa em vez de deixá-la pendente; um callback tardio de
+`connect(delegate:)` depois dessa desconexão (ou depois de uma nova
+tentativa já ter começado) nunca causa dupla conclusão nem resolve a
+tentativa errada; desconexão durante envio de Wi-Fi continua roteando para
+`deviceDisconnected` (regressão coberta explicitamente); limpeza/cancelamento
+(`endActive`) encerra uma tentativa de Security 1 pendente, e é idempotente
+quando nada está pendente.
+
+**PoP incorreta no iOS foi testada fisicamente e revelou este bug — ainda
+não deve ser lida como validada.** A bancada real precisa ser repetida após
+esta correção, com o mesmo iPhone e o mesmo ESP32-C3, para confirmar que o
+app agora reporta a falha de conexão em vez de ficar preso. Até esse
+reteste, a validação física iOS permanece com o mesmo status descrito na
+seção abaixo: implementação completa, validação física pendente.
 
 ### Implementação da 3C — transporte iOS (implementação em andamento)
 
@@ -940,17 +1013,27 @@ push, chamada em tela cheia iOS, CallKit, áudio/microfone, claim/registro do
 dispositivo, Fleet Provisioning, AWS IoT/MQTT, e qualquer fluxo de produção
 (QR obrigatório, setup code de produção, PoP de fabricação).
 
-**Nunca validado fisicamente.** Diferente da 3C.2/3C.3 no Android (Galaxy
-A12 real), nada aqui foi executado contra um iPhone real ou um simulador
-iOS — apenas testes Dart com um bridge fake (`ios_ble_onboarding_transport_test.dart`,
-`pairing_providers_test.dart`) e a resolução/compilação do pacote Swift via
-`xcodebuild`. A validação física final está planejada para um iPhone real
-assinado pelo Personal Team gratuito da Apple (não exige Apple Developer
-Program pago — a exigência de time pago é só para TestFlight/App Store),
-usando o mesmo ESP32-C3 de bancada e a mesma PoP DEV local da 3C.2/3C.3.
-Até essa validação, esta entrega não deve ser lida como equivalente à 3C.2/
-3C.3 no Android — apenas como a contraparte iOS mínima implementada e
-pronta para o teste de bancada.
+**Validação física ainda incompleta — um primeiro teste em iPhone real já
+encontrou e levou à correção de um bug real (ver "PoP incorreta no iOS:
+`establishSecurity1` ficava preso indefinidamente" acima), mas o
+provisionamento Wi-Fi de ponta a ponta com credenciais corretas continua
+sem confirmação em hardware.** Diferente da 3C.2/3C.3 no Android (Galaxy
+A12 real, ponta a ponta), o iPhone real usado até agora só exercitou o
+caminho de PoP incorreta, e revelou que o app ficava preso em vez de
+reportar a falha — já corrigido, mas ainda não reconfirmado em bancada.
+Descoberta, conexão com PoP correta, Security 1 bem-sucedida e envio de
+credenciais Wi-Fi corretas continuam sem qualquer execução em iPhone real
+ou simulador iOS — apenas testes Dart com um bridge fake
+(`ios_ble_onboarding_transport_test.dart`, `pairing_providers_test.dart`),
+testes Swift puros sem hardware (`EspressifBleProvisioningBridgeTests.swift`,
+`SecurityAttemptGateTests.swift`) e a resolução/compilação do pacote Swift
+via `xcodebuild`. A validação física completa está planejada para o mesmo
+iPhone real assinado pelo Personal Team gratuito da Apple (não exige Apple
+Developer Program pago — a exigência de time pago é só para TestFlight/App
+Store) e o mesmo ESP32-C3 de bancada e PoP DEV local da 3C.2/3C.3. Até essa
+validação completa, esta entrega não deve ser lida como equivalente à 3C.2/
+3C.3 no Android — apenas como a contraparte iOS mínima implementada, com um
+bug real já encontrado e corrigido, e pronta para o reteste de bancada.
 
 ## Trabalhos sem numeração definitiva
 
