@@ -624,7 +624,12 @@ manualmente após a validação.
   dedicada abaixo); a terceira, com as correções aplicadas, completou o
   fluxo de ponta a ponta em Android real + ESP32-C3 real, incluindo o
   caminho de falha e retentativa com credenciais corretas.
-- [ ] **iOS:** adaptador nativo futuro, fora da 3C.2/3C.3.
+- [ ] **iOS — implementação em andamento, validação física pendente:**
+  descoberta, conexão, Security 1 e envio de credenciais Wi-Fi implementados
+  contra o SDK oficial `ESPProvision` (Espressif), replicando o contrato
+  Dart já validado no Android (mesmos estados/erros, mesmo
+  `INTERBRIDGE_BLE_DEV_POP`) sem alterar o transporte Android nem o
+  coordenador. Nunca testado em iPhone físico — ver seção dedicada abaixo.
 
 ### Execução DEV e validação física da 3C.2
 
@@ -830,6 +835,61 @@ retentativa → sucesso), nos limites descritos acima: Wi-Fi configurado não
 e não é fluxo de produção. Os itens não marcados acima (segredos em
 log/diagnóstico, PoP incorreta nas credenciais Wi-Fi, reconexão BLE
 isolada) permanecem pendentes e não devem ser lidos como validados.
+
+### Implementação da 3C — transporte iOS (implementação em andamento)
+
+`IOSBleOnboardingTransport` (`lib/features/pairing/data/repositories/`) e
+`EspressifBleProvisioningBridge.swift` (`ios/Runner/`) usam exclusivamente o
+SDK oficial de Unified Provisioning da Espressif para iOS, `ESPProvision`
+(`github.com/espressif/esp-idf-provisioning-ios`, `3.0.3`, via Swift Package
+Manager — este projeto não usa CocoaPods). Nenhum CoreBluetooth/GATT,
+protobuf ou Security 0 próprio; nenhum arquivo do transporte Android
+(`AndroidBleOnboardingTransport`/`EspressifBleProvisioningBridge.kt`) foi
+alterado. Mesmos nomes de `MethodChannel`/`EventChannel` que o Android
+(`interapp/ble_onboarding[...]`) — só um lado nativo os registra por build —
+e mesmo `INTERBRIDGE_BLE_DEV_POP` local, nunca a PoP de produção.
+
+Duas diferenças reais entre os dois SDKs oficiais, documentadas em código em
+vez de escondidas atrás de uma abstração compartilhada (ver o doc comment de
+`IOSBleOnboardingTransport` e de `EspressifBleProvisioningBridge.swift`):
+
+- `ESPDevice.connect(delegate:)` do ESPProvision já realiza a conexão BLE
+  *e* o handshake Security 1 num só passo (a PoP é fornecida via
+  `ESPDeviceConnectionDelegate`, não como propriedade pública) — por isso a
+  conexão BLE real do iOS acontece dentro do método nativo
+  `establishSecurity1`, não `connect`; invisível para
+  `OnboardingCoordinator`, que já aguarda os dois em sequência e trata
+  qualquer falha de ambos da mesma forma.
+- `ESPDevice.provision` só expõe um passo intermediário (`.configApplied`)
+  antes do resultado final, nunca uma confirmação distinta de "dispositivo
+  recebeu a config" como o `wifiConfigSent` do Android — o transporte iOS
+  nunca emite `WifiProvisioningProgress.sendingConfig` (o coordenador já
+  mostra esse passo de forma otimista antes de ouvir o stream).
+- `ESPProvisionManager.searchESPDevices` é uma busca em lote de ~5s fixos
+  (não configurável), não um callback contínuo por anúncio como o Android —
+  o bridge nativo reemite essa busca em lote enquanto o scan estiver ativo,
+  então a descoberta continua aparecendo ao app Dart como um stream, só que
+  em janelas de ~5s em vez de imediatamente por anúncio.
+
+Declarada `NSBluetoothAlwaysUsageDescription` no `Info.plist`, com texto em
+português descrevendo exatamente o uso (encontrar/configurar um InterBridge
+próximo durante o pareamento) — nenhuma permissão do Android é pedida no
+iOS. Fora de escopo, deliberadamente, nesta entrega: APNs, Firebase/FCM iOS,
+push, chamada em tela cheia iOS, CallKit, áudio/microfone, claim/registro do
+dispositivo, Fleet Provisioning, AWS IoT/MQTT, e qualquer fluxo de produção
+(QR obrigatório, setup code de produção, PoP de fabricação).
+
+**Nunca validado fisicamente.** Diferente da 3C.2/3C.3 no Android (Galaxy
+A12 real), nada aqui foi executado contra um iPhone real ou um simulador
+iOS — apenas testes Dart com um bridge fake (`ios_ble_onboarding_transport_test.dart`,
+`pairing_providers_test.dart`) e a resolução/compilação do pacote Swift via
+`xcodebuild`. A validação física final está planejada para um iPhone real
+assinado pelo Personal Team gratuito da Apple (não exige Apple Developer
+Program pago — a exigência de time pago é só para TestFlight/App Store),
+usando o mesmo ESP32-C3 de bancada e a mesma PoP DEV local da 3C.2/3C.3.
+Até essa validação, esta entrega não deve ser lida como equivalente à 3C.2/
+3C.3 no Android — apenas como a contraparte iOS mínima implementada e
+pronta para o teste de bancada.
 
 ## Trabalhos sem numeração definitiva
 
