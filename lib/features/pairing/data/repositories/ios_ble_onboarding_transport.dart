@@ -21,7 +21,8 @@ abstract interface class IOSBleProvisioningBridge {
 /// collision, and keeping the names identical is deliberate: it is the only
 /// thing that lets `OnboardingCoordinator` and the rest of the Dart-side
 /// onboarding stack stay unaware that the two platforms exist.
-class MethodChannelIOSBleProvisioningBridge implements IOSBleProvisioningBridge {
+class MethodChannelIOSBleProvisioningBridge
+    implements IOSBleProvisioningBridge {
   const MethodChannelIOSBleProvisioningBridge();
 
   static const _methods = MethodChannel('interapp/ble_onboarding');

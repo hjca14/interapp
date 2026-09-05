@@ -46,30 +46,27 @@ void main() {
       },
     );
 
-    testWidgets(
-      'iOS never shows "Chamada em tela cheia" — it documents an '
-      'Android-only special access (USE_FULL_SCREEN_INTENT) with no iOS '
-      'counterpart, so it must not appear, not even disabled or reworded',
-      (tester) async {
-        debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-        final service = _RecordingNotificationService(
-          checker: () async => true,
-        );
-        await tester.pumpWidget(subject(notificationService: service));
-        await tester.pumpAndSettle();
+    testWidgets('iOS never shows "Chamada em tela cheia" — it documents an '
+        'Android-only special access (USE_FULL_SCREEN_INTENT) with no iOS '
+        'counterpart, so it must not appear, not even disabled or reworded', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      final service = _RecordingNotificationService(checker: () async => true);
+      await tester.pumpWidget(subject(notificationService: service));
+      await tester.pumpAndSettle();
 
-        expect(find.text('Chamada em tela cheia'), findsNothing);
-        expect(find.text('Ativado'), findsNothing);
-        expect(find.text('Não ativado'), findsNothing);
-        expect(find.text('Abrir configuração do Android'), findsNothing);
-        expect(
-          service.requestCalls,
-          0,
-          reason: 'a hidden section must never touch the platform channel',
-        );
-        debugDefaultTargetPlatformOverride = null;
-      },
-    );
+      expect(find.text('Chamada em tela cheia'), findsNothing);
+      expect(find.text('Ativado'), findsNothing);
+      expect(find.text('Não ativado'), findsNothing);
+      expect(find.text('Abrir configuração do Android'), findsNothing);
+      expect(
+        service.requestCalls,
+        0,
+        reason: 'a hidden section must never touch the platform channel',
+      );
+      debugDefaultTargetPlatformOverride = null;
+    });
   });
 
   testWidgets(

@@ -92,22 +92,19 @@ void main() {
     await subscription.cancel();
   });
 
-  test(
-    'stops scan before connect and completes Security 1 separately — the '
-    'real BLE connect and Security 1 handshake both happen natively inside '
-    'establishSecurity1 on iOS, but that reordering is invisible at this '
-    'Dart call boundary',
-    () async {
-      final bridge = _FakeBridge();
-      final transport = IOSBleOnboardingTransport(
-        developmentProofOfPossession: configuredTestValue(),
-        bridge: bridge,
-      );
-      await transport.connect('opaque-a');
-      await transport.establishSecureSession();
-      expect(bridge.calls, ['stopScan', 'connect', 'establishSecurity1']);
-    },
-  );
+  test('stops scan before connect and completes Security 1 separately — the '
+      'real BLE connect and Security 1 handshake both happen natively inside '
+      'establishSecurity1 on iOS, but that reordering is invisible at this '
+      'Dart call boundary', () async {
+    final bridge = _FakeBridge();
+    final transport = IOSBleOnboardingTransport(
+      developmentProofOfPossession: configuredTestValue(),
+      bridge: bridge,
+    );
+    await transport.connect('opaque-a');
+    await transport.establishSecureSession();
+    expect(bridge.calls, ['stopScan', 'connect', 'establishSecurity1']);
+  });
 
   test('connection failure closes resources', () async {
     final bridge = _FakeBridge()..failingMethod = 'connect';
@@ -220,37 +217,34 @@ void main() {
     },
   );
 
-  test(
-    'reports only applyingConfig, and completes normally — never emitting a '
-    'value — once the device confirms it connected. ESPProvision never '
-    'gives a distinct "device received config" callback the way Android '
-    'does, so sendingConfig is never emitted here — see '
-    'IOSBleOnboardingTransport\'s doc comment, point 2.',
-    () async {
-      final bridge = _FakeBridge();
-      final transport = IOSBleOnboardingTransport(
-        developmentProofOfPossession: configuredTestValue(),
-        bridge: bridge,
-      );
-      await _connectAndSecure(transport);
+  test('reports only applyingConfig, and completes normally — never emitting a '
+      'value — once the device confirms it connected. ESPProvision never '
+      'gives a distinct "device received config" callback the way Android '
+      'does, so sendingConfig is never emitted here — see '
+      'IOSBleOnboardingTransport\'s doc comment, point 2.', () async {
+    final bridge = _FakeBridge();
+    final transport = IOSBleOnboardingTransport(
+      developmentProofOfPossession: configuredTestValue(),
+      bridge: bridge,
+    );
+    await _connectAndSecure(transport);
 
-      final progress = <WifiProvisioningProgress>[];
-      final stream = transport.sendWifiCredentials('home-network', 'password');
-      final done = Completer<void>();
-      stream.listen(
-        progress.add,
-        onDone: done.complete,
-        onError: (Object e) => done.completeError(e),
-      );
-      await Future<void>.delayed(Duration.zero);
+    final progress = <WifiProvisioningProgress>[];
+    final stream = transport.sendWifiCredentials('home-network', 'password');
+    final done = Completer<void>();
+    stream.listen(
+      progress.add,
+      onDone: done.complete,
+      onError: (Object e) => done.completeError(e),
+    );
+    await Future<void>.delayed(Duration.zero);
 
-      bridge.wifiEvents.add({'event': 'wifiConfigApplied'});
-      bridge.wifiEvents.add({'event': 'wifiConnected'});
-      await done.future;
+    bridge.wifiEvents.add({'event': 'wifiConfigApplied'});
+    bridge.wifiEvents.add({'event': 'wifiConnected'});
+    await done.future;
 
-      expect(progress, [WifiProvisioningProgress.applyingConfig]);
-    },
-  );
+    expect(progress, [WifiProvisioningProgress.applyingConfig]);
+  });
 
   test(
     'an unrecognized native event (e.g. a stray wifiConfigSent, which iOS '
@@ -321,10 +315,7 @@ void main() {
       final stream = transport.sendWifiCredentials('home-network', 'x');
       final resultFuture = stream.toList();
       await Future<void>.delayed(Duration.zero);
-      bridge.wifiEvents.add({
-        'event': 'wifiFailed',
-        'reason': 'somethingNew',
-      });
+      bridge.wifiEvents.add({'event': 'wifiFailed', 'reason': 'somethingNew'});
 
       await expectLater(
         resultFuture,
@@ -339,53 +330,47 @@ void main() {
     },
   );
 
-  test(
-    'a second sendWifiCredentials call while one is already active fails '
-    'synchronously — at most one attempt in flight at a time',
-    () async {
-      final bridge = _FakeBridge();
-      final transport = IOSBleOnboardingTransport(
-        developmentProofOfPossession: configuredTestValue(),
-        bridge: bridge,
-      );
-      await _connectAndSecure(transport);
+  test('a second sendWifiCredentials call while one is already active fails '
+      'synchronously — at most one attempt in flight at a time', () async {
+    final bridge = _FakeBridge();
+    final transport = IOSBleOnboardingTransport(
+      developmentProofOfPossession: configuredTestValue(),
+      bridge: bridge,
+    );
+    await _connectAndSecure(transport);
 
-      transport.sendWifiCredentials('home-network', 'password');
-      expect(
-        () => transport.sendWifiCredentials('home-network', 'password'),
-        throwsA(isA<BleOperationException>()),
-      );
-    },
-  );
+    transport.sendWifiCredentials('home-network', 'password');
+    expect(
+      () => transport.sendWifiCredentials('home-network', 'password'),
+      throwsA(isA<BleOperationException>()),
+    );
+  });
 
-  test(
-    'the native event channel closing mid-attempt ends it as noResponse, '
-    'never left hanging',
-    () async {
-      final bridge = _FakeBridge();
-      final transport = IOSBleOnboardingTransport(
-        developmentProofOfPossession: configuredTestValue(),
-        bridge: bridge,
-      );
-      await _connectAndSecure(transport);
+  test('the native event channel closing mid-attempt ends it as noResponse, '
+      'never left hanging', () async {
+    final bridge = _FakeBridge();
+    final transport = IOSBleOnboardingTransport(
+      developmentProofOfPossession: configuredTestValue(),
+      bridge: bridge,
+    );
+    await _connectAndSecure(transport);
 
-      final stream = transport.sendWifiCredentials('home-network', 'password');
-      final resultFuture = stream.toList();
-      await Future<void>.delayed(Duration.zero);
-      await bridge.wifiEvents.close();
+    final stream = transport.sendWifiCredentials('home-network', 'password');
+    final resultFuture = stream.toList();
+    await Future<void>.delayed(Duration.zero);
+    await bridge.wifiEvents.close();
 
-      await expectLater(
-        resultFuture,
-        throwsA(
-          isA<WifiProvisioningException>().having(
-            (e) => e.reason,
-            'reason',
-            WifiProvisioningFailureReason.noResponse,
-          ),
+    await expectLater(
+      resultFuture,
+      throwsA(
+        isA<WifiProvisioningException>().having(
+          (e) => e.reason,
+          'reason',
+          WifiProvisioningFailureReason.noResponse,
         ),
-      );
-    },
-  );
+      ),
+    );
+  });
 
   test(
     'disconnect() while a Wi-Fi attempt is in flight tears it down as '

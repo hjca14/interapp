@@ -39,27 +39,24 @@ void main() {
       expect(transport, isA<NotImplementedBleOnboardingTransport>());
     });
 
-    test(
-      'every other platform falls back to unavailable even with a '
-      'configured PoP — only Android/iOS ever get a real transport',
-      () {
-        for (final platform in [
-          TargetPlatform.linux,
-          TargetPlatform.macOS,
-          TargetPlatform.windows,
-          TargetPlatform.fuchsia,
-        ]) {
-          final transport = selectBleOnboardingTransport(
-            platform: platform,
-            developmentPop: 'dev-pop',
-          );
-          expect(
-            transport,
-            isA<NotImplementedBleOnboardingTransport>(),
-            reason: '$platform must not get a real BLE transport',
-          );
-        }
-      },
-    );
+    test('every other platform falls back to unavailable even with a '
+        'configured PoP — only Android/iOS ever get a real transport', () {
+      for (final platform in [
+        TargetPlatform.linux,
+        TargetPlatform.macOS,
+        TargetPlatform.windows,
+        TargetPlatform.fuchsia,
+      ]) {
+        final transport = selectBleOnboardingTransport(
+          platform: platform,
+          developmentPop: 'dev-pop',
+        );
+        expect(
+          transport,
+          isA<NotImplementedBleOnboardingTransport>(),
+          reason: '$platform must not get a real BLE transport',
+        );
+      }
+    });
   });
 }
