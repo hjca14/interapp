@@ -27,36 +27,39 @@ void main() {
   const id = '123e4567-e89b-42d3-a456-426614174000';
   const token = 'private-fcm-token';
 
-  test('PUT has exact method, path, headers and JSON and accepts empty 204', () async {
-    late http.Request captured;
-    final repo = HttpPushInstallationRepository(
-      InterBridgeApiClient(
-        baseUrl: 'https://api.example.test',
-        auth: FakeAuth(),
-        client: MockClient((request) async {
-          captured = request;
-          return http.Response('', 204);
-        }),
-      ),
-    );
-    await repo.registerInstallation(
-      installationId: id,
-      token: token,
-      appVersion: '1.0.0+1',
-    );
-    expect(captured.method, 'PUT');
-    expect(captured.url.path, '/v1/push/installations/$id');
-    expect(captured.headers['authorization'], 'Bearer access-secret');
-    expect(captured.headers['content-type'], 'application/json');
-    expect(jsonDecode(captured.body), {
-      'version': 1,
-      'platform': 'ANDROID',
-      'push_provider': 'FCM',
-      'token': token,
-      'app_id': 'com.interbridge.app',
-      'app_version': '1.0.0+1',
-    });
-  });
+  test(
+    'PUT has exact method, path, headers and JSON and accepts empty 204',
+    () async {
+      late http.Request captured;
+      final repo = HttpPushInstallationRepository(
+        InterBridgeApiClient(
+          baseUrl: 'https://api.example.test',
+          auth: FakeAuth(),
+          client: MockClient((request) async {
+            captured = request;
+            return http.Response('', 204);
+          }),
+        ),
+      );
+      await repo.registerInstallation(
+        installationId: id,
+        token: token,
+        appVersion: '1.0.0+1',
+      );
+      expect(captured.method, 'PUT');
+      expect(captured.url.path, '/v1/push/installations/$id');
+      expect(captured.headers['authorization'], 'Bearer access-secret');
+      expect(captured.headers['content-type'], 'application/json');
+      expect(jsonDecode(captured.body), {
+        'version': 1,
+        'platform': 'ANDROID',
+        'push_provider': 'FCM',
+        'token': token,
+        'app_id': 'com.interbridge.app',
+        'app_version': '1.0.0+1',
+      });
+    },
+  );
 
   test('DELETE has exact method/path and accepts empty 204', () async {
     late http.Request captured;
@@ -89,8 +92,11 @@ void main() {
           baseUrl: 'https://api.example.test',
           auth: FakeAuth(),
           client: MockClient(
-            (_) async => http.Response('body contains $token', entry.key,
-                headers: {'retry-after': '2'}),
+            (_) async => http.Response(
+              'body contains $token',
+              entry.key,
+              headers: {'retry-after': '2'},
+            ),
           ),
         ),
       );
@@ -101,23 +107,30 @@ void main() {
         expect(failure.kind, entry.value);
         expect(failure.toString(), isNot(contains(token)));
         expect(failure.toString(), isNot(contains('Bearer')));
-        if (entry.key == 429) expect(failure.retryAfter, const Duration(seconds: 2));
+        if (entry.key == 429)
+          expect(failure.retryAfter, const Duration(seconds: 2));
       }
     });
   }
 
-  test('401 refreshes once, invalidates centrally and stays sanitized', () async {
-    final auth = FakeAuth();
-    final repo = HttpPushInstallationRepository(
-      InterBridgeApiClient(
-        baseUrl: 'https://api.example.test',
-        auth: auth,
-        client: MockClient((_) async => http.Response(token, 401)),
-      ),
-    );
-    await expectLater(repo.deleteInstallation(id), throwsA(isA<ApiFailure>()));
-    expect(auth.invalidated, isTrue);
-  });
+  test(
+    '401 refreshes once, invalidates centrally and stays sanitized',
+    () async {
+      final auth = FakeAuth();
+      final repo = HttpPushInstallationRepository(
+        InterBridgeApiClient(
+          baseUrl: 'https://api.example.test',
+          auth: auth,
+          client: MockClient((_) async => http.Response(token, 401)),
+        ),
+      );
+      await expectLater(
+        repo.deleteInstallation(id),
+        throwsA(isA<ApiFailure>()),
+      );
+      expect(auth.invalidated, isTrue);
+    },
+  );
 
   test('timeout and network errors are sanitized', () async {
     final timeoutRepository = HttpPushInstallationRepository(

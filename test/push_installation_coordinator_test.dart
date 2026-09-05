@@ -41,6 +41,7 @@ class FakePushRepository implements PushInstallationRepository {
       active--;
     }
   }
+
   @override
   Future<void> deleteInstallation(String installationId) async {
     deletes++;
@@ -74,51 +75,59 @@ void main() {
     },
   );
 
-  test('login/restoration repairs once, duplicate token does not storm', () async {
-    final repository = FakePushRepository();
-    final value = coordinator(repository)..acceptToken('token');
-    value.setAuthenticated(true);
-    await value.idle;
-    value.acceptToken('token');
-    await value.idle;
-    expect(repository.tokens, ['token']);
-    value.setAuthenticated(false);
-    value.setAuthenticated(true);
-    await value.idle;
-    expect(repository.tokens, ['token', 'token']);
-  });
+  test(
+    'login/restoration repairs once, duplicate token does not storm',
+    () async {
+      final repository = FakePushRepository();
+      final value = coordinator(repository)..acceptToken('token');
+      value.setAuthenticated(true);
+      await value.idle;
+      value.acceptToken('token');
+      await value.idle;
+      expect(repository.tokens, ['token']);
+      value.setAuthenticated(false);
+      value.setAuthenticated(true);
+      await value.idle;
+      expect(repository.tokens, ['token', 'token']);
+    },
+  );
 
   test('renewals serialize and latest token wins', () async {
     final repository = FakePushRepository()..gate = Completer<void>();
     final value = coordinator(repository)..setAuthenticated(true);
     value.acceptToken('one');
     await Future<void>.delayed(Duration.zero);
-    value..acceptToken('two')..acceptToken('three');
+    value
+      ..acceptToken('two')
+      ..acceptToken('three');
     repository.gate!.complete();
     await value.idle;
     expect(repository.tokens, ['one', 'three']);
     expect(repository.maxActive, 1);
   });
 
-  test('temporary retry is bounded and permanent error does not loop', () async {
-    final temporary = FakePushRepository()
-      ..errors.addAll(
-        List.filled(4, const ApiFailure(ApiFailureKind.offline, 'safe')),
-      );
-    final first = coordinator(temporary)
-      ..setAuthenticated(true)
-      ..acceptToken('token');
-    await first.idle;
-    expect(temporary.tokens.length, 3);
+  test(
+    'temporary retry is bounded and permanent error does not loop',
+    () async {
+      final temporary = FakePushRepository()
+        ..errors.addAll(
+          List.filled(4, const ApiFailure(ApiFailureKind.offline, 'safe')),
+        );
+      final first = coordinator(temporary)
+        ..setAuthenticated(true)
+        ..acceptToken('token');
+      await first.idle;
+      expect(temporary.tokens.length, 3);
 
-    final permanent = FakePushRepository()
-      ..errors.add(const ApiFailure(ApiFailureKind.badRequest, 'safe'));
-    final second = coordinator(permanent)
-      ..setAuthenticated(true)
-      ..acceptToken('token');
-    await second.idle;
-    expect(permanent.tokens.length, 1);
-  });
+      final permanent = FakePushRepository()
+        ..errors.add(const ApiFailure(ApiFailureKind.badRequest, 'safe'));
+      final second = coordinator(permanent)
+        ..setAuthenticated(true)
+        ..acceptToken('token');
+      await second.idle;
+      expect(permanent.tokens.length, 1);
+    },
+  );
 
   test('logout waits for PUT and blocks refresh registration', () async {
     final repository = FakePushRepository()..gate = Completer<void>();
@@ -136,27 +145,28 @@ void main() {
     await logout;
     expect(repository.deletes, 1);
     await Future<void>.delayed(Duration.zero);
-    expect(
-      repository.tokens,
-      ['before-logout'],
-      reason: 'no PUT may run after DELETE while logout is completing',
-    );
+    expect(repository.tokens, [
+      'before-logout',
+    ], reason: 'no PUT may run after DELETE while logout is completing');
     value.completeLogout();
   });
 
-  test('DELETE failure removes barrier and permits later synchronization', () async {
-    final repository = FakePushRepository();
-    final value = coordinator(repository)
-      ..setAuthenticated(true)
-      ..acceptToken('initial');
-    await value.idle;
-    repository.deleteError = const ApiFailure(ApiFailureKind.offline, 'safe');
+  test(
+    'DELETE failure removes barrier and permits later synchronization',
+    () async {
+      final repository = FakePushRepository();
+      final value = coordinator(repository)
+        ..setAuthenticated(true)
+        ..acceptToken('initial');
+      await value.idle;
+      repository.deleteError = const ApiFailure(ApiFailureKind.offline, 'safe');
 
-    await expectLater(value.deleteForLogout(), throwsA(isA<ApiFailure>()));
-    repository.deleteError = null;
-    value.acceptToken('after-failure');
-    await value.idle;
+      await expectLater(value.deleteForLogout(), throwsA(isA<ApiFailure>()));
+      repository.deleteError = null;
+      value.acceptToken('after-failure');
+      await value.idle;
 
-    expect(repository.tokens, ['initial', 'after-failure']);
-  });
+      expect(repository.tokens, ['initial', 'after-failure']);
+    },
+  );
 }
