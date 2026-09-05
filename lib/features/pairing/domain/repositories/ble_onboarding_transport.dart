@@ -82,9 +82,17 @@ class WifiProvisioningException implements Exception {
 /// `OnboardingCoordinator` orchestrates the whole onboarding flow (BLE +
 /// backend claim); this interface only exists to keep the eventual
 /// BLE/ESP-IDF implementation swappable and testable without a real radio.
-/// Android uses a small platform bridge backed by Espressif's official
-/// provisioning SDK. Other platforms and Android builds without a locally
-/// supplied DEV PoP remain explicitly unavailable.
+/// Android and iOS each use a small platform bridge backed by Espressif's
+/// official provisioning SDK for that platform (`esp-idf-provisioning-android`
+/// / `ESPProvision` for iOS) — see `AndroidBleOnboardingTransport`/
+/// `IOSBleOnboardingTransport`. The two official SDKs differ enough in shape
+/// (documented on `IOSBleOnboardingTransport`) that each platform gets its
+/// own implementation rather than a shared one. Other platforms and builds
+/// without a locally supplied DEV PoP remain explicitly unavailable.
+/// iOS is a fresh implementation as of this change: discovery, connection,
+/// Security 1 and Wi-Fi provisioning are implemented against the official
+/// SDK, but — unlike Android, validated on a physical Galaxy A12 — physical
+/// iPhone validation is still pending (see `docs/PHASE_3_ROADMAP.md`).
 abstract class BleOnboardingTransport {
   /// `null` when scanning/connecting can proceed.
   Future<BleAvailabilityIssue?> checkAvailability();
