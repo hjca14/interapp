@@ -107,8 +107,9 @@ void main() {
         expect(failure.kind, entry.value);
         expect(failure.toString(), isNot(contains(token)));
         expect(failure.toString(), isNot(contains('Bearer')));
-        if (entry.key == 429)
+        if (entry.key == 429) {
           expect(failure.retryAfter, const Duration(seconds: 2));
+        }
       }
     });
   }
