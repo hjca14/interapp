@@ -124,7 +124,7 @@ class _AddInterBridgePageState extends ConsumerState<AddInterBridgePage> {
             WifiProvisioningProgress.applyingConfig =>
               'Conectando o InterBridge à rede Wi-Fi...',
             WifiProvisioningProgress.sendingConfig ||
-            null => 'Enviando configuração do Wi-Fi...',
+            null => 'Enviando rede Wi‑Fi...',
           },
         );
       case OnboardingPhase.wifiConnected:
@@ -269,9 +269,17 @@ class _ConfirmDeviceStep extends StatelessWidget {
   Widget build(BuildContext context) {
     return _StepScaffold(
       icon: Icons.bluetooth_searching,
-      title: 'Encontramos um InterBridge próximo.',
-      body: Text(
-        '${device?.friendlyName ?? ''}\n\nA luz dele está piscando azul rapidamente?',
+      title: 'InterBridge selecionado',
+      body: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            device?.friendlyName ?? '',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 12),
+          const Text('Confirme se a luz dele está piscando azul rapidamente.'),
+        ],
       ),
       primaryAction: FilledButton(
         onPressed: onConfirm,

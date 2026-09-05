@@ -129,6 +129,22 @@ Future<void> _pumpToWifiForm(
   expect(find.text('Conectar à internet'), findsOneWidget);
 }
 
+/// Sets the test viewport's logical size (devicePixelRatio pinned to 1.0),
+/// restoring it after the test. Mirrors the helper in
+/// `test/add_interbridge_error_state_layout_test.dart`.
+void _setViewport(
+  WidgetTester tester, {
+  required double width,
+  required double height,
+}) {
+  tester.view.physicalSize = Size(width, height);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(() {
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
+  });
+}
+
 Future<void> _submitWifiForm(
   WidgetTester tester, {
   String ssid = 'home-network',
@@ -141,6 +157,50 @@ Future<void> _submitWifiForm(
 }
 
 void main() {
+  testWidgets('the device confirmation step names the selected device without '
+      'repeating the "found nearby" framing already shown on the previous '
+      'screen, and keeps both actions available', (tester) async {
+    final ble = _ControllableBleTransport();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleOnboardingTransportProvider.overrideWithValue(ble),
+          onboardingClaimRepositoryProvider.overrideWithValue(
+            LocalOnboardingClaimRepository(),
+          ),
+          onboardingAnalyticsProvider.overrideWithValue(
+            DebugPrintOnboardingAnalytics(),
+          ),
+        ],
+        child: const MaterialApp(home: AddInterBridgePage()),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Continuar'));
+    await tester.pump();
+    await tester.pump(); // checkingSetupMode -> scanningBle
+    await tester.pump(); // device discovered -> deviceFound
+
+    await tester.tap(find.text(_device.friendlyName));
+    await tester.pump();
+
+    expect(find.text('InterBridge selecionado'), findsOneWidget);
+    expect(find.text(_device.friendlyName), findsOneWidget);
+    expect(
+      find.textContaining('Confirme se a luz dele está piscando'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('Encontramos'),
+      findsNothing,
+      reason:
+          'the previous (device list) screen already said a device was '
+          'found — this one must not repeat that framing',
+    );
+    expect(find.text('Sim, continuar'), findsOneWidget);
+    expect(find.text('Não é este'), findsOneWidget);
+  });
+
   testWidgets(
     'a successful Wi-Fi connection shows an honest confirmation — never '
     '"sucesso"/"configurado com sucesso", never added to a device list, '
@@ -195,7 +255,7 @@ void main() {
       await _submitWifiForm(tester);
       await tester.pump();
       expect(
-        find.text('Enviando configuração do Wi-Fi...'),
+        find.text('Enviando rede Wi‑Fi...'),
         findsOneWidget,
         reason: 'sending is shown immediately, before the device replies',
       );
@@ -213,6 +273,37 @@ void main() {
       afterApplying.complete();
       await tester.pump();
       expect(find.text('Wi-Fi configurado.'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'the "sending Wi-Fi" progress message renders without overflowing on a '
+    'Galaxy A12-width screen, using a non-breaking hyphen in "Wi‑Fi" so '
+    'the browser/engine line-breaker never splits it mid-word the way the '
+    'old, longer copy with a plain hyphen did',
+    (tester) async {
+      _setViewport(tester, width: 360.0, height: 800.0);
+      final ble = _ControllableBleTransport()..wifiGates.add(Completer<void>());
+      await _pumpToWifiForm(tester, ble);
+
+      await _submitWifiForm(tester);
+      await tester.pump();
+
+      const message = 'Enviando rede Wi‑Fi...';
+      expect(find.text(message), findsOneWidget);
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'the sending step must never overflow on a narrow phone',
+      );
+      expect(
+        message.contains('Wi-Fi'),
+        isFalse,
+        reason:
+            'must use a non-breaking hyphen (U+2011) in "Wi‑Fi", not a '
+            'plain one — a plain hyphen is exactly what let the layout '
+            'engine break the line between "Wi-" and "Fi" before',
+      );
     },
   );
 
