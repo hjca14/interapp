@@ -203,6 +203,32 @@ class OnboardingCoordinator extends ChangeNotifier {
     } on WifiProvisioningException catch (e) {
       if (_state.phase != OnboardingPhase.sendingWifi) return;
       await _bleTransport.disconnect();
+      if (e.reason == WifiProvisioningFailureReason.sessionFailed) {
+        // Android-only SDK limitation, not a Wi-Fi problem: the official
+        // Espressif SDK only runs the Protocomm Security 1 handshake inside
+        // `ESPDevice.provision(...)`, which this transport calls here, on
+        // the far side of the user already having filled in the Wi-Fi
+        // form — see `AndroidBleOnboardingTransport.establishSecureSession`.
+        // A wrong/mismatched PoP therefore surfaces as `sessionFailed` from
+        // *this* call, never earlier, even though it is really a BLE
+        // connection/authentication failure that happened before any Wi-Fi
+        // credential was ever sent. Reported as `connectionFailed` — the
+        // same recoverable, generic BLE-connection failure `confirmDevice`
+        // already uses — with a connection message, never a Wi-Fi one:
+        // showing "wrong password"-flavored UI or tracking `wifiFailed` for
+        // a failure that has nothing to do with Wi-Fi would be actively
+        // misleading. iOS is unaffected: its SDK runs Security 1 inside
+        // `establishSecurity1`, before this screen is ever reached, so a
+        // bad PoP there already fails as `connectionFailed` well before
+        // `submitWifi` — never a `sessionFailed` here.
+        _fail(
+          OnboardingFailureKind.connectionFailed,
+          'Não foi possível conectar ao InterBridge. Verifique se o '
+          'dispositivo selecionado está em modo de configuração e tente '
+          'novamente.',
+        );
+        return;
+      }
       _fail(OnboardingFailureKind.wifiFailed, _wifiFailureMessage(e.reason));
       return;
     } catch (_) {
@@ -320,7 +346,18 @@ class OnboardingCoordinator extends ChangeNotifier {
       case OnboardingFailureKind.scanTimeout:
         await startBleOnboarding();
       case OnboardingFailureKind.connectionFailed:
-        _setState(const OnboardingState(phase: OnboardingPhase.scanningBle));
+        // Discards any BLE session/transportId from the failed attempt —
+        // a fresh scan never reuses one — but keeps a QR/manual-resolved
+        // claimSession, same as wifiFailed below: this kind now also
+        // covers Android's sessionFailed-during-Wi-Fi case (see
+        // submitWifi), which can legitimately happen after a QR/manual
+        // fallback already resolved which device to claim.
+        _setState(
+          OnboardingState(
+            phase: OnboardingPhase.scanningBle,
+            claimSession: claimSession,
+          ),
+        );
         _startScan();
       case OnboardingFailureKind.wifiFailed:
         // The failed BLE session was already disconnected — the old
@@ -413,9 +450,15 @@ class OnboardingCoordinator extends ChangeNotifier {
             'configuração do Wi-Fi.';
       case WifiProvisioningFailureReason.sendFailed:
       case WifiProvisioningFailureReason.applyFailed:
-      case WifiProvisioningFailureReason.sessionFailed:
       case WifiProvisioningFailureReason.unknown:
       case WifiProvisioningFailureReason.noResponse:
+        return 'Não foi possível configurar o Wi-Fi do InterBridge. Tente '
+            'novamente.';
+      case WifiProvisioningFailureReason.sessionFailed:
+        // Unreachable from submitWifi in practice — it intercepts
+        // sessionFailed before ever calling this helper (see its doc
+        // comment) and reports connectionFailed instead. Kept here only
+        // for switch exhaustiveness / any future direct caller.
         return 'Não foi possível configurar o Wi-Fi do InterBridge. Tente '
             'novamente.';
     }

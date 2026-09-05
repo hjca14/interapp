@@ -802,12 +802,12 @@ usuário refez o fluxo e enviou a credencial correta, que conectou o ESP ao
 Wi-Fi sem reflash nem reboot entre a falha e a correção, ainda dentro da
 janela BLE original do firmware.
 
-Não foram testados nesta bancada: PoP incorreta na etapa de credenciais
-Wi-Fi (o caso de PoP incorreta na Security 1 é tratado na checklist da
-3C.2 acima, também pendente) e reconexão BLE como cenário isolado fora do
-retry de credenciais descrito acima; nenhum dos dois deve ser lido como
-validado. Também não foi verificada nesta bancada a ausência de segredos
-em log/diagnóstico.
+Não foram testados nesta bancada: reconexão BLE como cenário isolado fora
+do retry de credenciais descrito acima — não deve ser lido como validado.
+Também não foi verificada nesta bancada a ausência de segredos em
+log/diagnóstico. PoP incorreta na etapa de credenciais Wi-Fi **foi**
+testada posteriormente, em bancada separada — ver bloco dedicado logo
+abaixo.
 
 **Checklist de bancada — validado (Android real + ESP32-C3 real, com o
 ajuste da tentativa 2 aplicado):**
@@ -824,7 +824,8 @@ ajuste da tentativa 2 aplicado):**
   dispositivo físico, na mesma janela BLE, sem reflash/reboot do ESP.
 - [ ] confirmar ausência de qualquer segredo em log/diagnóstico durante o
   teste físico — não verificado nesta bancada;
-- [ ] PoP incorreta na etapa de credenciais Wi-Fi — não testada;
+- [x] PoP incorreta na etapa de credenciais Wi-Fi — testada em bancada
+  separada, ver bloco dedicado abaixo;
 - [ ] reconexão BLE como cenário isolado (fora do retry de credenciais
   acima) — não testada.
 
@@ -833,8 +834,68 @@ ajuste da tentativa 2 aplicado):**
 retentativa → sucesso), nos limites descritos acima: Wi-Fi configurado não
 é claim/registro do dispositivo, não ativa AWS IoT/MQTT/Fleet Provisioning
 e não é fluxo de produção. Os itens não marcados acima (segredos em
-log/diagnóstico, PoP incorreta nas credenciais Wi-Fi, reconexão BLE
-isolada) permanecem pendentes e não devem ser lidos como validados.
+log/diagnóstico, reconexão BLE isolada) permanecem pendentes e não devem
+ser lidos como validados.
+
+### PoP incorreta na etapa de Wi-Fi: firmware correto, app mal classificava o erro (corrigido)
+
+Bancada posterior, com PoP DEV deliberadamente diferente entre o app
+Android e o firmware do ESP32-C3: o firmware rejeitou corretamente a
+sessão Security 1 antes de aceitar qualquer credencial Wi-Fi, confirmado
+pelo serial do dispositivo:
+
+```text
+security1: Key mismatch. Close connection
+security1: Session setup error -1
+protocomm_ble: Invalid content received, killing connection
+```
+
+**Isso confirma o firmware/protocolo como corretos** — o problema estava
+só do lado do app. Pela mesma limitação real do SDK Android já documentada
+acima (`ESPDevice.provision()` é quem executa o handshake Security 1,
+depois que a pessoa já preencheu o formulário de Wi-Fi — ver
+`establishSecurity1` em `EspressifBleProvisioningBridge.kt` e o histórico
+de tentativas 1-3 acima), esse `Key mismatch` chegava ao app como
+`sessionFailed` dentro de `sendWifiCredentials`, e `OnboardingCoordinator`
+classificava isso como `wifiFailed`, mostrando "Não foi possível
+configurar o Wi-Fi do InterBridge" — uma mensagem enganosa: a PoP/conexão
+falhou, nenhuma credencial Wi-Fi chegou a ser avaliada pelo dispositivo.
+
+**Corrigido nesta entrega:** `OnboardingCoordinator.submitWifi` agora
+reclassifica especificamente `WifiProvisioningFailureReason.sessionFailed`
+como `OnboardingFailureKind.connectionFailed`, com mensagem genérica de
+conexão ("Não foi possível conectar ao InterBridge. Verifique se o
+dispositivo selecionado está em modo de configuração e tente novamente."),
+nunca mencionando PoP, chave, Security 1, autenticação BLE ou Wi-Fi — e
+nunca marcado como `wifiFailed`. Deliberado não distinguir para o usuário
+PoP incorreta de uma desconexão/falha transiente: ambas continuam sendo
+uma falha de conexão genérica e recuperável, igual ao tratamento já
+existente para uma falha de conexão/Security 1 detectada mais cedo (em
+`confirmDevice`). O botão "Tentar novamente" para esse caso já reaproveita
+o comportamento existente de `connectionFailed` — descarta a sessão BLE
+anterior (nunca reusa o `transportId`) e volta ao scan/conexão normal,
+preservando um `claimSession` resolvido por QR/manual, se houver (mesmo
+tratamento que `wifiFailed` já dava). Coberto por
+`test/onboarding_coordinator_test.dart`: `sessionFailed` durante
+`sendWifiCredentials` vira `connectionFailed` com a mensagem exata acima e
+nunca é tratado como Wi-Fi; retry desse caso não reusa sessão nem
+credenciais; senha incorreta e rede não encontrada continuam `wifiFailed`
+com suas mensagens específicas, sem regressão.
+
+**iOS não é afetado por este bug e não muda nesta correção:** no iOS, o
+handshake Security 1 acontece dentro de `establishSecurity1` (chamada de
+`ESPDevice.connect(delegate:)`), antes da tela de Wi-Fi ser alcançada — uma
+PoP incorreta já falha em `confirmDevice`, como `connectionFailed`, com a
+mensagem genérica já existente ali ("Não foi possível conectar ao
+InterBridge."), sem nunca chegar a `selectingWifi`. Esta correção
+compartilhada não faz o iOS avançar mais nem muda essa mensagem — apenas
+alinha o caminho Android, que tinha o problema real. **Isso não foi
+validado fisicamente em iPhone** — PoP incorreta no iOS continua sem teste
+físico, coberta apenas por teste automatizado com transporte fake
+(`secureSessionError`); a bancada real (com PoP mismatch deliberado no
+iPhone + ESP32-C3) permanece pendente, junto do restante da validação
+física iOS já registrada na seção "Implementação da 3C — transporte iOS"
+abaixo.
 
 ### Implementação da 3C — transporte iOS (implementação em andamento)
 

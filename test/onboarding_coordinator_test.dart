@@ -378,26 +378,29 @@ void main() {
     expect(ble.disconnectCallCount, 1);
   });
 
-  test(
-    'a Security 1 or PoP failure disconnects and fails connection',
-    () async {
-      final ble = _FakeBleTransport()
-        ..devicesToDiscover = [_deviceA]
-        ..secureSessionError = Exception('sanitized handshake failure');
-      final coordinator = _coordinator(ble: ble);
-      await coordinator.startBleOnboarding();
-      await Future<void>.delayed(Duration.zero);
-      coordinator.selectDevice(_deviceA);
+  test('a Security 1 or PoP failure disconnects and fails connection before '
+      'ever reaching selectingWifi — this is exactly the shape of iOS\'s real '
+      'failure mode, where ESPDevice.connect() runs the handshake itself '
+      'inside establishSecureSession, so a bad PoP surfaces here and never '
+      'lets the user reach the Wi-Fi form at all', () async {
+    final ble = _FakeBleTransport()
+      ..devicesToDiscover = [_deviceA]
+      ..secureSessionError = Exception('sanitized handshake failure');
+    final coordinator = _coordinator(ble: ble);
+    await coordinator.startBleOnboarding();
+    await Future<void>.delayed(Duration.zero);
+    coordinator.selectDevice(_deviceA);
 
-      await coordinator.confirmDevice();
+    await coordinator.confirmDevice();
 
-      expect(
-        coordinator.state.failureKind,
-        OnboardingFailureKind.connectionFailed,
-      );
-      expect(ble.disconnectCallCount, 1);
-    },
-  );
+    expect(coordinator.state.phase, OnboardingPhase.error);
+    expect(
+      coordinator.state.failureKind,
+      OnboardingFailureKind.connectionFailed,
+    );
+    expect(ble.disconnectCallCount, 1);
+    expect(ble.sendWifiCallCount, 0);
+  });
 
   test(
     'an empty Wi-Fi SSID is rejected locally, without contacting the backend',
@@ -452,6 +455,89 @@ void main() {
     expect(coordinator.state.failureKind, OnboardingFailureKind.wifiFailed);
     expect(ble.disconnectCallCount, 1);
   });
+
+  test(
+    'a sessionFailed reported during sendWifiCredentials (Android\'s '
+    'Security 1/PoP handshake, which the official SDK only runs inside '
+    'ESPDevice.provision) is reclassified as connectionFailed, with a '
+    'connection message — never wifiFailed or any Wi-Fi-flavored wording',
+    () async {
+      final ble = _FakeBleTransport()
+        ..devicesToDiscover = [_deviceA]
+        ..wifiFailureReason = WifiProvisioningFailureReason.sessionFailed;
+      final coordinator = _coordinator(ble: ble);
+      await coordinator.startBleOnboarding();
+      await Future<void>.delayed(Duration.zero);
+      coordinator.selectDevice(_deviceA);
+      await coordinator.confirmDevice();
+
+      await coordinator.submitWifi('home-network', 'password');
+
+      expect(coordinator.state.phase, OnboardingPhase.error);
+      expect(
+        coordinator.state.failureKind,
+        OnboardingFailureKind.connectionFailed,
+      );
+      expect(
+        coordinator.state.failureReason,
+        'Não foi possível conectar ao InterBridge. Verifique se o '
+        'dispositivo selecionado está em modo de configuração e tente '
+        'novamente.',
+      );
+      expect(coordinator.state.failureReason, isNot(contains('Wi-Fi')));
+      expect(coordinator.state.failureReason, isNot(contains('Security')));
+      expect(coordinator.state.failureReason, isNot(contains('senha')));
+      expect(ble.disconnectCallCount, 1);
+    },
+  );
+
+  test(
+    'retrying that reclassified sessionFailed restarts discovery/connection '
+    'from scratch — never reuses the failed transportId, and Wi-Fi is only '
+    'reachable again after a fresh, real confirmDevice/establishSecureSession',
+    () async {
+      final ble = _FakeBleTransport()
+        ..devicesToDiscover = [_deviceA]
+        ..wifiFailureReason = WifiProvisioningFailureReason.sessionFailed;
+      final claim = _FakeClaimRepository()
+        ..resolvedDeviceId = 'ib-authenticated-a';
+      final coordinator = _coordinator(ble: ble, claim: claim);
+      coordinator.startManualFallback();
+      await coordinator.submitManualCode('482719362051');
+      await Future<void>.delayed(Duration.zero);
+      coordinator.selectDevice(_deviceA);
+      await coordinator.confirmDevice();
+      await coordinator.submitWifi('home-network', 'wrong-pop-on-device');
+      expect(
+        coordinator.state.failureKind,
+        OnboardingFailureKind.connectionFailed,
+      );
+      final claimSessionBeforeRetry = coordinator.state.claimSession;
+      final connectCallsBeforeRetry = ble.connectCallCount;
+      final wifiCallsBeforeRetry = ble.sendWifiCallCount;
+
+      ble.wifiFailureReason = null;
+      await coordinator.retry();
+      await Future<void>.delayed(Duration.zero);
+
+      // Back to discovery, never straight to selectingWifi/sendingWifi —
+      // the old BLE session is gone, so there is nothing to resubmit
+      // credentials to yet.
+      expect(coordinator.state.phase, OnboardingPhase.deviceFound);
+      expect(coordinator.state.discoveredDevices, [_deviceA]);
+      expect(coordinator.state.claimSession, claimSessionBeforeRetry);
+      expect(ble.connectCallCount, connectCallsBeforeRetry);
+      expect(ble.sendWifiCallCount, wifiCallsBeforeRetry);
+
+      // Only a fresh, explicit confirm→connect→Security 1 actually
+      // reconnects — retry() itself never does this on the user's behalf.
+      coordinator.selectDevice(_deviceA);
+      await coordinator.confirmDevice();
+      expect(ble.connectCallCount, connectCallsBeforeRetry + 1);
+      await coordinator.submitWifi('home-network', 'password');
+      expect(coordinator.state.phase, OnboardingPhase.wifiConnected);
+    },
+  );
 
   test('a transport that has not implemented Wi-Fi provisioning surfaces '
       'wifiProvisioningNotImplemented and releases BLE', () async {
