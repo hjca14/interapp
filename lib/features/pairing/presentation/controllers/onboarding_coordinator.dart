@@ -35,6 +35,17 @@ class OnboardingCoordinator extends ChangeNotifier {
   /// Injectable so tests don't need a real 20-second wait.
   final Duration _scanTimeout;
 
+  /// Shared message for [OnboardingFailureKind.connectionFailed], used by
+  /// both a `confirmDevice()` BLE connection/session failure (including iOS,
+  /// where a wrong PoP fails during `establishSecureSession`) and Android's
+  /// `sessionFailed` surfaced through `submitWifi()` (see its doc comment) —
+  /// the same conceptual failure must show the same wording on both
+  /// platforms. Never mentions PoP, key, Security 1, or Wi-Fi.
+  static const String _connectionFailedMessage =
+      'Não foi possível conectar ao InterBridge. Verifique se o '
+      'dispositivo selecionado está em modo de configuração e tente '
+      'novamente.';
+
   StreamSubscription<DiscoveredInterBridge>? _scanSubscription;
   Timer? _scanTimeoutTimer;
 
@@ -153,10 +164,7 @@ class OnboardingCoordinator extends ChangeNotifier {
       await _bleTransport.establishSecureSession();
     } catch (_) {
       await _bleTransport.disconnect();
-      _fail(
-        OnboardingFailureKind.connectionFailed,
-        'Não foi possível conectar ao InterBridge.',
-      );
+      _fail(OnboardingFailureKind.connectionFailed, _connectionFailedMessage);
       return;
     }
     _analytics.track('ble_connected');
@@ -221,12 +229,7 @@ class OnboardingCoordinator extends ChangeNotifier {
         // `establishSecurity1`, before this screen is ever reached, so a
         // bad PoP there already fails as `connectionFailed` well before
         // `submitWifi` — never a `sessionFailed` here.
-        _fail(
-          OnboardingFailureKind.connectionFailed,
-          'Não foi possível conectar ao InterBridge. Verifique se o '
-          'dispositivo selecionado está em modo de configuração e tente '
-          'novamente.',
-        );
+        _fail(OnboardingFailureKind.connectionFailed, _connectionFailedMessage);
         return;
       }
       _fail(OnboardingFailureKind.wifiFailed, _wifiFailureMessage(e.reason));

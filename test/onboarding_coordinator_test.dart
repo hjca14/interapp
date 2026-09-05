@@ -375,6 +375,12 @@ void main() {
       coordinator.state.failureKind,
       OnboardingFailureKind.connectionFailed,
     );
+    expect(
+      coordinator.state.failureReason,
+      'Não foi possível conectar ao InterBridge. Verifique se o '
+      'dispositivo selecionado está em modo de configuração e tente '
+      'novamente.',
+    );
     expect(ble.disconnectCallCount, 1);
   });
 
@@ -382,7 +388,9 @@ void main() {
       'ever reaching selectingWifi — this is exactly the shape of iOS\'s real '
       'failure mode, where ESPDevice.connect() runs the handshake itself '
       'inside establishSecureSession, so a bad PoP surfaces here and never '
-      'lets the user reach the Wi-Fi form at all', () async {
+      'lets the user reach the Wi-Fi form at all. Must show the exact same '
+      'message as Android\'s reclassified sessionFailed case below — same '
+      'conceptual failure, same wording on both platforms', () async {
     final ble = _FakeBleTransport()
       ..devicesToDiscover = [_deviceA]
       ..secureSessionError = Exception('sanitized handshake failure');
@@ -398,6 +406,16 @@ void main() {
       coordinator.state.failureKind,
       OnboardingFailureKind.connectionFailed,
     );
+    expect(
+      coordinator.state.failureReason,
+      'Não foi possível conectar ao InterBridge. Verifique se o '
+      'dispositivo selecionado está em modo de configuração e tente '
+      'novamente.',
+    );
+    expect(coordinator.state.failureReason, isNot(contains('PoP')));
+    expect(coordinator.state.failureReason, isNot(contains('chave')));
+    expect(coordinator.state.failureReason, isNot(contains('Security')));
+    expect(coordinator.state.failureReason, isNot(contains('Wi-Fi')));
     expect(ble.disconnectCallCount, 1);
     expect(ble.sendWifiCallCount, 0);
   });
