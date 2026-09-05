@@ -624,7 +624,16 @@ manualmente após a validação.
   dedicada abaixo); a terceira, com as correções aplicadas, completou o
   fluxo de ponta a ponta em Android real + ESP32-C3 real, incluindo o
   caminho de falha e retentativa com credenciais corretas.
-- [ ] **iOS:** adaptador nativo futuro, fora da 3C.2/3C.3.
+- [x] **iOS — transporte implementado e validado fisicamente em bancada**
+  (iPhone real assinado pelo Personal Team gratuito da Apple + ESP32-C3
+  DEV): descoberta, conexão, Security 1 e envio de credenciais Wi-Fi
+  contra o SDK oficial `ESPProvision` (Espressif), replicando o contrato
+  Dart já validado no Android (mesmos estados/erros, mesmo
+  `INTERBRIDGE_BLE_DEV_POP`) sem alterar o transporte Android nem o
+  coordenador — ver "Validação física iOS" abaixo para o que foi
+  confirmado e os limites que continuam reais (onboarding DEV em bancada;
+  claim/registro, Fleet Provisioning, AWS IoT/MQTT, produção, APNs, push e
+  chamada continuam fora de escopo).
 
 ### Execução DEV e validação física da 3C.2
 
@@ -797,12 +806,12 @@ usuário refez o fluxo e enviou a credencial correta, que conectou o ESP ao
 Wi-Fi sem reflash nem reboot entre a falha e a correção, ainda dentro da
 janela BLE original do firmware.
 
-Não foram testados nesta bancada: PoP incorreta na etapa de credenciais
-Wi-Fi (o caso de PoP incorreta na Security 1 é tratado na checklist da
-3C.2 acima, também pendente) e reconexão BLE como cenário isolado fora do
-retry de credenciais descrito acima; nenhum dos dois deve ser lido como
-validado. Também não foi verificada nesta bancada a ausência de segredos
-em log/diagnóstico.
+Não foram testados nesta bancada: reconexão BLE como cenário isolado fora
+do retry de credenciais descrito acima — não deve ser lido como validado.
+Também não foi verificada nesta bancada a ausência de segredos em
+log/diagnóstico. PoP incorreta na etapa de credenciais Wi-Fi **foi**
+testada posteriormente, em bancada separada — ver bloco dedicado logo
+abaixo.
 
 **Checklist de bancada — validado (Android real + ESP32-C3 real, com o
 ajuste da tentativa 2 aplicado):**
@@ -819,7 +828,8 @@ ajuste da tentativa 2 aplicado):**
   dispositivo físico, na mesma janela BLE, sem reflash/reboot do ESP.
 - [ ] confirmar ausência de qualquer segredo em log/diagnóstico durante o
   teste físico — não verificado nesta bancada;
-- [ ] PoP incorreta na etapa de credenciais Wi-Fi — não testada;
+- [x] PoP incorreta na etapa de credenciais Wi-Fi — testada em bancada
+  separada, ver bloco dedicado abaixo;
 - [ ] reconexão BLE como cenário isolado (fora do retry de credenciais
   acima) — não testada.
 
@@ -828,8 +838,165 @@ ajuste da tentativa 2 aplicado):**
 retentativa → sucesso), nos limites descritos acima: Wi-Fi configurado não
 é claim/registro do dispositivo, não ativa AWS IoT/MQTT/Fleet Provisioning
 e não é fluxo de produção. Os itens não marcados acima (segredos em
-log/diagnóstico, PoP incorreta nas credenciais Wi-Fi, reconexão BLE
-isolada) permanecem pendentes e não devem ser lidos como validados.
+log/diagnóstico, reconexão BLE isolada) permanecem pendentes e não devem
+ser lidos como validados.
+
+### PoP incorreta na etapa de Wi-Fi: firmware correto, app mal classificava o erro (corrigido)
+
+Bancada posterior, com PoP DEV deliberadamente diferente entre o app
+Android e o firmware do ESP32-C3: o firmware rejeitou corretamente a
+sessão Security 1 antes de aceitar qualquer credencial Wi-Fi, confirmado
+pelo serial do dispositivo:
+
+```text
+security1: Key mismatch. Close connection
+security1: Session setup error -1
+protocomm_ble: Invalid content received, killing connection
+```
+
+**Isso confirma o firmware/protocolo como corretos** — o problema estava
+só do lado do app. Pela mesma limitação real do SDK Android já documentada
+acima (`ESPDevice.provision()` é quem executa o handshake Security 1,
+depois que a pessoa já preencheu o formulário de Wi-Fi — ver
+`establishSecurity1` em `EspressifBleProvisioningBridge.kt` e o histórico
+de tentativas 1-3 acima), esse `Key mismatch` chegava ao app como
+`sessionFailed` dentro de `sendWifiCredentials`, e `OnboardingCoordinator`
+classificava isso como `wifiFailed`, mostrando "Não foi possível
+configurar o Wi-Fi do InterBridge" — uma mensagem enganosa: a PoP/conexão
+falhou, nenhuma credencial Wi-Fi chegou a ser avaliada pelo dispositivo.
+
+**Corrigido nesta entrega:** `OnboardingCoordinator.submitWifi` agora
+reclassifica especificamente `WifiProvisioningFailureReason.sessionFailed`
+como `OnboardingFailureKind.connectionFailed`, com mensagem genérica de
+conexão ("Não foi possível conectar ao InterBridge. Verifique se o
+dispositivo selecionado está em modo de configuração e tente novamente."),
+nunca mencionando PoP, chave, Security 1, autenticação BLE ou Wi-Fi — e
+nunca marcado como `wifiFailed`. Deliberado não distinguir para o usuário
+PoP incorreta de uma desconexão/falha transiente: ambas continuam sendo
+uma falha de conexão genérica e recuperável, igual ao tratamento já
+existente para uma falha de conexão/Security 1 detectada mais cedo (em
+`confirmDevice`). O botão "Tentar novamente" para esse caso já reaproveita
+o comportamento existente de `connectionFailed` — descarta a sessão BLE
+anterior (nunca reusa o `transportId`) e volta ao scan/conexão normal,
+preservando um `claimSession` resolvido por QR/manual, se houver (mesmo
+tratamento que `wifiFailed` já dava). Coberto por
+`test/onboarding_coordinator_test.dart`: `sessionFailed` durante
+`sendWifiCredentials` vira `connectionFailed` com a mensagem exata acima e
+nunca é tratado como Wi-Fi; retry desse caso não reusa sessão nem
+credenciais; senha incorreta e rede não encontrada continuam `wifiFailed`
+com suas mensagens específicas, sem regressão.
+
+**iOS foi testado fisicamente com essa mesma PoP incorreta.** O primeiro
+teste em iPhone real expôs um bug real do bridge iOS (a tela ficava presa
+em vez de reportar a falha), já corrigido e revalidado na mesma bancada —
+ver "Validação física iOS" mais abaixo para a bancada completa (discovery,
+conexão, Security 1, Wi-Fi, sucesso, e os três caminhos de falha/retentativa)
+e para o detalhe técnico da causa raiz/correção desse bug.
+
+### Implementação da 3C — transporte iOS (implementado e validado fisicamente)
+
+`IOSBleOnboardingTransport` (`lib/features/pairing/data/repositories/`) e
+`EspressifBleProvisioningBridge.swift` (`ios/Runner/`) usam exclusivamente o
+SDK oficial de Unified Provisioning da Espressif para iOS, `ESPProvision`
+(`github.com/espressif/esp-idf-provisioning-ios`, `3.0.3`, via Swift Package
+Manager — este projeto não usa CocoaPods). Nenhum CoreBluetooth/GATT,
+protobuf ou Security 0 próprio; nenhum arquivo do transporte Android
+(`AndroidBleOnboardingTransport`/`EspressifBleProvisioningBridge.kt`) foi
+alterado. Mesmos nomes de `MethodChannel`/`EventChannel` que o Android
+(`interapp/ble_onboarding[...]`) — só um lado nativo os registra por build —
+e mesmo `INTERBRIDGE_BLE_DEV_POP` local, nunca a PoP de produção.
+
+Duas diferenças reais entre os dois SDKs oficiais, documentadas em código em
+vez de escondidas atrás de uma abstração compartilhada (ver o doc comment de
+`IOSBleOnboardingTransport` e de `EspressifBleProvisioningBridge.swift`):
+
+- `ESPDevice.connect(delegate:)` do ESPProvision já realiza a conexão BLE
+  *e* o handshake Security 1 num só passo (a PoP é fornecida via
+  `ESPDeviceConnectionDelegate`, não como propriedade pública) — por isso a
+  conexão BLE real do iOS acontece dentro do método nativo
+  `establishSecurity1`, não `connect`; invisível para
+  `OnboardingCoordinator`, que já aguarda os dois em sequência e trata
+  qualquer falha de ambos da mesma forma.
+- `ESPDevice.provision` só expõe um passo intermediário (`.configApplied`)
+  antes do resultado final, nunca uma confirmação distinta de "dispositivo
+  recebeu a config" como o `wifiConfigSent` do Android — o transporte iOS
+  nunca emite `WifiProvisioningProgress.sendingConfig` (o coordenador já
+  mostra esse passo de forma otimista antes de ouvir o stream).
+- `ESPProvisionManager.searchESPDevices` é uma busca em lote de ~5s fixos
+  (não configurável), não um callback contínuo por anúncio como o Android —
+  o bridge nativo reemite essa busca em lote enquanto o scan estiver ativo,
+  então a descoberta continua aparecendo ao app Dart como um stream, só que
+  em janelas de ~5s em vez de imediatamente por anúncio.
+
+Declarada `NSBluetoothAlwaysUsageDescription` no `Info.plist`, com texto em
+português descrevendo exatamente o uso (encontrar/configurar um InterBridge
+próximo durante o pareamento) — nenhuma permissão do Android é pedida no
+iOS. Fora de escopo, deliberadamente, nesta entrega: APNs, Firebase/FCM iOS,
+push, chamada em tela cheia iOS, CallKit, áudio/microfone, claim/registro do
+dispositivo, Fleet Provisioning, AWS IoT/MQTT, e qualquer fluxo de produção
+(QR obrigatório, setup code de produção, PoP de fabricação).
+
+### Validação física iOS — bancada com iPhone real + ESP32-C3 DEV
+
+Validado em bancada com iPhone real assinado pelo Personal Team gratuito
+da Apple (não exige Apple Developer Program pago — a exigência de time
+pago é só para TestFlight/App Store) e o mesmo ESP32-C3 DEV e PoP DEV
+local (`INTERBRIDGE_BLE_DEV_POP`) já usados na validação Android (3C.2/
+3C.3). Cenários confirmados:
+
+- descoberta do `InterBridge-XXXX` via BLE no iPhone;
+- conexão BLE;
+- Security 1 com a PoP DEV correta;
+- envio de SSID e senha;
+- o ESP conectou à rede Wi-Fi real e o onboarding encerrou honestamente
+  (sem claim/registro — ver limites abaixo, mesma ressalva já aplicada à
+  3C.3 no Android);
+- PoP DEV deliberadamente incorreta: o ESP rejeitou a sessão Security 1
+  antes de aceitar qualquer credencial Wi-Fi, confirmado pelo serial do
+  ESP (`security1: Key mismatch. Close connection` /
+  `security1: Session setup error -1` /
+  `protocomm_ble: Invalid content received, killing connection`) — mesmo
+  comportamento já confirmado na bancada Android;
+- rede Wi-Fi inexistente e senha incorreta, cada uma seguida de nova
+  tentativa com credenciais corretas completando o fluxo com sucesso na
+  mesma janela BLE, sem reflash/reboot do ESP.
+
+**Bug real encontrado e corrigido durante esta bancada:** o primeiro teste
+de PoP incorreta expôs que o app ficava preso indefinidamente em "Tentando
+conectar" em vez de reportar a falha — `establishSecurity1`'s
+`FlutterResult` só era completado pela closure de
+`ESPDevice.connect(delegate:)`, e a desconexão BLE que o ESP realmente
+disparava não tinha, até então, nenhum caminho para resolver essa chamada
+pendente. Corrigido com `SecurityAttemptGate`
+(`ios/Runner/SecurityAttemptGate.swift`), que garante conclusão exatamente
+uma vez dessa chamada a partir de qualquer um dos gatilhos possíveis (a
+própria closure do SDK, uma desconexão BLE inesperada, ou uma limpeza/
+cancelamento explícitos) — mesmo espírito do `WifiAttemptDispatcher` já
+existente no lado Android. Nenhum timeout artificial foi adicionado: o
+firmware já fornece o sinal real e observável de falha (a própria
+desconexão BLE). Coberto sem hardware por
+`SecurityAttemptGateTests.swift`/`EspressifBleProvisioningBridgeTests.swift`
+e reconfirmado nesta mesma bancada física após a correção: PoP incorreta
+agora produz `connectionFailed`, com a mensagem genérica compartilhada com
+o Android ("Não foi possível conectar ao InterBridge. Verifique se o
+dispositivo selecionado está em modo de configuração e tente novamente." —
+nunca menciona PoP, chave, Security 1 ou Wi-Fi), e "Tentar novamente"
+descarta a sessão anterior e refaz scan/conexão do zero.
+
+Nenhum PoP, SSID, senha, UUID/MAC, payload BLE ou outro segredo foi
+registrado em log, screenshot ou controle de versão durante esta bancada.
+
+**O que esta bancada confirma, e o que continua fora de escopo.** Confirma
+o onboarding BLE completo em DEV no iOS — descoberta, conexão, Security 1,
+credenciais Wi-Fi, sucesso, e os três caminhos de falha/retentativa (PoP
+incorreta, senha incorreta, rede inexistente) — com o SDK oficial
+`ESPProvision`, ao mesmo nível da validação já existente para Android
+(3C.2/3C.3). Isto é onboarding **DEV em bancada**: continuam completamente
+fora de escopo e não tocados por esta bancada — claim/registro do
+dispositivo, Fleet Provisioning, AWS IoT/MQTT, qualquer fluxo de produção
+(PoP de fabricação, setup code de produção, distribuição de PoP real,
+identidade permanente do dispositivo), APNs, Firebase/FCM iOS, push,
+chamada em tela cheia iOS, CallKit, áudio/microfone e chamada de voz.
 
 ## Trabalhos sem numeração definitiva
 

@@ -86,9 +86,9 @@ class _HomePageState extends ConsumerState<HomePage> {
       );
     } on AuthFailure catch (failure) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(failure.safeMessage)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(failure.safeMessage)));
       }
     } on Object {
       if (mounted) {

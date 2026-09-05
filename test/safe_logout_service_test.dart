@@ -82,19 +82,22 @@ void main() {
     expect(auth.signedIn, isFalse);
   });
 
-  test('temporary DELETE failure prevents false logout and supports retry', () async {
-    final events = <String>[];
-    final auth = LogoutAuth(events);
-    final repository = LogoutPushRepository(events)
-      ..deleteError = const ApiFailure(ApiFailureKind.offline, 'safe');
-    final service = SafeLogoutService(logoutCoordinator(repository), auth);
-    await expectLater(service.signOut(), throwsA(isA<ApiFailure>()));
-    expect(auth.signedIn, isTrue);
-    expect(events, ['delete']);
-    repository.deleteError = null;
-    await service.signOut();
-    expect(events, ['delete', 'delete', 'signOut']);
-  });
+  test(
+    'temporary DELETE failure prevents false logout and supports retry',
+    () async {
+      final events = <String>[];
+      final auth = LogoutAuth(events);
+      final repository = LogoutPushRepository(events)
+        ..deleteError = const ApiFailure(ApiFailureKind.offline, 'safe');
+      final service = SafeLogoutService(logoutCoordinator(repository), auth);
+      await expectLater(service.signOut(), throwsA(isA<ApiFailure>()));
+      expect(auth.signedIn, isTrue);
+      expect(events, ['delete']);
+      repository.deleteError = null;
+      await service.signOut();
+      expect(events, ['delete', 'delete', 'signOut']);
+    },
+  );
 
   test('expired session follows central invalidation without DELETE', () async {
     final events = <String>[];
@@ -110,23 +113,26 @@ void main() {
     expect(events, isEmpty);
   });
 
-  test('Cognito failure after DELETE restores and repairs registration', () async {
-    final events = <String>[];
-    final auth = LogoutAuth(events)..signOutError = StateError('provider');
-    final repository = LogoutPushRepository(events);
-    final coordinator = logoutCoordinator(repository)
-      ..setAuthenticated(true)
-      ..acceptToken('private-token');
-    await coordinator.idle;
-    events.clear();
+  test(
+    'Cognito failure after DELETE restores and repairs registration',
+    () async {
+      final events = <String>[];
+      final auth = LogoutAuth(events)..signOutError = StateError('provider');
+      final repository = LogoutPushRepository(events);
+      final coordinator = logoutCoordinator(repository)
+        ..setAuthenticated(true)
+        ..acceptToken('private-token');
+      await coordinator.idle;
+      events.clear();
 
-    await expectLater(
-      SafeLogoutService(coordinator, auth).signOut(),
-      throwsA(isA<StateError>()),
-    );
-    await coordinator.idle;
+      await expectLater(
+        SafeLogoutService(coordinator, auth).signOut(),
+        throwsA(isA<StateError>()),
+      );
+      await coordinator.idle;
 
-    expect(events, ['delete', 'signOut', 'register']);
-    expect(auth.signedIn, isTrue);
-  });
+      expect(events, ['delete', 'signOut', 'register']);
+      expect(auth.signedIn, isTrue);
+    },
+  );
 }

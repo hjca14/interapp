@@ -4,6 +4,8 @@
 <dict>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Use o Face ID para desbloquear localmente sua sessão do InterBridge.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>O InterBridge usa Bluetooth para encontrar e configurar um InterBridge físico próximo durante o pareamento (envio de Wi‑Fi pelo app). Isso só acontece enquanto você configura um dispositivo — nunca em segundo plano.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

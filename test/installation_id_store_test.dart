@@ -21,14 +21,17 @@ void main() {
     r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
   );
 
-  test('generates, persists and reuses a valid UUID v4 across logout', () async {
-    final preferences = MemoryPreferences();
-    final store = SharedPreferencesInstallationIdStore(preferences);
-    final first = await store.getOrCreate();
-    expect(first, matches(uuidV4));
-    expect(await store.getOrCreate(), first);
-    expect(preferences.values.values.single, first);
-  });
+  test(
+    'generates, persists and reuses a valid UUID v4 across logout',
+    () async {
+      final preferences = MemoryPreferences();
+      final store = SharedPreferencesInstallationIdStore(preferences);
+      final first = await store.getOrCreate();
+      expect(first, matches(uuidV4));
+      expect(await store.getOrCreate(), first);
+      expect(preferences.values.values.single, first);
+    },
+  );
 
   test('replaces a corrupted value', () async {
     final preferences = MemoryPreferences()

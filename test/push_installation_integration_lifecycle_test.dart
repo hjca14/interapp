@@ -32,8 +32,7 @@ class LifecycleAuth implements AuthRepository {
 
 class LifecycleIds implements InstallationIdStore {
   @override
-  Future<String> getOrCreate() async =>
-      '123e4567-e89b-42d3-a456-426614174000';
+  Future<String> getOrCreate() async => '123e4567-e89b-42d3-a456-426614174000';
 }
 
 class LifecycleVersion implements AppVersionProvider {
@@ -58,39 +57,42 @@ class LifecyclePushRepository implements PushInstallationRepository {
 }
 
 void main() {
-  test('integration owns one listener and stops reacting after disposal', () async {
-    final auth = LifecycleAuth();
-    final repository = LifecyclePushRepository();
-    final coordinator = PushInstallationCoordinator(
-      installationIds: LifecycleIds(),
-      appVersions: LifecycleVersion(),
-      repository: repository,
-    );
-    final container = ProviderContainer(
-      overrides: [
-        authRepositoryProvider.overrideWithValue(auth),
-        pushInstallationCoordinatorProvider.overrideWithValue(
-          Future.value(coordinator),
-        ),
-      ],
-    );
+  test(
+    'integration owns one listener and stops reacting after disposal',
+    () async {
+      final auth = LifecycleAuth();
+      final repository = LifecyclePushRepository();
+      final coordinator = PushInstallationCoordinator(
+        installationIds: LifecycleIds(),
+        appVersions: LifecycleVersion(),
+        repository: repository,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          authRepositoryProvider.overrideWithValue(auth),
+          pushInstallationCoordinatorProvider.overrideWithValue(
+            Future.value(coordinator),
+          ),
+        ],
+      );
 
-    container.read(pushInstallationIntegrationProvider);
-    container.read(pushInstallationIntegrationProvider);
-    await Future<void>.delayed(Duration.zero);
-    expect(auth.listenersCreated, 1);
+      container.read(pushInstallationIntegrationProvider);
+      container.read(pushInstallationIntegrationProvider);
+      await Future<void>.delayed(Duration.zero);
+      expect(auth.listenersCreated, 1);
 
-    auth.sessions.add(const AuthSession.signedOut());
-    await Future<void>.delayed(Duration.zero);
-    container.dispose();
-    await Future<void>.delayed(Duration.zero);
-    expect(auth.listenersClosed, 1);
+      auth.sessions.add(const AuthSession.signedOut());
+      await Future<void>.delayed(Duration.zero);
+      container.dispose();
+      await Future<void>.delayed(Duration.zero);
+      expect(auth.listenersClosed, 1);
 
-    auth.sessions.add(const AuthSession(isSignedIn: true));
-    coordinator.acceptToken('after-dispose');
-    await Future<void>.delayed(Duration.zero);
-    await coordinator.idle;
-    expect(repository.registrations, 0);
-    await auth.sessions.close();
-  });
+      auth.sessions.add(const AuthSession(isSignedIn: true));
+      coordinator.acceptToken('after-dispose');
+      await Future<void>.delayed(Duration.zero);
+      await coordinator.idle;
+      expect(repository.registrations, 0);
+      await auth.sessions.close();
+    },
+  );
 }

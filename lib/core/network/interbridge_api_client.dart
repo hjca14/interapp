@@ -84,11 +84,20 @@ class InterBridgeApiClient {
           .then(http.Response.fromStream)
           .timeout(timeout);
     } on TimeoutException {
-      throw const ApiFailure(ApiFailureKind.timeout, 'O serviço demorou para responder.');
+      throw const ApiFailure(
+        ApiFailureKind.timeout,
+        'O serviço demorou para responder.',
+      );
     } on SocketException {
-      throw const ApiFailure(ApiFailureKind.offline, 'Sem conexão com o serviço.');
+      throw const ApiFailure(
+        ApiFailureKind.offline,
+        'Sem conexão com o serviço.',
+      );
     } on http.ClientException {
-      throw const ApiFailure(ApiFailureKind.offline, 'Sem conexão com o serviço.');
+      throw const ApiFailure(
+        ApiFailureKind.offline,
+        'Sem conexão com o serviço.',
+      );
     }
   }
 
