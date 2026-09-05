@@ -7,12 +7,27 @@ import 'package:interapp/features/pairing/domain/repositories/ble_onboarding_tra
 
 class _FakeBridge implements AndroidBleProvisioningBridge {
   final events = StreamController<Map<Object?, Object?>>.broadcast();
+  final wifiEvents = StreamController<Map<Object?, Object?>>.broadcast();
   final calls = <String>[];
+  final callArguments = <String, Map<String, Object?>?>{};
   String availability = 'ready';
   String? failingMethod;
 
+  /// Called synchronously, from inside [invoke] itself, the instant
+  /// `method == 'sendWifiCredentials'` is handled — before `invoke`'s own
+  /// Future is even returned to its caller. Lets a test simulate the real
+  /// native side firing `wifiConnected`/`wifiFailed`/progress events the
+  /// moment `ESPDevice.provision(...)` starts, which can race ahead of
+  /// Dart's `sendWifiCredentials` still merely awaiting the platform
+  /// method call's own round trip — exactly the ordering
+  /// [AndroidBleOnboardingTransport.sendWifiCredentials] must survive.
+  void Function()? onSendWifiCredentialsInvoked;
+
   @override
   Stream<Map<Object?, Object?>> get discoveries => events.stream;
+
+  @override
+  Stream<Map<Object?, Object?>> get wifiProvisioningEvents => wifiEvents.stream;
 
   @override
   Future<Object?> invoke(
@@ -20,11 +35,23 @@ class _FakeBridge implements AndroidBleProvisioningBridge {
     Map<String, Object?>? arguments,
   ]) async {
     calls.add(method);
+    callArguments[method] = arguments;
+    if (method == 'sendWifiCredentials') {
+      onSendWifiCredentialsInvoked?.call();
+    }
     if (method == failingMethod) {
       throw PlatformException(code: 'expected');
     }
     return method == 'checkAvailability' ? availability : null;
   }
+}
+
+/// Connects and completes Security 1 so [transport] is ready for
+/// `sendWifiCredentials` — mirrors what `OnboardingCoordinator.confirmDevice`
+/// does before ever calling it.
+Future<void> _connectAndSecure(AndroidBleOnboardingTransport transport) async {
+  await transport.connect('opaque-a');
+  await transport.establishSecureSession();
 }
 
 void main() {
@@ -102,16 +129,682 @@ void main() {
     expect(bridge.calls.last, 'disconnect');
   });
 
-  test('unimplemented Wi-Fi fails explicitly and disconnects', () async {
+  test('sendWifiCredentials refuses to run before connecting — synchronously, '
+      'a precondition failure, never a lost/racy stream event', () async {
     final bridge = _FakeBridge();
     final transport = AndroidBleOnboardingTransport(
       developmentProofOfPossession: configuredTestValue(),
       bridge: bridge,
     );
-    await expectLater(
-      transport.sendWifiCredentials('ssid', 'password'),
-      throwsUnimplementedError,
+    expect(
+      () => transport.sendWifiCredentials('home-network', 'password'),
+      throwsA(isA<BleOperationException>()),
     );
-    expect(bridge.calls.last, 'disconnect');
+    expect(bridge.calls, isNot(contains('sendWifiCredentials')));
   });
+
+  test(
+    'an empty SSID is rejected synchronously, before any native call',
+    () async {
+      final bridge = _FakeBridge();
+      final transport = AndroidBleOnboardingTransport(
+        developmentProofOfPossession: configuredTestValue(),
+        bridge: bridge,
+      );
+      await _connectAndSecure(transport);
+
+      expect(
+        () => transport.sendWifiCredentials('', 'password'),
+        throwsA(isA<ArgumentError>()),
+      );
+      expect(bridge.calls, isNot(contains('sendWifiCredentials')));
+    },
+  );
+
+  test(
+    'an empty password is sent as-is for an open network — only SSID is required',
+    () async {
+      final bridge = _FakeBridge();
+      final transport = AndroidBleOnboardingTransport(
+        developmentProofOfPossession: configuredTestValue(),
+        bridge: bridge,
+      );
+      await _connectAndSecure(transport);
+
+      final progressFuture = transport
+          .sendWifiCredentials('open-network', '')
+          .toList();
+      await Future<void>.delayed(Duration.zero);
+      bridge.wifiEvents.add({'event': 'wifiConnected'});
+
+      await progressFuture;
+      expect(bridge.callArguments['sendWifiCredentials'], {
+        'ssid': 'open-network',
+        'password': '',
+      });
+    },
+  );
+
+  test(
+    'sends ssid/password as the native call arguments, never persisted elsewhere',
+    () async {
+      final bridge = _FakeBridge();
+      final transport = AndroidBleOnboardingTransport(
+        developmentProofOfPossession: configuredTestValue(),
+        bridge: bridge,
+      );
+      await _connectAndSecure(transport);
+
+      final progressFuture = transport
+          .sendWifiCredentials('home-network', 'secret-password')
+          .toList();
+      await Future<void>.delayed(Duration.zero);
+      bridge.wifiEvents.add({'event': 'wifiConnected'});
+
+      await progressFuture;
+      expect(bridge.callArguments['sendWifiCredentials'], {
+        'ssid': 'home-network',
+        'password': 'secret-password',
+      });
+    },
+  );
+
+  test(
+    'reports sendingConfig then applyingConfig, and completes normally — '
+    'never emitting a value — once the device confirms it connected',
+    () async {
+      final bridge = _FakeBridge();
+      final transport = AndroidBleOnboardingTransport(
+        developmentProofOfPossession: configuredTestValue(),
+        bridge: bridge,
+      );
+      await _connectAndSecure(transport);
+
+      final progress = <WifiProvisioningProgress>[];
+      final stream = transport.sendWifiCredentials('home-network', 'password');
+      final done = Completer<void>();
+      stream.listen(
+        progress.add,
+        onDone: done.complete,
+        onError: (Object e) => done.completeError(e),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      bridge.wifiEvents.add({'event': 'wifiConfigSent'});
+      bridge.wifiEvents.add({'event': 'wifiConfigApplied'});
+      bridge.wifiEvents.add({'event': 'wifiConnected'});
+      await done.future;
+
+      expect(progress, [
+        WifiProvisioningProgress.sendingConfig,
+        WifiProvisioningProgress.applyingConfig,
+      ]);
+    },
+  );
+
+  group('start/native-event race', () {
+    // These reproduce the real hazard: ESPDevice's ProvisionListener can
+    // start firing the moment provision() is handled natively, which can
+    // be before the *previous* platform message (subscribing this event
+    // stream) has been processed by the other side — if the two were sent
+    // in the wrong order. `_FakeBridge.onSendWifiCredentialsInvoked` fires
+    // synchronously from inside `invoke('sendWifiCredentials', ...)`
+    // itself, simulating an event arriving as early as physically
+    // possible — before `sendWifiCredentials`'s own Future to that
+    // platform call has even resolved. If the event subscription were
+    // established only after `invoke` returns (the bug this closes), the
+    // event below would be silently dropped by the broadcast
+    // `EventChannel` stream (which never buffers for a late listener) and
+    // this stream would simply hang forever.
+
+    test('an event emitted synchronously from inside the native invoke call '
+        'is never lost — progress is still observed', () async {
+      final bridge = _FakeBridge();
+      bridge.onSendWifiCredentialsInvoked = () {
+        bridge.wifiEvents.add({'event': 'wifiConfigSent'});
+      };
+      final transport = AndroidBleOnboardingTransport(
+        developmentProofOfPossession: configuredTestValue(),
+        bridge: bridge,
+      );
+      await _connectAndSecure(transport);
+
+      final progress = <WifiProvisioningProgress>[];
+      final subscription = transport
+          .sendWifiCredentials('home-network', 'password')
+          .listen(progress.add);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        progress,
+        [WifiProvisioningProgress.sendingConfig],
+        reason:
+            'the event fired the instant the native call was handled '
+            'must still reach the listener, not be silently dropped',
+      );
+      await subscription.cancel();
+    });
+
+    test('wifiConnected emitted synchronously from inside the native invoke '
+        'call still ends the stream at wifiConnected — never a stuck '
+        'spinner waiting for an event that already happened', () async {
+      final bridge = _FakeBridge();
+      bridge.onSendWifiCredentialsInvoked = () {
+        bridge.wifiEvents.add({'event': 'wifiConnected'});
+      };
+      final transport = AndroidBleOnboardingTransport(
+        developmentProofOfPossession: configuredTestValue(),
+        bridge: bridge,
+      );
+      await _connectAndSecure(transport);
+
+      // If this event were lost, .toList() below would never complete —
+      // this test would hang/time out instead of failing fast, exactly
+      // matching the "stuck on Conectando..." symptom in the bug report.
+      final progress = await transport
+          .sendWifiCredentials('home-network', 'password')
+          .toList();
+
+      expect(
+        progress,
+        isEmpty,
+        reason: 'wifiConnected never itself yields a progress value',
+      );
+    });
+
+    test('a failure emitted synchronously from inside the native invoke call '
+        'is still received, surfaced as WifiProvisioningException, and '
+        'releases the BLE connection', () async {
+      final bridge = _FakeBridge();
+      bridge.onSendWifiCredentialsInvoked = () {
+        bridge.wifiEvents.add({'event': 'wifiFailed', 'reason': 'authFailed'});
+      };
+      final transport = AndroidBleOnboardingTransport(
+        developmentProofOfPossession: configuredTestValue(),
+        bridge: bridge,
+      );
+      await _connectAndSecure(transport);
+
+      await expectLater(
+        transport.sendWifiCredentials('home-network', 'password').drain<void>(),
+        throwsA(
+          isA<WifiProvisioningException>().having(
+            (e) => e.reason,
+            'reason',
+            WifiProvisioningFailureReason.authFailed,
+          ),
+        ),
+      );
+      expect(bridge.calls.last, 'disconnect');
+    });
+
+    test(
+      'the native event subscription is already active at the exact '
+      'moment the native invoke call is sent — not established afterward',
+      () async {
+        final bridge = _FakeBridge();
+        var listenerActiveWhenInvoked = false;
+        bridge.onSendWifiCredentialsInvoked = () {
+          // Checked from inside invoke() itself, before its own Future
+          // even resolves — this is the earliest possible moment the real
+          // native side could fire an event, per the class doc.
+          listenerActiveWhenInvoked = bridge.wifiEvents.hasListener;
+        };
+        final transport = AndroidBleOnboardingTransport(
+          developmentProofOfPossession: configuredTestValue(),
+          bridge: bridge,
+        );
+        await _connectAndSecure(transport);
+
+        final subscription = transport
+            .sendWifiCredentials('home-network', 'password')
+            .listen((_) {});
+        await Future<void>.delayed(Duration.zero);
+
+        expect(bridge.calls, contains('sendWifiCredentials'));
+        expect(
+          listenerActiveWhenInvoked,
+          isTrue,
+          reason:
+              'wifiProvisioningEvents must already have a listener before '
+              'the native sendWifiCredentials call is ever sent',
+        );
+        await subscription.cancel();
+      },
+    );
+  });
+
+  test('cancelling the returned stream cancels the native event subscription '
+      '— never leaves it listening underneath a dropped attempt', () async {
+    final bridge = _FakeBridge();
+    final transport = AndroidBleOnboardingTransport(
+      developmentProofOfPossession: configuredTestValue(),
+      bridge: bridge,
+    );
+    await _connectAndSecure(transport);
+
+    final subscription = transport
+        .sendWifiCredentials('home-network', 'password')
+        .listen((_) {});
+    await Future<void>.delayed(Duration.zero);
+    expect(bridge.wifiEvents.hasListener, isTrue);
+
+    await subscription.cancel();
+
+    expect(
+      bridge.wifiEvents.hasListener,
+      isFalse,
+      reason:
+          'cancelling the caller-facing stream must release the native '
+          'listener too, not leave it subscribed with nothing consuming it',
+    );
+  });
+
+  group('single-attempt lock', () {
+    int nativeSendCount(_FakeBridge bridge) =>
+        bridge.calls.where((call) => call == 'sendWifiCredentials').length;
+
+    test(
+      'a second concurrent call is rejected synchronously and never sends '
+      'a second native sendWifiCredentials/ESPDevice.provision() call',
+      () async {
+        final bridge = _FakeBridge();
+        final transport = AndroidBleOnboardingTransport(
+          developmentProofOfPossession: configuredTestValue(),
+          bridge: bridge,
+        );
+        await _connectAndSecure(transport);
+
+        // Left deliberately unresolved — no wifiConnected/wifiFailed event
+        // fires, so the first attempt's lock stays held indefinitely,
+        // regardless of how quickly the fake's own invoke() call settles.
+        final subscription = transport
+            .sendWifiCredentials('home-network', 'password')
+            .listen((_) {});
+        await Future<void>.delayed(Duration.zero);
+        expect(nativeSendCount(bridge), 1);
+
+        expect(
+          () => transport.sendWifiCredentials('other-network', 'password'),
+          throwsA(isA<BleOperationException>()),
+        );
+        expect(
+          nativeSendCount(bridge),
+          1,
+          reason:
+              'the rejected second call must never reach the native side '
+              'at all — no second sendWifiCredentials/provision() call',
+        );
+
+        await subscription.cancel();
+      },
+    );
+
+    test(
+      'a new attempt is accepted normally once the previous one succeeds',
+      () async {
+        final bridge = _FakeBridge();
+        final transport = AndroidBleOnboardingTransport(
+          developmentProofOfPossession: configuredTestValue(),
+          bridge: bridge,
+        );
+        await _connectAndSecure(transport);
+
+        final firstAttempt = transport
+            .sendWifiCredentials('home-network', 'password')
+            .toList();
+        await Future<void>.delayed(Duration.zero);
+        bridge.wifiEvents.add({'event': 'wifiConnected'});
+        await firstAttempt;
+
+        expect(
+          () => transport.sendWifiCredentials('home-network', 'password'),
+          returnsNormally,
+        );
+      },
+    );
+
+    test(
+      'a new attempt is accepted normally once the previous one fails',
+      () async {
+        final bridge = _FakeBridge();
+        final transport = AndroidBleOnboardingTransport(
+          developmentProofOfPossession: configuredTestValue(),
+          bridge: bridge,
+        );
+        await _connectAndSecure(transport);
+
+        final firstAttempt = transport
+            .sendWifiCredentials('home-network', 'password')
+            .drain<void>();
+        await Future<void>.delayed(Duration.zero);
+        bridge.wifiEvents.add({'event': 'wifiFailed', 'reason': 'authFailed'});
+        await expectLater(
+          firstAttempt,
+          throwsA(isA<WifiProvisioningException>()),
+        );
+
+        // A failure disconnects (see the class doc) — reconnect first,
+        // exactly as a real retry would, then confirm the lock itself was
+        // released (not still held from the failed attempt).
+        await _connectAndSecure(transport);
+        expect(
+          () => transport.sendWifiCredentials('home-network', 'password'),
+          returnsNormally,
+        );
+      },
+    );
+
+    test('establishSecureSession succeeding does not itself establish a real '
+        'SDK session — a sessionFailed reported only once Wi-Fi credentials '
+        'are submitted is still a normal, fully-retryable failure', () async {
+      // Native EspressifBleProvisioningBridge.establishSecurity1 only
+      // configures the PoP for the upcoming ESPDevice.provision() call
+      // now — it never calls the SDK's initSession() itself (see that
+      // method's doc comment for why, and the decompiled evidence). This
+      // fake bridge cannot model that native-internal distinction
+      // directly, but it CAN — and must — model the resulting contract:
+      // establishSecureSession() succeeding is not a guarantee a
+      // sessionFailed can no longer occur; it can now surface at the
+      // sendWifiCredentials step instead, and must be handled exactly
+      // like every other recoverable wifiFailed reason.
+      final bridge = _FakeBridge();
+      final transport = AndroidBleOnboardingTransport(
+        developmentProofOfPossession: configuredTestValue(),
+        bridge: bridge,
+      );
+      await _connectAndSecure(transport);
+
+      final firstAttempt = transport
+          .sendWifiCredentials('home-network', 'password')
+          .drain<void>();
+      await Future<void>.delayed(Duration.zero);
+      bridge.wifiEvents.add({'event': 'wifiFailed', 'reason': 'sessionFailed'});
+      await expectLater(
+        firstAttempt,
+        throwsA(
+          isA<WifiProvisioningException>().having(
+            (e) => e.reason,
+            'reason',
+            WifiProvisioningFailureReason.sessionFailed,
+          ),
+        ),
+      );
+      expect(bridge.calls.last, 'disconnect');
+
+      // Reconnect and retry, exactly as OnboardingCoordinator.retry()
+      // does for OnboardingFailureKind.wifiFailed — this must succeed
+      // normally, never stay locked out by the earlier session failure.
+      await _connectAndSecure(transport);
+      final secondAttempt = transport
+          .sendWifiCredentials('home-network', 'password')
+          .toList();
+      await Future<void>.delayed(Duration.zero);
+      bridge.wifiEvents.add({'event': 'wifiConnected'});
+      await secondAttempt;
+    });
+
+    test('a new attempt is accepted normally once the previous one is '
+        'cancelled by its caller', () async {
+      final bridge = _FakeBridge();
+      final transport = AndroidBleOnboardingTransport(
+        developmentProofOfPossession: configuredTestValue(),
+        bridge: bridge,
+      );
+      await _connectAndSecure(transport);
+
+      final subscription = transport
+          .sendWifiCredentials('home-network', 'password')
+          .listen((_) {});
+      await Future<void>.delayed(Duration.zero);
+      await subscription.cancel();
+
+      expect(
+        () => transport.sendWifiCredentials('home-network', 'password'),
+        returnsNormally,
+      );
+    });
+
+    test('disconnect() while an attempt is in flight releases the lock and '
+        'ends that attempt with a terminal event instead of leaving its '
+        'caller waiting forever', () async {
+      final bridge = _FakeBridge();
+      final transport = AndroidBleOnboardingTransport(
+        developmentProofOfPossession: configuredTestValue(),
+        bridge: bridge,
+      );
+      await _connectAndSecure(transport);
+
+      final events = <Object>[];
+      final done = Completer<void>();
+      transport
+          .sendWifiCredentials('home-network', 'password')
+          .listen(events.add, onError: events.add, onDone: done.complete);
+      await Future<void>.delayed(Duration.zero);
+
+      await transport.disconnect();
+      await done.future;
+
+      expect(
+        events,
+        [isA<WifiProvisioningException>()],
+        reason:
+            'an external disconnect must still resolve the caller-facing '
+            'stream, never leave it hanging',
+      );
+
+      await _connectAndSecure(transport);
+      expect(
+        () => transport.sendWifiCredentials('home-network', 'password'),
+        returnsNormally,
+      );
+    });
+  });
+
+  test(
+    'a native invoke failure on sendWifiCredentials itself surfaces sendFailed '
+    'and disconnects',
+    () async {
+      final bridge = _FakeBridge()..failingMethod = 'sendWifiCredentials';
+      final transport = AndroidBleOnboardingTransport(
+        developmentProofOfPossession: configuredTestValue(),
+        bridge: bridge,
+      );
+      await _connectAndSecure(transport);
+
+      await expectLater(
+        transport.sendWifiCredentials('home-network', 'password').drain<void>(),
+        throwsA(
+          isA<WifiProvisioningException>().having(
+            (e) => e.reason,
+            'reason',
+            WifiProvisioningFailureReason.sendFailed,
+          ),
+        ),
+      );
+      expect(bridge.calls.last, 'disconnect');
+    },
+  );
+
+  group('config accepted advances to apply/status, never stalls or ends '
+      'early', () {
+    test('the stream stays open after wifiConfigSent alone — accepting the '
+        'config is not itself a terminal outcome', () async {
+      final bridge = _FakeBridge();
+      final transport = AndroidBleOnboardingTransport(
+        developmentProofOfPossession: configuredTestValue(),
+        bridge: bridge,
+      );
+      await _connectAndSecure(transport);
+
+      var done = false;
+      transport
+          .sendWifiCredentials('home-network', 'password')
+          .listen((_) {}, onDone: () => done = true);
+      await Future<void>.delayed(Duration.zero);
+
+      bridge.wifiEvents.add({'event': 'wifiConfigSent'});
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        done,
+        isFalse,
+        reason:
+            'the device accepting the config only starts apply — the '
+            'stream must keep waiting for it, not settle here',
+      );
+    });
+
+    test(
+      'wifiConfigSent then wifiConfigApplied then wifiConnected delivers '
+      'the full set config -> apply -> status progression in order',
+      () async {
+        final bridge = _FakeBridge();
+        final transport = AndroidBleOnboardingTransport(
+          developmentProofOfPossession: configuredTestValue(),
+          bridge: bridge,
+        );
+        await _connectAndSecure(transport);
+
+        final progress = <WifiProvisioningProgress>[];
+        final done = Completer<void>();
+        transport
+            .sendWifiCredentials('home-network', 'password')
+            .listen(
+              progress.add,
+              onDone: done.complete,
+              onError: done.completeError,
+            );
+        await Future<void>.delayed(Duration.zero);
+
+        bridge.wifiEvents.add({'event': 'wifiConfigSent'});
+        await Future<void>.delayed(Duration.zero);
+        expect(done.isCompleted, isFalse);
+
+        bridge.wifiEvents.add({'event': 'wifiConfigApplied'});
+        await Future<void>.delayed(Duration.zero);
+        expect(done.isCompleted, isFalse);
+
+        bridge.wifiEvents.add({'event': 'wifiConnected'});
+        await done.future;
+
+        expect(progress, [
+          WifiProvisioningProgress.sendingConfig,
+          WifiProvisioningProgress.applyingConfig,
+        ]);
+      },
+    );
+  });
+
+  group('the event channel itself failing never leaves the UI hanging', () {
+    test('an error on wifiProvisioningEvents ends the attempt as noResponse '
+        'and releases the single-attempt lock', () async {
+      final bridge = _FakeBridge();
+      final transport = AndroidBleOnboardingTransport(
+        developmentProofOfPossession: configuredTestValue(),
+        bridge: bridge,
+      );
+      await _connectAndSecure(transport);
+
+      final future = transport
+          .sendWifiCredentials('home-network', 'password')
+          .drain<void>();
+      await Future<void>.delayed(Duration.zero);
+      bridge.wifiEvents.addError(StateError('native channel broke'));
+
+      await expectLater(
+        future,
+        throwsA(
+          isA<WifiProvisioningException>().having(
+            (e) => e.reason,
+            'reason',
+            WifiProvisioningFailureReason.noResponse,
+          ),
+        ),
+      );
+      expect(bridge.calls.last, 'disconnect');
+
+      // The lock must be released too — a fresh attempt is accepted.
+      await _connectAndSecure(transport);
+      expect(
+        () => transport.sendWifiCredentials('home-network', 'password'),
+        returnsNormally,
+      );
+    });
+
+    test('wifiProvisioningEvents closing (native onCancel/dispose) ends the '
+        'attempt as noResponse and releases the single-attempt lock', () async {
+      final bridge = _FakeBridge();
+      final transport = AndroidBleOnboardingTransport(
+        developmentProofOfPossession: configuredTestValue(),
+        bridge: bridge,
+      );
+      await _connectAndSecure(transport);
+
+      final future = transport
+          .sendWifiCredentials('home-network', 'password')
+          .drain<void>();
+      await Future<void>.delayed(Duration.zero);
+      await bridge.wifiEvents.close();
+
+      await expectLater(
+        future,
+        throwsA(
+          isA<WifiProvisioningException>().having(
+            (e) => e.reason,
+            'reason',
+            WifiProvisioningFailureReason.noResponse,
+          ),
+        ),
+      );
+
+      // The lock itself must be released too — checked directly on this
+      // same transport (the synchronous precondition check below is what
+      // matters here, not whatever the resulting stream does next against
+      // a bridge whose wifiEvents controller is now permanently closed).
+      await _connectAndSecure(transport);
+      expect(
+        () => transport.sendWifiCredentials('home-network', 'password'),
+        returnsNormally,
+      );
+    });
+  });
+
+  for (final entry in {
+    'authFailed': WifiProvisioningFailureReason.authFailed,
+    'networkNotFound': WifiProvisioningFailureReason.networkNotFound,
+    'deviceDisconnected': WifiProvisioningFailureReason.deviceDisconnected,
+    'sessionFailed': WifiProvisioningFailureReason.sessionFailed,
+    'applyFailed': WifiProvisioningFailureReason.applyFailed,
+    'noResponse': WifiProvisioningFailureReason.noResponse,
+    'something-unrecognized': WifiProvisioningFailureReason.unknown,
+  }.entries) {
+    test('a wifiFailed event with reason "${entry.key}" maps to '
+        '${entry.value} and disconnects', () async {
+      final bridge = _FakeBridge();
+      final transport = AndroidBleOnboardingTransport(
+        developmentProofOfPossession: configuredTestValue(),
+        bridge: bridge,
+      );
+      await _connectAndSecure(transport);
+
+      final future = transport
+          .sendWifiCredentials('home-network', 'password')
+          .drain<void>();
+      await Future<void>.delayed(Duration.zero);
+      bridge.wifiEvents.add({'event': 'wifiFailed', 'reason': entry.key});
+
+      await expectLater(
+        future,
+        throwsA(
+          isA<WifiProvisioningException>().having(
+            (e) => e.reason,
+            'reason',
+            entry.value,
+          ),
+        ),
+      );
+      expect(bridge.calls.last, 'disconnect');
+    });
+  }
 }

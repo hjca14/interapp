@@ -24,16 +24,47 @@ class _FakeBleTransport implements BleOnboardingTransport {
   Object? scanError;
   Object? connectError;
   Object? secureSessionError;
+
+  /// Thrown directly (e.g. an [UnimplementedError] or a generic
+  /// [Exception]) from `sendWifiCredentials` before any progress is
+  /// emitted. Mutually exclusive with [wifiFailureReason]/[wifiProgress]
+  /// below — set at most one failure mode per test.
   Object? wifiError;
+
+  /// Emitted as a [WifiProvisioningException] after [wifiProgress] has
+  /// already been yielded, simulating a device-reported failure
+  /// (`provisioningFailedFromDevice`/`wifiConfigFailed`/etc.) instead of a
+  /// transport-level one.
+  WifiProvisioningFailureReason? wifiFailureReason;
+
+  /// Progress events yielded before success/[wifiFailureReason] — defaults
+  /// to the two real SDK steps.
+  List<WifiProvisioningProgress> wifiProgress = const [
+    WifiProvisioningProgress.sendingConfig,
+    WifiProvisioningProgress.applyingConfig,
+  ];
+
   int connectCallCount = 0;
   int stopScanCallCount = 0;
   int disconnectCallCount = 0;
+  int sendWifiCallCount = 0;
+
+  /// Every ssid/password [sendWifiCredentials] was actually called with, in
+  /// order — lets tests confirm the right value reached the transport on
+  /// each attempt without the coordinator itself ever needing to store one.
+  final wifiCallArguments = <(String ssid, String password)>[];
+
+  /// Every BLE operation invoked, in call order — lets tests assert the
+  /// mandatory scan → connect → Security 1 → Wi-Fi sequence directly,
+  /// instead of only checking each step happened somewhere.
+  final operationLog = <String>[];
 
   @override
   Future<BleAvailabilityIssue?> checkAvailability() async => availabilityIssue;
 
   @override
   Stream<DiscoveredInterBridge> scanForProvisioningDevices() {
+    operationLog.add('scan');
     if (scanError != null) {
       return Stream.error(scanError!);
     }
@@ -46,6 +77,7 @@ class _FakeBleTransport implements BleOnboardingTransport {
   @override
   Future<void> connect(String transportId) async {
     connectCallCount++;
+    operationLog.add('connect');
     if (connectError != null) {
       throw connectError!;
     }
@@ -53,16 +85,38 @@ class _FakeBleTransport implements BleOnboardingTransport {
 
   @override
   Future<void> establishSecureSession() async {
+    operationLog.add('establishSecureSession');
     if (secureSessionError != null) throw secureSessionError!;
   }
 
   @override
   Future<void> requestIdentifyBlink() async {}
 
+  /// When set, `sendWifiCredentials` pauses right after being called and
+  /// before yielding/failing anything, until this completes — lets a test
+  /// pause mid-flight (e.g. to call `cancel()`) and then observe how the
+  /// coordinator reacts to a late outcome arriving after that.
+  Completer<void>? wifiGate;
+
   @override
-  Future<void> sendWifiCredentials(String ssid, String password) async {
+  Stream<WifiProvisioningProgress> sendWifiCredentials(
+    String ssid,
+    String password,
+  ) async* {
+    sendWifiCallCount++;
+    operationLog.add('sendWifiCredentials');
+    wifiCallArguments.add((ssid, password));
+    if (wifiGate != null) {
+      await wifiGate!.future;
+    }
     if (wifiError != null) {
       throw wifiError!;
+    }
+    for (final step in wifiProgress) {
+      yield step;
+    }
+    if (wifiFailureReason != null) {
+      throw WifiProvisioningException(wifiFailureReason!);
     }
   }
 
@@ -78,10 +132,8 @@ class _FakeBleTransport implements BleOnboardingTransport {
 class _FakeClaimRepository implements OnboardingClaimRepository {
   OnboardingClaimFailureReason? startFailure;
   OnboardingClaimFailureReason? resolveFailure;
-  OnboardingClaimFailureReason? completeFailure;
   bool resolvedSessionExpired = false;
   String resolvedDeviceId = 'ib-resolved';
-  Completer<void>? completeGate;
   int startCallCount = 0;
   int cancelCallCount = 0;
   String? lastCancelledSessionId;
@@ -117,12 +169,6 @@ class _FakeClaimRepository implements OnboardingClaimRepository {
 
   @override
   Future<ClaimSession> complete(String claimSessionId) async {
-    if (completeGate != null) {
-      await completeGate!.future;
-    }
-    if (completeFailure != null) {
-      throw OnboardingClaimException(completeFailure!);
-    }
     return ClaimSession(
       claimSessionId: claimSessionId,
       deviceId: resolvedDeviceId,
@@ -163,54 +209,67 @@ OnboardingCoordinator _coordinator({
 }
 
 void main() {
-  test(
-    'pure BLE discovery never uses its transport handle as product identity',
-    () async {
-      final ble = _FakeBleTransport()..devicesToDiscover = [_deviceA];
-      final claim = _FakeClaimRepository()
-        ..resolvedDeviceId = 'ib-authenticated-a';
-      final analytics = _RecordingAnalytics();
-      final coordinator = _coordinator(
-        ble: ble,
-        claim: claim,
-        analytics: analytics,
-      );
+  test('the primary path runs scan, connect, Security 1, then Wi-Fi in that '
+      'order, stops at wifiConnected honestly (never success/claim), and '
+      'never uses its BLE transport handle as product identity', () async {
+    final ble = _FakeBleTransport()..devicesToDiscover = [_deviceA];
+    final claim = _FakeClaimRepository()
+      ..resolvedDeviceId = 'ib-authenticated-a'
+      ..startFailure = OnboardingClaimFailureReason.backendUnavailable;
+    final analytics = _RecordingAnalytics();
+    final coordinator = _coordinator(
+      ble: ble,
+      claim: claim,
+      analytics: analytics,
+    );
 
-      expect(coordinator.state.phase, OnboardingPhase.idle);
+    expect(coordinator.state.phase, OnboardingPhase.idle);
 
-      await coordinator.startBleOnboarding();
-      await Future<void>.delayed(Duration.zero);
-      expect(coordinator.state.phase, OnboardingPhase.deviceFound);
-      expect(coordinator.state.discoveredDevices, [_deviceA]);
+    await coordinator.startBleOnboarding();
+    await Future<void>.delayed(Duration.zero);
+    expect(coordinator.state.phase, OnboardingPhase.deviceFound);
+    expect(coordinator.state.discoveredDevices, [_deviceA]);
 
-      coordinator.selectDevice(_deviceA);
-      expect(coordinator.state.phase, OnboardingPhase.confirmingDevice);
+    coordinator.selectDevice(_deviceA);
+    expect(coordinator.state.phase, OnboardingPhase.confirmingDevice);
 
-      await coordinator.confirmDevice();
-      expect(coordinator.state.phase, OnboardingPhase.selectingWifi);
-      expect(ble.connectCallCount, 1);
+    await coordinator.confirmDevice();
+    expect(coordinator.state.phase, OnboardingPhase.selectingWifi);
+    expect(ble.connectCallCount, 1);
 
-      await coordinator.submitWifi('home-network', 'secret-password');
+    await coordinator.submitWifi('home-network', 'secret-password');
 
-      expect(coordinator.state.phase, OnboardingPhase.error);
-      expect(
-        coordinator.state.failureKind,
-        OnboardingFailureKind.permanentIdentityUnavailable,
-      );
-      expect(claim.startCallCount, 0);
-      expect(
-        analytics.events,
-        containsAllInOrder([
-          'onboarding_started',
-          'ble_scan_started',
-          'device_discovered',
-          'device_confirmed',
-          'ble_connected',
-          'wifi_config_sent',
-        ]),
-      );
-    },
-  );
+    expect(coordinator.state.phase, OnboardingPhase.wifiConnected);
+    expect(OnboardingPhase.wifiConnected.isTerminal, isTrue);
+    // Deliberately never success/claimActive/awsProvisioning — permanent
+    // claim, identity, Fleet Provisioning and AWS are a later phase.
+    expect(coordinator.state.failureKind, isNull);
+    expect(claim.startCallCount, 0);
+    expect(
+      ble.operationLog,
+      containsAllInOrder([
+        'scan',
+        'connect',
+        'establishSecureSession',
+        'sendWifiCredentials',
+      ]),
+    );
+    expect(ble.wifiCallArguments, [('home-network', 'secret-password')]);
+    expect(
+      analytics.events,
+      containsAllInOrder([
+        'onboarding_started',
+        'ble_scan_started',
+        'device_discovered',
+        'device_confirmed',
+        'ble_connected',
+        'wifi_connected',
+      ]),
+    );
+    // The BLE session's job ends the moment Wi-Fi connects — nothing is
+    // left holding the connection open.
+    expect(ble.disconnectCallCount, 1);
+  });
 
   test(
     'Bluetooth disabled surfaces a bleUnavailable error without scanning',
@@ -356,7 +415,28 @@ void main() {
     },
   );
 
-  test('a Wi-Fi send failure surfaces a wifiFailed error', () async {
+  test('a device-reported Wi-Fi failure surfaces a specific, actionable '
+      'wifiFailed error and never includes the password', () async {
+    const password = 'super-secret-wifi-password';
+    final ble = _FakeBleTransport()
+      ..devicesToDiscover = [_deviceA]
+      ..wifiFailureReason = WifiProvisioningFailureReason.authFailed;
+    final coordinator = _coordinator(ble: ble);
+    await coordinator.startBleOnboarding();
+    await Future<void>.delayed(Duration.zero);
+    coordinator.selectDevice(_deviceA);
+    await coordinator.confirmDevice();
+
+    await coordinator.submitWifi('home-network', password);
+
+    expect(coordinator.state.phase, OnboardingPhase.error);
+    expect(coordinator.state.failureKind, OnboardingFailureKind.wifiFailed);
+    expect(coordinator.state.failureReason, isNot(contains(password)));
+    expect(coordinator.state.failureReason, contains('Senha'));
+  });
+
+  test('a generic Wi-Fi send failure (not device-classified) also surfaces '
+      'wifiFailed, with a generic message', () async {
     final ble = _FakeBleTransport()
       ..devicesToDiscover = [_deviceA]
       ..wifiError = Exception('send failed');
@@ -370,9 +450,11 @@ void main() {
 
     expect(coordinator.state.phase, OnboardingPhase.error);
     expect(coordinator.state.failureKind, OnboardingFailureKind.wifiFailed);
+    expect(ble.disconnectCallCount, 1);
   });
 
-  test('phase 3C.2 blocks Wi-Fi explicitly and releases BLE', () async {
+  test('a transport that has not implemented Wi-Fi provisioning surfaces '
+      'wifiProvisioningNotImplemented and releases BLE', () async {
     final ble = _FakeBleTransport()
       ..devicesToDiscover = [_deviceA]
       ..wifiError = UnimplementedError();
@@ -388,76 +470,31 @@ void main() {
       coordinator.state.failureKind,
       OnboardingFailureKind.wifiProvisioningNotImplemented,
     );
-    expect(coordinator.state.failureReason, contains('3C.3'));
     expect(ble.disconnectCallCount, 1);
   });
 
-  test(
-    'pure BLE path does not call claim start with a transport handle',
-    () async {
-      final ble = _FakeBleTransport()..devicesToDiscover = [_deviceA];
-      final claim = _FakeClaimRepository()
-        ..startFailure = OnboardingClaimFailureReason.backendUnavailable;
-      final coordinator = _coordinator(ble: ble, claim: claim);
-      await coordinator.startBleOnboarding();
-      await Future<void>.delayed(Duration.zero);
-      coordinator.selectDevice(_deviceA);
-      await coordinator.confirmDevice();
-
-      await coordinator.submitWifi('home-network', 'password');
-
-      expect(coordinator.state.phase, OnboardingPhase.error);
-      expect(
-        coordinator.state.failureKind,
-        OnboardingFailureKind.permanentIdentityUnavailable,
-      );
-      expect(claim.startCallCount, 0);
-    },
-  );
-
-  test('a claim-completion backend failure surfaces claimFailed', () async {
+  test('an expired resolved claim session does not block Wi-Fi provisioning — '
+      'claim validity is a later phase\'s concern, not checked here', () async {
     final ble = _FakeBleTransport()..devicesToDiscover = [_deviceA];
     final claim = _FakeClaimRepository()
-      ..completeFailure = OnboardingClaimFailureReason.backendUnavailable;
+      ..resolvedDeviceId = 'ib-authenticated-a'
+      ..resolvedSessionExpired = true
+      ..startFailure = OnboardingClaimFailureReason.backendUnavailable;
     final coordinator = _coordinator(ble: ble, claim: claim);
+
     coordinator.startManualFallback();
     await coordinator.submitManualCode('482719362051');
     await Future<void>.delayed(Duration.zero);
+    expect(coordinator.state.claimSession?.isExpired, isTrue);
+
     coordinator.selectDevice(_deviceA);
     await coordinator.confirmDevice();
-
     await coordinator.submitWifi('home-network', 'password');
 
-    expect(coordinator.state.phase, OnboardingPhase.error);
-    expect(coordinator.state.failureKind, OnboardingFailureKind.claimFailed);
+    expect(coordinator.state.phase, OnboardingPhase.wifiConnected);
+    expect(claim.startCallCount, 0);
+    expect(coordinator.state.claimSession?.isExpired, isTrue);
   });
-
-  test(
-    'an expired resolved identity is not replaced from a BLE transport handle',
-    () async {
-      final ble = _FakeBleTransport()..devicesToDiscover = [_deviceA];
-      final claim = _FakeClaimRepository()
-        ..resolvedDeviceId = 'ib-authenticated-a'
-        ..resolvedSessionExpired = true;
-      final coordinator = _coordinator(ble: ble, claim: claim);
-
-      coordinator.startManualFallback();
-      await coordinator.submitManualCode('482719362051');
-      await Future<void>.delayed(Duration.zero);
-      expect(coordinator.state.claimSession?.isExpired, isTrue);
-
-      coordinator.selectDevice(_deviceA);
-      await coordinator.confirmDevice();
-      await coordinator.submitWifi('home-network', 'password');
-
-      expect(claim.startCallCount, 0);
-      expect(coordinator.state.claimSession?.isExpired, isTrue);
-      expect(
-        coordinator.state.failureKind,
-        OnboardingFailureKind.permanentIdentityUnavailable,
-      );
-    },
-  );
 
   test(
     'a valid QR payload resolves the code and converges into BLE scanning',
@@ -566,27 +603,46 @@ void main() {
     'cancel() cancels the backend claim session while one is still active',
     () async {
       final ble = _FakeBleTransport()..devicesToDiscover = [_deviceA];
-      final gate = Completer<void>();
       final claim = _FakeClaimRepository()
-        ..resolvedDeviceId = 'ib-authenticated-a'
-        ..completeGate = gate;
+        ..resolvedDeviceId = 'ib-authenticated-a';
       final coordinator = _coordinator(ble: ble, claim: claim);
       coordinator.startManualFallback();
       await coordinator.submitManualCode('482719362051');
       await Future<void>.delayed(Duration.zero);
-      coordinator.selectDevice(_deviceA);
-      await coordinator.confirmDevice();
-      final wifiFuture = coordinator.submitWifi('home-network', 'password');
-      await Future<void>.delayed(const Duration(milliseconds: 10));
       expect(coordinator.state.claimSession, isNotNull);
 
       await coordinator.cancel();
 
       expect(claim.cancelCallCount, 1);
       expect(coordinator.state.phase, OnboardingPhase.idle);
+    },
+  );
 
-      gate.complete();
+  test(
+    'cancel() during an in-flight Wi-Fi send leaves no stuck stream, and a '
+    'late outcome arriving after that never resurrects the cancelled state',
+    () async {
+      final ble = _FakeBleTransport()
+        ..devicesToDiscover = [_deviceA]
+        ..wifiGate = Completer<void>();
+      final coordinator = _coordinator(ble: ble);
+      await coordinator.startBleOnboarding();
+      await Future<void>.delayed(Duration.zero);
+      coordinator.selectDevice(_deviceA);
+      await coordinator.confirmDevice();
+      final wifiFuture = coordinator.submitWifi('home-network', 'password');
+      await Future<void>.delayed(Duration.zero);
+      expect(coordinator.state.phase, OnboardingPhase.sendingWifi);
+
+      await coordinator.cancel();
+      expect(coordinator.state.phase, OnboardingPhase.idle);
+
+      // The send that was in flight when cancel() ran now resolves late,
+      // as either outcome — neither may clobber the already-cancelled
+      // idle state.
+      ble.wifiGate!.complete();
       await wifiFuture;
+      expect(coordinator.state.phase, OnboardingPhase.idle);
     },
   );
 
@@ -609,6 +665,40 @@ void main() {
     expect(ble.disconnectCallCount, 1);
   });
 
+  test('retrying a wifiFailed error re-scans (never reuses the stale BLE '
+      'handle) so the device can be found and reconnected again while still '
+      'in its BLE window, preserving any resolved claim session', () async {
+    final ble = _FakeBleTransport()
+      ..devicesToDiscover = [_deviceA]
+      ..wifiFailureReason = WifiProvisioningFailureReason.networkNotFound;
+    final claim = _FakeClaimRepository()
+      ..resolvedDeviceId = 'ib-authenticated-a';
+    final coordinator = _coordinator(ble: ble, claim: claim);
+    coordinator.startManualFallback();
+    await coordinator.submitManualCode('482719362051');
+    await Future<void>.delayed(Duration.zero);
+    coordinator.selectDevice(_deviceA);
+    await coordinator.confirmDevice();
+    await coordinator.submitWifi('home-network', 'wrong-network-name');
+    expect(coordinator.state.phase, OnboardingPhase.error);
+    expect(ble.disconnectCallCount, 1);
+    final claimSessionBeforeRetry = coordinator.state.claimSession;
+
+    ble.wifiFailureReason = null;
+    await coordinator.retry();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(coordinator.state.phase, OnboardingPhase.deviceFound);
+    expect(coordinator.state.discoveredDevices, [_deviceA]);
+    expect(coordinator.state.claimSession, claimSessionBeforeRetry);
+
+    // The whole confirm → connect → Wi-Fi path still works from here.
+    coordinator.selectDevice(_deviceA);
+    await coordinator.confirmDevice();
+    await coordinator.submitWifi('home-network', 'password');
+    expect(coordinator.state.phase, OnboardingPhase.wifiConnected);
+  });
+
   test(
     'retrying an invalidOrExpiredCode error goes back to manual entry',
     () async {
@@ -625,20 +715,11 @@ void main() {
     },
   );
 
-  test('reaching success is the terminal, navigable state', () async {
-    final ble = _FakeBleTransport()..devicesToDiscover = [_deviceA];
-    final claim = _FakeClaimRepository()
-      ..resolvedDeviceId = 'ib-authenticated-a';
-    final coordinator = _coordinator(ble: ble, claim: claim);
-    coordinator.startManualFallback();
-    await coordinator.submitManualCode('482719362051');
-    await Future<void>.delayed(Duration.zero);
-    coordinator.selectDevice(_deviceA);
-    await coordinator.confirmDevice();
-
-    await coordinator.submitWifi('home-network', 'password');
-
-    expect(coordinator.state.phase, OnboardingPhase.success);
+  test('success, error and wifiConnected are all terminal phases', () {
     expect(OnboardingPhase.success.isTerminal, isTrue);
+    expect(OnboardingPhase.error.isTerminal, isTrue);
+    expect(OnboardingPhase.wifiConnected.isTerminal, isTrue);
+    expect(OnboardingPhase.selectingWifi.isTerminal, isFalse);
+    expect(OnboardingPhase.sendingWifi.isTerminal, isFalse);
   });
 }

@@ -615,12 +615,16 @@ manualmente após a validação.
   entrega).
 - [x] **3C.2 — transporte Android:** validado fisicamente em Galaxy A12 real
   — descoberta, conexão e Protocomm Security 1 completos com o SDK oficial
-  Espressif. O fluxo para deliberadamente ao final da sessão BLE segura,
-  antes de qualquer credencial Wi-Fi — ver 3C.3 abaixo.
-- [ ] **3C.3 — credenciais Wi-Fi:** envio seguro por `prov-config` permanece
-  **não implementado** — a 3C.2 para explicitamente no fim da sessão segura,
-  nunca implicitamente, e nunca envia configuração parcial.
-- [ ] **iOS:** adaptador nativo futuro, fora da 3C.2.
+  Espressif. O fluxo parava deliberadamente ao final da sessão BLE segura,
+  antes de qualquer credencial Wi-Fi — ver 3C.3 abaixo, agora implementada.
+- [x] **3C.3 — credenciais Wi-Fi: implementada e validada fisicamente.**
+  Envio seguro de SSID/senha exclusivamente pelo `provision()` oficial do
+  SDK Espressif (`prov-config`), depois da sessão Security 1 já validada na
+  3C.2. Duas tentativas físicas iniciais pararam sem completar (ver seção
+  dedicada abaixo); a terceira, com as correções aplicadas, completou o
+  fluxo de ponta a ponta em Android real + ESP32-C3 real, incluindo o
+  caminho de falha e retentativa com credenciais corretas.
+- [ ] **iOS:** adaptador nativo futuro, fora da 3C.2/3C.3.
 
 ### Execução DEV e validação física da 3C.2
 
@@ -687,8 +691,145 @@ O adaptador Android está validado fisicamente para descoberta, conexão e
 Protocomm Security 1. **Continuam fora de escopo desta validação:**
 distribuição de PoP de produção, identidade/claim permanente do
 dispositivo, inventário de fabricação no backend e iOS — nenhum desses foi
-tocado por esta entrega. Envio de credenciais Wi-Fi (3C.3) permanece **não
-implementado**, não apenas não validado.
+tocado por esta entrega.
+
+### Implementação da 3C.3 — credenciais Wi-Fi (implementada e validada fisicamente)
+
+Depois da sessão Security 1 (3C.2), `AndroidBleOnboardingTransport
+.sendWifiCredentials` chama a operação oficial `ESPDevice.provision(ssid, password,
+ProvisionListener)` do SDK Espressif (`prov-config`) — nunca GATT próprio, nunca
+protobuf manual, nunca Security 0, nunca um transporte paralelo. Cada callback do
+`ProvisionListener` vira um evento sanitizado no canal nativo dedicado
+`interapp/ble_onboarding/wifi`, mapeado para os resultados modelados do lado Dart
+(`WifiProvisioningProgress`/sucesso/`WifiProvisioningException`): `wifiConfigSent`
+→ `sendingConfig`; `wifiConfigApplied` → `applyingConfig`; `deviceProvisioningSuccess`
+→ a Stream termina sem emitir valor; qualquer callback de falha do SDK
+(`createSessionFailed`/`wifiConfigFailed`/`wifiConfigApplyFailed`/
+`provisioningFailedFromDevice`/`onProvisioningFailed`) → um evento `wifiFailed`
+com `reason` sanitizado espelhando o `ProvisionFailureReason` do SDK
+(`authFailed`/`networkNotFound`/`deviceDisconnected`/`sendFailed`/`applyFailed`/
+`sessionFailed`/`unknown`), mais `noResponse` — a única exceção que não vem do
+SDK, usada pelo watchdog descrito na seção de bancada abaixo.
+
+SSID/senha só existem como argumentos locais da chamada nativa — nunca campo de
+classe, log, analytics, estado persistido, teste ou documentação; senha vazia é
+aceita (rede aberta), SSID vazio é rejeitado antes de qualquer chamada nativa.
+Uma falha sempre libera a conexão BLE (nunca tenta reaproveitá-la); a trava de
+tentativa única e o tratamento de corrida entre assinar `wifiProvisioningEvents`
+e invocar `sendWifiCredentials` estão documentados nos comentários do próprio
+código (`EspressifBleProvisioningBridge.kt`,
+`android_ble_onboarding_transport.dart`) e cobertos em
+`android_ble_onboarding_transport_test.dart` — não repetidos aqui.
+
+**Depois de Wi-Fi conectado, o app nunca afirma "configurado com sucesso" nem
+adiciona o dispositivo a nenhuma lista** — claim permanente, identidade de
+produção, Fleet Provisioning e AWS continuam pendentes (frente futura, 3C.4+).
+A tela mostra uma confirmação honesta ("Wi-Fi configurado.") e libera a conexão
+BLE; o pipeline de claim/Fleet Provisioning existente no coordenador permanece
+reservado, não removido, para quando essa frente for implementada.
+
+Descoberta por QR/código manual continua como fallback apenas de *qual*
+dispositivo — nome BLE anunciado, MAC, UUID local ou `transportId` nunca
+alimentam `device_id`/claim, igual à 3C.2. Android continua o único alvo
+real desta fase; iOS segue fora de escopo.
+
+### Bancada física — firmware e InterApp validados (três tentativas)
+
+**Firmware validado com o app oficial:** fora deste repositório, o mesmo
+ESP32-C3/firmware (PR #25 do firmware) foi provisionado com o app oficial
+"ESP BLE Provisioning" da Espressif usando a mesma PoP DEV e completou
+Security 1 → credenciais → apply → conectado à rede Wi-Fi real, confirmado
+pelo serial do ESP. Isso descarta firmware e protocolo como causa do que
+segue abaixo.
+
+**Tentativa 1 (Galaxy A12, antes de qualquer ajuste):** discovery/conexão/
+Security 1 completos; nenhum callback do `ProvisionListener` chegou depois
+do envio das credenciais — nem sucesso, nem falha. `establishSecurity1`
+chamava `device.initSession(...)` sozinho e retornava sucesso ao Dart antes
+de o usuário digitar as credenciais Wi-Fi, mantendo uma sessão já
+estabelecida aberta por um intervalo arbitrário, pautado pelo usuário, fora
+do ciclo de requisição/resposta que `ESPDevice.provision()` conduz sozinho
+(confirmado no bytecode decompilado do `.aar` `lib-2.1.3`:
+`if (session == null || !session.isEstablished()) initSession(...) else
+sendWiFiConfig(...)`). Ajuste feito: `establishSecurity1` não chama mais
+`initSession()`, apenas configura a PoP; `sendWifiCredentials` é o único
+ponto que chama `provision()`, sempre com `session == null`, deixando o SDK
+conduzir sessão → envio → apply → status como uma única transação.
+
+**Tentativa 2 (Galaxy A12, com o ajuste da tentativa 1 aplicado):** o log
+confirmou `provision()` abrindo Security 1 de fato (`Init session with :
+SECURITY_1`), `prov-session`/`prov-config` concluídos, e `wifiConfigSent()`
+disparando (`credentials accepted by SDK`) — mas nenhum callback seguinte
+(`wifiConfigApplied`, sucesso ou falha) chegou depois disso; a tentativa
+terminou apenas pelo watchdog de 25s. **O ajuste da tentativa 1 foi correto
+como experimento, mas não resolveu o travamento** — não é mais descrito
+como a correção.
+
+**Ajuste feito após a tentativa 2 (ainda não validado fisicamente):**
+decompilado `ESPDevice$10.onSuccess` (o handler de resposta que
+`sendWiFiConfig()` registra) confirma que ele chama
+`provisionListener.wifiConfigSent()` e, na mesma pilha, só se esse callback
+retornar normalmente, chama `applyWiFiConfig()` em seguida. Os callbacks do
+`ProvisionListener` faziam trabalho de Flutter/GATT/`Handler` diretamente
+nessa pilha (`EventChannel`, `disconnect()`, rearmar/cancelar o watchdog).
+Isso é **consistente** com o ponto exato onde o log parou — não é uma causa
+comprovada. Por precaução, os callbacks agora são estritamente mínimos e
+nunca deixam exceção escapar (`EspressifBleProvisioningBridge.sdkCallback`);
+todo trabalho de entrega ao Dart é capturado localmente e postado, de forma
+diferida, para `Handler(Looper.getMainLooper())` — nunca executado
+sincronamente dentro da pilha do SDK — via `WifiAttemptDispatcher`, que
+também garante ordenação e que um evento terminal tardio (de uma tentativa
+já encerrada, ou superada por uma nova) nunca revive nem re-emite nada
+(`WifiAttemptDispatcherTest.kt`, testado sem depender de Android/Robolectric).
+Marcadores novos: `sdk wifiConfigSent returned` (o callback retornou ao SDK
+normalmente) e `apply progression scheduled` (a entrega diferida rodou no
+main thread) — ver comentários de `sendWifiCredentials`.
+
+**Tentativa 3 (Android real + ESP32-C3 real, com o ajuste da tentativa 2
+aplicado) — bem-sucedida:** o app encontrou o InterBridge, conectou por BLE
+e completou Security 1 com a PoP correta; em seguida enviou credenciais
+Wi-Fi corretas e exibiu a confirmação honesta de Wi-Fi configurado (sem
+adicionar o dispositivo a nenhuma lista, sem claim/registro, sem ativar
+AWS IoT/MQTT/Fleet Provisioning — ver limites descritos acima). Também
+foram testados um SSID inexistente e uma senha incorreta: o app recebeu e
+tratou as duas falhas e permitiu uma nova tentativa. Depois da falha, o
+usuário refez o fluxo e enviou a credencial correta, que conectou o ESP ao
+Wi-Fi sem reflash nem reboot entre a falha e a correção, ainda dentro da
+janela BLE original do firmware.
+
+Não foram testados nesta bancada: PoP incorreta na etapa de credenciais
+Wi-Fi (o caso de PoP incorreta na Security 1 é tratado na checklist da
+3C.2 acima, também pendente) e reconexão BLE como cenário isolado fora do
+retry de credenciais descrito acima; nenhum dos dois deve ser lido como
+validado. Também não foi verificada nesta bancada a ausência de segredos
+em log/diagnóstico.
+
+**Checklist de bancada — validado (Android real + ESP32-C3 real, com o
+ajuste da tentativa 2 aplicado):**
+
+- [x] `sdk wifiConfigSent returned` e `apply progression scheduled`
+  ocorrem em sequência — implícito pelo fluxo completar até a confirmação
+  de sucesso, sem travar como nas tentativas 1 e 2;
+- [x] `credentials accepted by SDK` é seguido por `wifi applying` e
+  `wifi connected` (não apenas pelo primeiro callback) — mesma base;
+- [x] SSID/senha reais conectando de fato à rede;
+- [x] falha com senha incorreta e com SSID inexistente mostrando o
+  tratamento de falha correto, com nova tentativa liberada;
+- [x] retry após falha reenviando credenciais corretas ao mesmo
+  dispositivo físico, na mesma janela BLE, sem reflash/reboot do ESP.
+- [ ] confirmar ausência de qualquer segredo em log/diagnóstico durante o
+  teste físico — não verificado nesta bancada;
+- [ ] PoP incorreta na etapa de credenciais Wi-Fi — não testada;
+- [ ] reconexão BLE como cenário isolado (fora do retry de credenciais
+  acima) — não testada.
+
+**3C.3 está implementada e validada fisicamente de ponta a ponta**
+(descoberta → conexão BLE → Security 1 → credenciais Wi-Fi → falha e
+retentativa → sucesso), nos limites descritos acima: Wi-Fi configurado não
+é claim/registro do dispositivo, não ativa AWS IoT/MQTT/Fleet Provisioning
+e não é fluxo de produção. Os itens não marcados acima (segredos em
+log/diagnóstico, PoP incorreta nas credenciais Wi-Fi, reconexão BLE
+isolada) permanecem pendentes e não devem ser lidos como validados.
 
 ## Trabalhos sem numeração definitiva
 

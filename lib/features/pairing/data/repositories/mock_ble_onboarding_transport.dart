@@ -39,8 +39,15 @@ class MockBleOnboardingTransport implements BleOnboardingTransport {
   Future<void> requestIdentifyBlink() async {}
 
   @override
-  Future<void> sendWifiCredentials(String ssid, String password) async {
-    await Future<void>.delayed(const Duration(milliseconds: 800));
+  Stream<WifiProvisioningProgress> sendWifiCredentials(
+    String ssid,
+    String password,
+  ) async* {
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    yield WifiProvisioningProgress.sendingConfig;
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    yield WifiProvisioningProgress.applyingConfig;
+    await Future<void>.delayed(const Duration(milliseconds: 400));
   }
 
   @override

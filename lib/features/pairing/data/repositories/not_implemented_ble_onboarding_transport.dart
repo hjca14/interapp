@@ -44,9 +44,14 @@ class NotImplementedBleOnboardingTransport implements BleOnboardingTransport {
   Future<void> requestIdentifyBlink() async {}
 
   @override
-  Future<void> sendWifiCredentials(String ssid, String password) {
-    throw UnimplementedError(
-      'BLE onboarding is not implemented in this build yet.',
+  Stream<WifiProvisioningProgress> sendWifiCredentials(
+    String ssid,
+    String password,
+  ) {
+    return Stream.error(
+      UnimplementedError(
+        'BLE onboarding is not implemented in this build yet.',
+      ),
     );
   }
 

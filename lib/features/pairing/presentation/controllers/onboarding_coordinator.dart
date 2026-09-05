@@ -163,22 +163,50 @@ class OnboardingCoordinator extends ChangeNotifier {
     _setState(_state.copyWith(phase: OnboardingPhase.selectingWifi));
   }
 
+  /// Sends [ssid]/[password] over the already-secured BLE session and waits
+  /// for the device to confirm it joined the network — see
+  /// [BleOnboardingTransport.sendWifiCredentials]. Deliberately stops at
+  /// [OnboardingPhase.wifiConnected] on success: permanent claim, Fleet
+  /// Provisioning and AWS are a later phase (3C.4+), not implemented here,
+  /// so this never continues into them and never implies the device is
+  /// registered/added.
   Future<void> submitWifi(String ssid, String password) async {
-    if (ssid.trim().isEmpty) {
+    final trimmedSsid = ssid.trim();
+    if (trimmedSsid.isEmpty) {
       return;
     }
-    _setState(_state.copyWith(phase: OnboardingPhase.sendingWifi));
+    _setState(
+      _state.copyWith(
+        phase: OnboardingPhase.sendingWifi,
+        wifiProvisioningProgress: WifiProvisioningProgress.sendingConfig,
+      ),
+    );
     try {
-      await _bleTransport.sendWifiCredentials(ssid, password);
+      await for (final progress in _bleTransport.sendWifiCredentials(
+        trimmedSsid,
+        password,
+      )) {
+        // A concurrent cancel()/dispose() already moved the state away from
+        // sendingWifi — never let a late progress event resurrect it.
+        if (_state.phase != OnboardingPhase.sendingWifi) return;
+        _setState(_state.copyWith(wifiProvisioningProgress: progress));
+      }
     } on UnimplementedError {
+      if (_state.phase != OnboardingPhase.sendingWifi) return;
       await _bleTransport.disconnect();
       _fail(
         OnboardingFailureKind.wifiProvisioningNotImplemented,
-        'Sessão Bluetooth segura concluída. O envio de Wi-Fi será '
-        'implementado na etapa 3C.3.',
+        'A configuração de Wi-Fi ainda não está disponível neste '
+        'aplicativo.',
       );
       return;
+    } on WifiProvisioningException catch (e) {
+      if (_state.phase != OnboardingPhase.sendingWifi) return;
+      await _bleTransport.disconnect();
+      _fail(OnboardingFailureKind.wifiFailed, _wifiFailureMessage(e.reason));
+      return;
     } catch (_) {
+      if (_state.phase != OnboardingPhase.sendingWifi) return;
       await _bleTransport.disconnect();
       _fail(
         OnboardingFailureKind.wifiFailed,
@@ -186,59 +214,17 @@ class OnboardingCoordinator extends ChangeNotifier {
       );
       return;
     }
-    _analytics.track('wifi_config_sent');
-    await _startOrContinueClaim();
-  }
-
-  Future<void> _startOrContinueClaim() async {
-    // Discovery intentionally provides no product device_id. Until firmware
-    // exposes an authenticated identity-binding mechanism, only an unexpired
-    // ClaimSession resolved through QR/manual entry can authorize this tail.
-    final session = _state.claimSession;
-    if (session == null || session.isExpired) {
-      _fail(
-        OnboardingFailureKind.permanentIdentityUnavailable,
-        'A identidade permanente do InterBridge ainda não foi autenticada.',
-      );
-      return;
-    }
+    if (_state.phase != OnboardingPhase.sendingWifi) return;
+    _analytics.track('wifi_connected');
+    // The BLE session's job ends here — nothing left in this phase needs
+    // it, and holding it open would just be an unused connection.
+    await _bleTransport.disconnect();
     _setState(
       _state.copyWith(
-        phase: OnboardingPhase.claimActive,
-        claimSession: session,
+        phase: OnboardingPhase.wifiConnected,
+        wifiProvisioningProgress: null,
       ),
     );
-    await _runProvisioning(session);
-  }
-
-  Future<void> _runProvisioning(ClaimSession session) async {
-    _setState(_state.copyWith(phase: OnboardingPhase.awsProvisioning));
-    _analytics.track('provisioning_started');
-    try {
-      await _bleTransport.sendFleetProvisioningMaterial({
-        'claim_session_id': session.claimSessionId,
-      });
-    } catch (_) {
-      _fail(
-        OnboardingFailureKind.claimFailed,
-        'O InterBridge não conseguiu concluir o provisionamento.',
-      );
-      return;
-    }
-    _setState(_state.copyWith(phase: OnboardingPhase.verifyingDevice));
-    try {
-      final completed = await _claimRepository.complete(session.claimSessionId);
-      _setState(
-        _state.copyWith(
-          phase: OnboardingPhase.success,
-          claimSession: completed,
-        ),
-      );
-      _analytics.track('onboarding_completed');
-      unawaited(_bleTransport.disconnect());
-    } on OnboardingClaimException catch (e) {
-      _failClaim(e.reason);
-    }
   }
 
   // ---------------------------------------------------------------------
@@ -337,6 +323,20 @@ class OnboardingCoordinator extends ChangeNotifier {
         _setState(const OnboardingState(phase: OnboardingPhase.scanningBle));
         _startScan();
       case OnboardingFailureKind.wifiFailed:
+        // The failed BLE session was already disconnected — the old
+        // transportId handle is no longer connectable. Re-scan instead of
+        // jumping straight back to selectingWifi: as long as the physical
+        // device is still in its BLE provisioning window, discovery finds
+        // it again and the normal confirm→connect→selectingWifi path lets
+        // the user resubmit credentials, without ever reusing a stale
+        // connection or leaking one.
+        _setState(
+          OnboardingState(
+            phase: OnboardingPhase.scanningBle,
+            claimSession: claimSession,
+          ),
+        );
+        _startScan();
       case OnboardingFailureKind.wifiProvisioningNotImplemented:
       case OnboardingFailureKind.claimFailed:
         _setState(
@@ -396,6 +396,28 @@ class OnboardingCoordinator extends ChangeNotifier {
         return 'Permita o acesso ao Bluetooth para continuar.';
       case BleAvailabilityIssue.unsupported:
         return 'A busca por Bluetooth ainda não está disponível neste aplicativo.';
+    }
+  }
+
+  /// Specific where the device itself classified the failure (wrong
+  /// password vs. network not found), generic otherwise — never includes
+  /// the SSID/password themselves.
+  String _wifiFailureMessage(WifiProvisioningFailureReason reason) {
+    switch (reason) {
+      case WifiProvisioningFailureReason.authFailed:
+        return 'Senha de Wi-Fi incorreta. Confira e tente novamente.';
+      case WifiProvisioningFailureReason.networkNotFound:
+        return 'O InterBridge não encontrou essa rede Wi-Fi por perto.';
+      case WifiProvisioningFailureReason.deviceDisconnected:
+        return 'A conexão com o InterBridge foi perdida durante a '
+            'configuração do Wi-Fi.';
+      case WifiProvisioningFailureReason.sendFailed:
+      case WifiProvisioningFailureReason.applyFailed:
+      case WifiProvisioningFailureReason.sessionFailed:
+      case WifiProvisioningFailureReason.unknown:
+      case WifiProvisioningFailureReason.noResponse:
+        return 'Não foi possível configurar o Wi-Fi do InterBridge. Tente '
+            'novamente.';
     }
   }
 

@@ -6,6 +6,11 @@ import 'package:interapp/features/pairing/domain/repositories/ble_onboarding_tra
 
 abstract interface class AndroidBleProvisioningBridge {
   Stream<Map<Object?, Object?>> get discoveries;
+
+  /// Progress/result events for an in-flight `sendWifiCredentials` call —
+  /// a separate stream from [discoveries] so Wi-Fi provisioning and BLE
+  /// discovery can never cross-deliver events to each other's listener.
+  Stream<Map<Object?, Object?>> get wifiProvisioningEvents;
   Future<Object?> invoke(String method, [Map<String, Object?>? arguments]);
 }
 
@@ -15,9 +20,16 @@ class MethodChannelAndroidBleProvisioningBridge
 
   static const _methods = MethodChannel('interapp/ble_onboarding');
   static const _events = EventChannel('interapp/ble_onboarding/discovery');
+  static const _wifiEvents = EventChannel('interapp/ble_onboarding/wifi');
 
   @override
   Stream<Map<Object?, Object?>> get discoveries => _events
+      .receiveBroadcastStream()
+      .where((event) => event is Map)
+      .cast<Map<Object?, Object?>>();
+
+  @override
+  Stream<Map<Object?, Object?>> get wifiProvisioningEvents => _wifiEvents
       .receiveBroadcastStream()
       .where((event) => event is Map)
       .cast<Map<Object?, Object?>>();
@@ -46,6 +58,15 @@ class AndroidBleOnboardingTransport implements BleOnboardingTransport {
   final AndroidBleProvisioningBridge _bridge;
   bool _connected = false;
 
+  /// Non-null exactly while a `sendWifiCredentials` attempt is in flight —
+  /// the single-attempt lock. Calling it tears that attempt down (native
+  /// subscription cancelled, caller-facing stream closed with an error)
+  /// without touching the BLE connection itself; [disconnect] is what
+  /// actually calls it, since an external disconnect is the one case where
+  /// the attempt's own success/failure/cancel paths never get a chance to
+  /// run on their own.
+  Future<void> Function()? _cancelActiveWifiAttempt;
+
   @override
   Future<BleAvailabilityIssue?> checkAvailability() async {
     if (_developmentProofOfPossession.isEmpty) {
@@ -64,16 +85,20 @@ class AndroidBleOnboardingTransport implements BleOnboardingTransport {
   Stream<DiscoveredInterBridge> scanForProvisioningDevices() async* {
     await _bridge.invoke('startScan');
     final seen = <String>{};
-    yield* _bridge.discoveries.map((event) {
-      final id = event['transportId'];
-      final name = event['name'];
-      if (id is! String ||
-          name is! String ||
-          !name.startsWith('InterBridge-')) {
-        throw const FormatException('Invalid sanitized BLE discovery event');
-      }
-      return DiscoveredInterBridge(transportId: id, friendlyName: name);
-    }).where((device) => seen.add(device.friendlyName));
+    yield* _bridge.discoveries
+        .map((event) {
+          final id = event['transportId'];
+          final name = event['name'];
+          if (id is! String ||
+              name is! String ||
+              !name.startsWith('InterBridge-')) {
+            throw const FormatException(
+              'Invalid sanitized BLE discovery event',
+            );
+          }
+          return DiscoveredInterBridge(transportId: id, friendlyName: name);
+        })
+        .where((device) => seen.add(device.friendlyName));
   }
 
   @override
@@ -107,10 +132,170 @@ class AndroidBleOnboardingTransport implements BleOnboardingTransport {
   @override
   Future<void> requestIdentifyBlink() async {}
 
+  /// Subscribes to [AndroidBleProvisioningBridge.wifiProvisioningEvents]
+  /// *before* ever invoking the native `sendWifiCredentials` method call,
+  /// then returns a single-subscription [Stream] that relays the resulting
+  /// progress/outcome.
+  ///
+  /// Order matters here in a way it doesn't for [scanForProvisioningDevices]
+  /// (whose `async*` body already awaits `startScan` before consuming
+  /// [AndroidBleProvisioningBridge.discoveries]): the native side starts
+  /// calling `ESPDevice.provision(...)`'s listener the moment
+  /// `sendWifiCredentials` is handled, which can be before the *previous*
+  /// platform message (subscribing this stream) would have been processed
+  /// if the two were sent in the other order. `EventChannel`/`MethodChannel`
+  /// messages to the same platform are delivered FIFO, so listening first
+  /// guarantees the native `wifiEventSink` is already attached — including
+  /// for `wifiConnected`, which never repeats and would otherwise strand the
+  /// UI on "Conectando..." forever if lost. A broadcast [EventChannel]
+  /// stream never buffers for a listener that subscribes late, so an
+  /// `await for` starting only after `invoke` returns is not safe here.
+  ///
+  /// At most one attempt may be in flight at a time — see
+  /// [_cancelActiveWifiAttempt]. A second call while one is already active
+  /// fails synchronously, the same way (and for the same reason) as calling
+  /// this before [establishSecureSession]: never a second native
+  /// `sendWifiCredentials`/`ESPDevice.provision()`, never a second listener
+  /// on [AndroidBleProvisioningBridge.wifiProvisioningEvents].
   @override
-  Future<void> sendWifiCredentials(String ssid, String password) async {
-    await disconnect();
-    throw UnimplementedError('Wi-Fi provisioning is reserved for phase 3C.3.');
+  Stream<WifiProvisioningProgress> sendWifiCredentials(
+    String ssid,
+    String password,
+  ) {
+    if (ssid.isEmpty) {
+      throw ArgumentError.value(ssid, 'ssid', 'must not be empty');
+    }
+    if (!_connected) {
+      throw const BleOperationException('sendWifiCredentials');
+    }
+    if (_cancelActiveWifiAttempt != null) {
+      throw const BleOperationException('sendWifiCredentials');
+    }
+
+    final controller = StreamController<WifiProvisioningProgress>();
+    StreamSubscription<Map<Object?, Object?>>? eventSubscription;
+    // Exactly one of succeed()/fail()/the disconnect()-driven cleanup below
+    // may ever settle the controller — a single active attempt, cleaned up
+    // deterministically on every exit.
+    var settled = false;
+
+    Future<void> cancelSubscription() async {
+      await eventSubscription?.cancel();
+      eventSubscription = null;
+    }
+
+    void releaseLock() {
+      _cancelActiveWifiAttempt = null;
+    }
+
+    Future<void> succeed() async {
+      if (settled) return;
+      settled = true;
+      releaseLock();
+      await cancelSubscription();
+      await controller.close();
+    }
+
+    Future<void> fail(WifiProvisioningFailureReason reason) async {
+      if (settled) return;
+      settled = true;
+      releaseLock();
+      await cancelSubscription();
+      await disconnect();
+      controller.addError(WifiProvisioningException(reason));
+      await controller.close();
+    }
+
+    // Cancelling the returned stream (the coordinator dropping this
+    // attempt, or a test tearing down) must release both the lock and the
+    // native listener too — never leave either held by a call nobody is
+    // listening to anymore.
+    controller.onCancel = () {
+      settled = true;
+      releaseLock();
+      return cancelSubscription();
+    };
+
+    // disconnect() is the one exit this attempt can't observe on its own —
+    // an external disconnect while still in flight. Tears this attempt
+    // down (never touches the BLE connection itself; disconnect() already
+    // owns that) and gives the caller a terminal event instead of leaving
+    // them awaiting a stream that would otherwise never close.
+    _cancelActiveWifiAttempt = () async {
+      if (settled) return;
+      settled = true;
+      await cancelSubscription();
+      controller.addError(
+        const WifiProvisioningException(
+          WifiProvisioningFailureReason.deviceDisconnected,
+        ),
+      );
+      await controller.close();
+    };
+
+    eventSubscription = _bridge.wifiProvisioningEvents.listen(
+      (event) {
+        switch (event['event']) {
+          case 'wifiConfigSent':
+            if (!settled) {
+              controller.add(WifiProvisioningProgress.sendingConfig);
+            }
+          case 'wifiConfigApplied':
+            if (!settled) {
+              controller.add(WifiProvisioningProgress.applyingConfig);
+            }
+          case 'wifiConnected':
+            unawaited(succeed());
+          case 'wifiFailed':
+            unawaited(fail(_parseWifiFailureReason(event['reason'])));
+          default:
+          // Ignore anything else — defensive against an unrelated/unknown
+          // native event reaching this stream.
+        }
+      },
+      // The native EventChannel itself failing or closing out from under
+      // this attempt (never a ProvisionListener callback) is exactly as
+      // terminal as a device-reported failure — without these, either
+      // would otherwise leave this stream (and the single-attempt lock)
+      // stuck forever instead of resolving with a sanitized error.
+      onError: (Object _, StackTrace _) {
+        unawaited(fail(WifiProvisioningFailureReason.noResponse));
+      },
+      onDone: () {
+        unawaited(fail(WifiProvisioningFailureReason.noResponse));
+      },
+    );
+
+    unawaited(() async {
+      try {
+        // ssid/password only ever exist as this call's arguments — never
+        // stored in a field, logged, or included in any exception message.
+        await _bridge.invoke('sendWifiCredentials', {
+          'ssid': ssid,
+          'password': password,
+        });
+      } catch (_) {
+        // Any unexpected failure from the platform call itself — not just
+        // a PlatformException — must still terminate this attempt with a
+        // sanitized error rather than leave the lock held forever.
+        await fail(WifiProvisioningFailureReason.sendFailed);
+      }
+    }());
+
+    return controller.stream;
+  }
+
+  WifiProvisioningFailureReason _parseWifiFailureReason(Object? reason) {
+    return switch (reason) {
+      'authFailed' => WifiProvisioningFailureReason.authFailed,
+      'networkNotFound' => WifiProvisioningFailureReason.networkNotFound,
+      'deviceDisconnected' => WifiProvisioningFailureReason.deviceDisconnected,
+      'sendFailed' => WifiProvisioningFailureReason.sendFailed,
+      'applyFailed' => WifiProvisioningFailureReason.applyFailed,
+      'sessionFailed' => WifiProvisioningFailureReason.sessionFailed,
+      'noResponse' => WifiProvisioningFailureReason.noResponse,
+      _ => WifiProvisioningFailureReason.unknown,
+    };
   }
 
   @override
@@ -118,12 +303,19 @@ class AndroidBleOnboardingTransport implements BleOnboardingTransport {
     Map<String, dynamic> material,
   ) async {
     await disconnect();
-    throw UnimplementedError('Fleet provisioning is outside phase 3C.2.');
+    throw UnimplementedError('Fleet provisioning is a later phase (3C.4+).');
   }
 
   @override
   Future<void> disconnect() async {
     _connected = false;
+    // Cleared before awaiting the cleanup itself completes: a fresh
+    // sendWifiCredentials() call arriving while this disconnect is still
+    // tearing the old attempt down must never be rejected by a lock that's
+    // already on its way out.
+    final cancelActiveWifiAttempt = _cancelActiveWifiAttempt;
+    _cancelActiveWifiAttempt = null;
+    await cancelActiveWifiAttempt?.call();
     await _bridge.invoke('disconnect');
   }
 }
