@@ -617,13 +617,13 @@ manualmente após a validação.
   — descoberta, conexão e Protocomm Security 1 completos com o SDK oficial
   Espressif. O fluxo parava deliberadamente ao final da sessão BLE segura,
   antes de qualquer credencial Wi-Fi — ver 3C.3 abaixo, agora implementada.
-- [ ] **3C.3 — credenciais Wi-Fi: implementada, aguardando validação física
-  coordenada.** Envio seguro de SSID/senha exclusivamente pelo `provision()`
-  oficial do SDK Espressif (`prov-config`), depois da sessão Security 1 já
-  validada na 3C.2. Uma primeira tentativa física parou logo após
-  `wifiConfigSent`; a sequência de chamadas ao SDK foi corrigida (ver seção
-  dedicada abaixo). **Não marcada como concluída** — falta repetir a bancada
-  física no Galaxy A12 com a correção aplicada.
+- [x] **3C.3 — credenciais Wi-Fi: implementada e validada fisicamente.**
+  Envio seguro de SSID/senha exclusivamente pelo `provision()` oficial do
+  SDK Espressif (`prov-config`), depois da sessão Security 1 já validada na
+  3C.2. Duas tentativas físicas iniciais pararam sem completar (ver seção
+  dedicada abaixo); a terceira, com as correções aplicadas, completou o
+  fluxo de ponta a ponta em Android real + ESP32-C3 real, incluindo o
+  caminho de falha e retentativa com credenciais corretas.
 - [ ] **iOS:** adaptador nativo futuro, fora da 3C.2/3C.3.
 
 ### Execução DEV e validação física da 3C.2
@@ -693,7 +693,7 @@ distribuição de PoP de produção, identidade/claim permanente do
 dispositivo, inventário de fabricação no backend e iOS — nenhum desses foi
 tocado por esta entrega.
 
-### Implementação da 3C.3 — credenciais Wi-Fi (implementada; validação física ainda pendente)
+### Implementação da 3C.3 — credenciais Wi-Fi (implementada e validada fisicamente)
 
 Depois da sessão Security 1 (3C.2), `AndroidBleOnboardingTransport
 .sendWifiCredentials` chama a operação oficial `ESPDevice.provision(ssid, password,
@@ -733,7 +733,7 @@ dispositivo — nome BLE anunciado, MAC, UUID local ou `transportId` nunca
 alimentam `device_id`/claim, igual à 3C.2. Android continua o único alvo
 real desta fase; iOS segue fora de escopo.
 
-### Bancada física — firmware validado, InterApp ainda pendente (duas tentativas)
+### Bancada física — firmware e InterApp validados (três tentativas)
 
 **Firmware validado com o app oficial:** fora deste repositório, o mesmo
 ESP32-C3/firmware (PR #25 do firmware) foi provisionado com o app oficial
@@ -785,22 +785,51 @@ Marcadores novos: `sdk wifiConfigSent returned` (o callback retornou ao SDK
 normalmente) e `apply progression scheduled` (a entrega diferida rodou no
 main thread) — ver comentários de `sendWifiCredentials`.
 
-**Checklist de bancada pendente (Galaxy A12, com o ajuste da tentativa 2 aplicado):**
+**Tentativa 3 (Android real + ESP32-C3 real, com o ajuste da tentativa 2
+aplicado) — bem-sucedida:** o app encontrou o InterBridge, conectou por BLE
+e completou Security 1 com a PoP correta; em seguida enviou credenciais
+Wi-Fi corretas e exibiu a confirmação honesta de Wi-Fi configurado (sem
+adicionar o dispositivo a nenhuma lista, sem claim/registro, sem ativar
+AWS IoT/MQTT/Fleet Provisioning — ver limites descritos acima). Também
+foram testados um SSID inexistente e uma senha incorreta: o app recebeu e
+tratou as duas falhas e permitiu uma nova tentativa. Depois da falha, o
+usuário refez o fluxo e enviou a credencial correta, que conectou o ESP ao
+Wi-Fi sem reflash nem reboot entre a falha e a correção, ainda dentro da
+janela BLE original do firmware.
 
-- [ ] confirmar se `sdk wifiConfigSent returned` aparece (o callback em si
-  não travou/lançou) e se `apply progression scheduled` aparece em seguida;
-- [ ] confirmar que `credentials accepted by SDK` é seguido por
-  `wifi applying` e `wifi connected` (não apenas pelo primeiro callback);
-- [ ] SSID/senha reais conectando de fato à rede;
-- [ ] falha com senha incorreta e com rede fora de alcance mostrando a
-  mensagem específica correta;
-- [ ] retry após falha reencontrando e reconectando ao mesmo dispositivo
-  físico;
+Não foram testados nesta bancada: PoP incorreta na etapa de credenciais
+Wi-Fi (o caso de PoP incorreta na Security 1 é tratado na checklist da
+3C.2 acima, também pendente) e reconexão BLE como cenário isolado fora do
+retry de credenciais descrito acima; nenhum dos dois deve ser lido como
+validado. Também não foi verificada nesta bancada a ausência de segredos
+em log/diagnóstico.
+
+**Checklist de bancada — validado (Android real + ESP32-C3 real, com o
+ajuste da tentativa 2 aplicado):**
+
+- [x] `sdk wifiConfigSent returned` e `apply progression scheduled`
+  ocorrem em sequência — implícito pelo fluxo completar até a confirmação
+  de sucesso, sem travar como nas tentativas 1 e 2;
+- [x] `credentials accepted by SDK` é seguido por `wifi applying` e
+  `wifi connected` (não apenas pelo primeiro callback) — mesma base;
+- [x] SSID/senha reais conectando de fato à rede;
+- [x] falha com senha incorreta e com SSID inexistente mostrando o
+  tratamento de falha correto, com nova tentativa liberada;
+- [x] retry após falha reenviando credenciais corretas ao mesmo
+  dispositivo físico, na mesma janela BLE, sem reflash/reboot do ESP.
 - [ ] confirmar ausência de qualquer segredo em log/diagnóstico durante o
-  teste físico.
+  teste físico — não verificado nesta bancada;
+- [ ] PoP incorreta na etapa de credenciais Wi-Fi — não testada;
+- [ ] reconexão BLE como cenário isolado (fora do retry de credenciais
+  acima) — não testada.
 
-**3C.3 permanece implementada, não concluída**, até essa validação física
-com o InterApp ser executada com sucesso e registrada aqui.
+**3C.3 está implementada e validada fisicamente de ponta a ponta**
+(descoberta → conexão BLE → Security 1 → credenciais Wi-Fi → falha e
+retentativa → sucesso), nos limites descritos acima: Wi-Fi configurado não
+é claim/registro do dispositivo, não ativa AWS IoT/MQTT/Fleet Provisioning
+e não é fluxo de produção. Os itens não marcados acima (segredos em
+log/diagnóstico, PoP incorreta nas credenciais Wi-Fi, reconexão BLE
+isolada) permanecem pendentes e não devem ser lidos como validados.
 
 ## Trabalhos sem numeração definitiva
 
